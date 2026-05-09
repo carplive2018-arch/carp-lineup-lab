@@ -142,7 +142,7 @@ def seed_players(token: str = Query(...)):
     return {"status": "ok", "count": len(sample_players)}
 
 
-@router.get("/api/admin/players")
+@router.post("/api/admin/players")
 def list_players(token: str = Query(...)):
     check_token(token)
     engine = get_engine()

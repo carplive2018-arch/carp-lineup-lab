@@ -29,7 +29,7 @@ def check_token(token: str):
         raise HTTPException(status_code=401, detail="unauthorized")
 
 
-@router.post("/api/admin/init_db")
+@router.get("/api/admin/init_db")
 def init_db(token: str = Query(...)):
     check_token(token)
     engine = get_engine()
@@ -108,7 +108,7 @@ def init_db(token: str = Query(...)):
     return {"status": "ok", "message": "tables created"}
 
 
-@router.post("/api/admin/seed_players")
+@router.get("/api/admin/seed_players")
 def seed_players(token: str = Query(...)):
     check_token(token)
     engine = get_engine()

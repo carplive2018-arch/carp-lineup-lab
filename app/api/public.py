@@ -1,12 +1,48 @@
 from __future__ import annotations
 
 import re
+from html import unescape
+from html.parser import HTMLParser
 from urllib.request import Request, urlopen
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 
 router = APIRouter(tags=["public"])
+
+
+TEAM_CODE_TO_NAME = {
+    "c": "広島",
+    "t": "阪神",
+    "g": "巨人",
+    "db": "DeNA",
+    "d": "中日",
+    "s": "ヤクルト",
+    "e": "楽天",
+    "l": "西武",
+    "b": "オリックス",
+    "h": "ソフトバンク",
+    "m": "ロッテ",
+    "f": "日本ハム",
+}
+
+TEAM_NAME_TO_CODE = {
+    "広島": "c",
+    "阪神": "t",
+    "巨人": "g",
+    "DeNA": "db",
+    "ＤｅＮＡ": "db",
+    "中日": "d",
+    "ヤクルト": "s",
+    "楽天": "e",
+    "西武": "l",
+    "オリックス": "b",
+    "ソフトバンク": "h",
+    "ロッテ": "m",
+    "日本ハム": "f",
+}
+
+HOME_VENUE_KEYWORDS = ["マツダ"]
 
 
 def _layout(title: str, body: str) -> HTMLResponse:
@@ -31,6 +67,7 @@ def _layout(title: str, body: str) -> HTMLResponse:
             .pill {{ display: inline-block; padding: 6px 10px; border-radius: 999px; background: #243154; color: #cfe0ff; font-size: 12px; }}
             .date {{ font-size: 18px; font-weight: 700; margin-bottom: 8px; }}
             .small {{ font-size: 12px; color: #a9b5d1; }}
+            code {{ background: #0f1730; padding: 2px 6px; border-radius: 6px; }}
           </style>
         </head>
         <body>
@@ -42,23 +79,560 @@ def _layout(title: str, body: str) -> HTMLResponse:
 
 
 def _clean_text(value: str) -> str:
+    value = unescape(value)
     value = re.sub(r"<br\s*/?>", " ", value, flags=re.IGNORECASE)
     value = re.sub(r"<[^>]+>", "", value)
     value = value.replace("&nbsp;", " ")
-    value = value.replace("&#039;", "'")
+    value = value.replace("\u3000", " ")
     value = re.sub(r"\s+", " ", value).strip()
     return value
 
+
+def _normalize_name(value: str) -> str:
+    value = _clean_text(value)
+    value = value.replace(" ", "").replace("　", "")
+    return value
+
+
+def _safe_int(value: str) -> int:
+    value = _clean_text(value).replace(",", "")
+    m = re.search(r"-?\d+", value)
+    if not m:
+        return 0
+    return int(m.group(0))
+
+
+def _round3(value: float) -> float:
+    return round(value, 3)
+
+
+def _fetch_html(url: str) -> str:
+    req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    return urlopen(req, timeout=20).read().decode("utf-8", errors="ignore")
+
+
+class _TopLevelTableParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.tables: list[list[list[str]]] = []
+        self._table_depth = 0
+        self._current_table: list[list[str]] | None = None
+        self._current_row: list[str] | None = None
+        self._current_cell: list[str] | None = None
+        self._in_cell = False
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag == "table":
+            self._table_depth += 1
+            if self._table_depth == 1:
+                self._current_table = []
+            return
+
+        if self._table_depth != 1:
+            return
+
+        if tag == "tr":
+            self._current_row = []
+        elif tag in ("td", "th"):
+            self._in_cell = True
+            self._current_cell = []
+        elif tag == "br" and self._in_cell and self._current_cell is not None:
+            self._current_cell.append(" ")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "table":
+            if self._table_depth == 1 and self._current_table is not None:
+                self.tables.append(self._current_table)
+                self._current_table = None
+            self._table_depth -= 1
+            return
+
+        if self._table_depth != 1:
+            return
+
+        if tag in ("td", "th"):
+            if self._current_row is not None and self._current_cell is not None:
+                cell_text = _clean_text("".join(self._current_cell))
+                self._current_row.append(cell_text)
+            self._in_cell = False
+            self._current_cell = None
+
+        elif tag == "tr":
+            if self._current_table is not None and self._current_row is not None:
+                if any(cell != "" for cell in self._current_row):
+                    self._current_table.append(self._current_row)
+            self._current_row = None
+
+    def handle_data(self, data: str) -> None:
+        if self._table_depth == 1 and self._in_cell and self._current_cell is not None:
+            self._current_cell.append(data)
+
+
+def _extract_tables(html: str) -> list[list[list[str]]]:
+    parser = _TopLevelTableParser()
+    parser.feed(html)
+    parser.close()
+    return parser.tables
+
+
+def _normalize_opponent_name(name: str) -> str:
+    name = _clean_text(name)
+    name = name.replace("　", "").replace(" ", "")
+    if name in ("ＤｅＮＡ", "DeNA", "横浜DeNA", "横浜ＤｅＮＡ"):
+        return "DeNA"
+    return name
+
+
+def _is_home_game(venue: str) -> bool:
+    venue = _clean_text(venue)
+    return any(keyword in venue for keyword in HOME_VENUE_KEYWORDS)
+
+
+def _parse_date_cell(date_cell: str, current_month: int | None) -> tuple[int, int] | None:
+    value = _clean_text(date_cell).replace(" ", "")
+    if not value:
+        return None
+
+    if "/" in value:
+        parts = value.split("/")
+        if len(parts) != 2:
+            return None
+        month = _safe_int(parts[0])
+        day = _safe_int(parts[1])
+        if month <= 0 or day <= 0:
+            return None
+        return month, day
+
+    if current_month is None:
+        return None
+
+    day = _safe_int(value)
+    if day <= 0:
+        return None
+
+    return current_month, day
+
+
+def _find_results_table(tables: list[list[list[str]]]) -> list[list[str]]:
+    for table in tables:
+        if not table:
+            continue
+        header = [_clean_text(cell) for cell in table[0]]
+        if "月日" in header and "対戦球団" in header and "回戦" in header and "球場" in header:
+            return table
+    return []
+
+
+def _extract_current_scoreboard_game_urls(html: str) -> list[str]:
+    links = re.findall(r'href="(/scores/\d{4}/\d{4}/[a-z]{1,2}-[a-z]{1,2}-\d{2}/)"', html)
+    result: list[str] = []
+    for link in links:
+        if "/c-" in link or "-c-" in link:
+            absolute = f"https://npb.jp{link}box.html"
+            if absolute not in result:
+                result.append(absolute)
+    return result
+
+
+def _build_game_meta_from_box_url(box_url: str) -> dict:
+    m = re.search(r"/scores/(\d{4})/(\d{2})(\d{2})/([a-z]{1,2})-([a-z]{1,2})-(\d{2})/box\.html", box_url)
+    if not m:
+        return {
+            "date": "",
+            "date_sort": "",
+            "opponent": "",
+            "venue": "",
+            "round": 0,
+            "box_url": box_url,
+        }
+
+    year, mm, dd, home_code, away_code, round_no = m.groups()
+    if home_code == "c":
+        opponent_code = away_code
+        venue = "マツダ"
+    else:
+        opponent_code = home_code
+        venue = "ビジター"
+
+    return {
+        "date": f"{int(mm)}月{int(dd)}日",
+        "date_sort": f"{year}-{mm}-{dd}",
+        "opponent": TEAM_CODE_TO_NAME.get(opponent_code, opponent_code),
+        "venue": venue,
+        "round": int(round_no),
+        "box_url": box_url,
+    }
+
+
+def _fetch_recent_carp_games(limit: int) -> list[dict]:
+    results_url = "https://npb.jp/bis/teams/results_c_index.html"
+    html = _fetch_html(results_url)
+
+    year_match = re.search(r"(\d{4})年", html)
+    year = year_match.group(1) if year_match else "2026"
+
+    tables = _extract_tables(html)
+    results_table = _find_results_table(tables)
+
+    games: list[dict] = []
+    current_month: int | None = None
+
+    for row in results_table[1:]:
+        if len(row) < 8:
+            continue
+
+        date_info = _parse_date_cell(row[0], current_month)
+        if not date_info:
+            continue
+
+        month, day = date_info
+        current_month = month
+
+        opponent_name = _normalize_opponent_name(row[1])
+        opponent_code = TEAM_NAME_TO_CODE.get(opponent_name)
+        if not opponent_code:
+            continue
+
+        round_no = _safe_int(row[2])
+        if round_no <= 0:
+            continue
+
+        venue = _clean_text(row[3])
+        score = _clean_text(row[6]) if len(row) > 6 else ""
+        result_mark = _clean_text(row[7]) if len(row) > 7 else ""
+
+        if not score:
+            continue
+
+        mmdd = f"{month:02d}{day:02d}"
+        if _is_home_game(venue):
+            matchup = f"c-{opponent_code}"
+        else:
+            matchup = f"{opponent_code}-c"
+
+        box_url = f"https://npb.jp/scores/{year}/{mmdd}/{matchup}-{round_no:02d}/box.html"
+
+        games.append({
+            "date": f"{month}月{day}日",
+            "date_sort": f"{year}-{month:02d}-{day:02d}",
+            "opponent": opponent_name,
+            "venue": venue,
+            "round": round_no,
+            "score": score,
+            "result": result_mark,
+            "box_url": box_url,
+        })
+
+    for box_url in _extract_current_scoreboard_game_urls(html):
+        meta = _build_game_meta_from_box_url(box_url)
+        games.append({
+            "date": meta["date"],
+            "date_sort": meta["date_sort"],
+            "opponent": meta["opponent"],
+            "venue": meta["venue"],
+            "round": meta["round"],
+            "score": "",
+            "result": "",
+            "box_url": box_url,
+        })
+
+    dedup: dict[str, dict] = {}
+    for game in games:
+        dedup[game["box_url"]] = game
+
+    sorted_games = sorted(dedup.values(), key=lambda x: x["date_sort"])
+    recent_games = sorted_games[-limit:]
+    recent_games.reverse()
+    return recent_games
+
+
+def _is_batting_table(table: list[list[str]]) -> bool:
+    if not table:
+        return False
+    header = table[0]
+    required = {"守備", "選手", "打数", "得点", "安打", "打点", "盗塁"}
+    return required.issubset(set(header))
+
+
+def _analyze_plate_results(result_cells: list[str]) -> dict:
+    stats = {
+        "doubles": 0,
+        "triples": 0,
+        "homeruns": 0,
+        "walks": 0,
+        "hit_by_pitch": 0,
+        "strikeouts": 0,
+        "sacrifice_bunts": 0,
+        "sacrifice_flies": 0,
+    }
+
+    for raw in result_cells:
+        text = _clean_text(raw).replace(" ", "").replace("　", "")
+        if text in ("", "-", "－"):
+            continue
+
+        if "四球" in text:
+            stats["walks"] += 1
+        if "死球" in text:
+            stats["hit_by_pitch"] += 1
+        if "三振" in text:
+            stats["strikeouts"] += 1
+        if "犠飛" in text:
+            stats["sacrifice_flies"] += 1
+        if "犠打" in text:
+            stats["sacrifice_bunts"] += 1
+
+        if "本" in text:
+            stats["homeruns"] += 1
+        elif "３" in text or "三塁打" in text:
+            stats["triples"] += 1
+        elif "２" in text or "二塁打" in text:
+            stats["doubles"] += 1
+
+    return stats
+
+
+def _parse_carp_batting_rows(box_url: str) -> list[dict]:
+    html = _fetch_html(box_url)
+    tables = _extract_tables(html)
+
+    batting_tables = [table for table in tables if _is_batting_table(table)]
+    if len(batting_tables) < 2:
+        raise ValueError(f"打撃表を見つけられませんでした: {box_url}")
+
+    carp_is_home = bool(re.search(r"/scores/\d{4}/\d{4}/c-[a-z]{1,2}-\d{2}/box\.html", box_url))
+    carp_table = batting_tables[1] if carp_is_home else batting_tables[0]
+
+    header = carp_table[0]
+    index_map = {name: idx for idx, name in enumerate(header)}
+
+    def cell(row: list[str], name: str) -> str:
+        idx = index_map.get(name)
+        if idx is None or idx >= len(row):
+            return ""
+        return row[idx]
+
+    result_start_idx = index_map.get("盗塁", 7) + 1
+
+    rows: list[dict] = []
+
+    for row in carp_table[1:]:
+        if len(row) < 3:
+            continue
+
+        player_name = _normalize_name(cell(row, "選手"))
+        if not player_name or player_name == "チーム計":
+            continue
+
+        ab = _safe_int(cell(row, "打数"))
+        runs = _safe_int(cell(row, "得点"))
+        hits = _safe_int(cell(row, "安打"))
+        rbi = _safe_int(cell(row, "打点"))
+        steals = _safe_int(cell(row, "盗塁"))
+
+        plate_results = row[result_start_idx:] if len(row) > result_start_idx else []
+        extra = _analyze_plate_results(plate_results)
+
+        rows.append({
+            "player_name": player_name,
+            "position": _clean_text(cell(row, "守備")),
+            "at_bats": ab,
+            "runs": runs,
+            "hits": hits,
+            "rbi": rbi,
+            "steals": steals,
+            "doubles": extra["doubles"],
+            "triples": extra["triples"],
+            "homeruns": extra["homeruns"],
+            "walks": extra["walks"],
+            "hit_by_pitch": extra["hit_by_pitch"],
+            "strikeouts": extra["strikeouts"],
+            "sacrifice_bunts": extra["sacrifice_bunts"],
+            "sacrifice_flies": extra["sacrifice_flies"],
+        })
+
+    return rows
+
+
+def _aggregate_recent_batting_stats(games: int) -> dict:
+    if games not in (5, 10):
+        raise HTTPException(status_code=400, detail="games は 5 または 10 にしてください。")
+
+    recent_games = _fetch_recent_carp_games(games)
+
+    aggregated: dict[str, dict] = {}
+    used_games: list[dict] = []
+    skipped_games: list[dict] = []
+
+    for game in recent_games:
+        box_url = game["box_url"]
+        try:
+            batting_rows = _parse_carp_batting_rows(box_url)
+        except Exception as e:
+            skipped_games.append({
+                "date": game["date"],
+                "box_url": box_url,
+                "reason": str(e),
+            })
+            continue
+
+        used_games.append({
+            "date": game["date"],
+            "opponent": game["opponent"],
+            "venue": game["venue"],
+            "round": game["round"],
+            "score": game.get("score", ""),
+            "result": game.get("result", ""),
+            "box_url": box_url,
+        })
+
+        seen_names_in_this_game = set()
+
+        for row in batting_rows:
+            name = row["player_name"]
+
+            if name not in aggregated:
+                aggregated[name] = {
+                    "player_name": name,
+                    "games": 0,
+                    "at_bats": 0,
+                    "runs": 0,
+                    "hits": 0,
+                    "rbi": 0,
+                    "steals": 0,
+                    "doubles": 0,
+                    "triples": 0,
+                    "homeruns": 0,
+                    "walks": 0,
+                    "hit_by_pitch": 0,
+                    "strikeouts": 0,
+                    "sacrifice_bunts": 0,
+                    "sacrifice_flies": 0,
+                }
+
+            if name not in seen_names_in_this_game:
+                aggregated[name]["games"] += 1
+                seen_names_in_this_game.add(name)
+
+            for key in (
+                "at_bats",
+                "runs",
+                "hits",
+                "rbi",
+                "steals",
+                "doubles",
+                "triples",
+                "homeruns",
+                "walks",
+                "hit_by_pitch",
+                "strikeouts",
+                "sacrifice_bunts",
+                "sacrifice_flies",
+            ):
+                aggregated[name][key] += row[key]
+
+    players = list(aggregated.values())
+
+    for player in players:
+        pa = (
+            player["at_bats"]
+            + player["walks"]
+            + player["hit_by_pitch"]
+            + player["sacrifice_bunts"]
+            + player["sacrifice_flies"]
+        )
+        obp_den = (
+            player["at_bats"]
+            + player["walks"]
+            + player["hit_by_pitch"]
+            + player["sacrifice_flies"]
+        )
+
+        player["plate_appearances"] = pa
+        player["batting_average"] = _round3(player["hits"] / player["at_bats"]) if player["at_bats"] > 0 else 0.0
+        player["on_base_percentage"] = _round3(
+            (player["hits"] + player["walks"] + player["hit_by_pitch"]) / obp_den
+        ) if obp_den > 0 else 0.0
+
+    players.sort(
+        key=lambda x: (
+            -x["hits"],
+            -x["homeruns"],
+            -x["rbi"],
+            -x["walks"],
+            -x["plate_appearances"],
+            x["player_name"],
+        )
+    )
+
+    team_totals = {
+        "games": len(used_games),
+        "at_bats": sum(p["at_bats"] for p in players),
+        "runs": sum(p["runs"] for p in players),
+        "hits": sum(p["hits"] for p in players),
+        "rbi": sum(p["rbi"] for p in players),
+        "steals": sum(p["steals"] for p in players),
+        "doubles": sum(p["doubles"] for p in players),
+        "triples": sum(p["triples"] for p in players),
+        "homeruns": sum(p["homeruns"] for p in players),
+        "walks": sum(p["walks"] for p in players),
+        "hit_by_pitch": sum(p["hit_by_pitch"] for p in players),
+        "strikeouts": sum(p["strikeouts"] for p in players),
+        "sacrifice_bunts": sum(p["sacrifice_bunts"] for p in players),
+        "sacrifice_flies": sum(p["sacrifice_flies"] for p in players),
+    }
+
+    team_totals["plate_appearances"] = (
+        team_totals["at_bats"]
+        + team_totals["walks"]
+        + team_totals["hit_by_pitch"]
+        + team_totals["sacrifice_bunts"]
+        + team_totals["sacrifice_flies"]
+    )
+
+    if team_totals["at_bats"] > 0:
+        team_totals["batting_average"] = _round3(team_totals["hits"] / team_totals["at_bats"])
+    else:
+        team_totals["batting_average"] = 0.0
+
+    obp_den = (
+        team_totals["at_bats"]
+        + team_totals["walks"]
+        + team_totals["hit_by_pitch"]
+        + team_totals["sacrifice_flies"]
+    )
+    if obp_den > 0:
+        team_totals["on_base_percentage"] = _round3(
+            (team_totals["hits"] + team_totals["walks"] + team_totals["hit_by_pitch"]) / obp_den
+        )
+    else:
+        team_totals["on_base_percentage"] = 0.0
+
+    return {
+        "status": "ok",
+        "team": "広島東洋カープ",
+        "window_games": games,
+        "games_found": len(recent_games),
+        "games_used": len(used_games),
+        "games_skipped": len(skipped_games),
+        "source": "NPB公式",
+        "source_urls": [
+            "https://npb.jp/bis/teams/results_c_index.html",
+            "https://npb.jp/scores/",
+        ],
+        "recent_games": used_games,
+        "skipped_games": skipped_games,
+        "team_totals": team_totals,
+        "players_count": len(players),
+        "players": players,
+    }
+
+
 def _fetch_recent_actual_lineups() -> list[dict]:
     url = "https://baseball-data.com/lineup/c.html"
-    req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    html = urlopen(req, timeout=15).read().decode("utf-8", errors="ignore")
+    html = _fetch_html(url)
 
-    table_match = re.search(
-        r'<table class="lineup".*?</table>',
-        html,
-        re.DOTALL
-    )
+    table_match = re.search(r'<table class="lineup".*?</table>', html, re.DOTALL)
     if not table_match:
         return []
 
@@ -97,9 +671,6 @@ def _fetch_recent_actual_lineups() -> list[dict]:
     return recent_games
 
 
-
-
-
 @router.get("/api/lineups/recent-actual")
 def recent_actual_lineups() -> JSONResponse:
     try:
@@ -116,6 +687,54 @@ def recent_actual_lineups() -> JSONResponse:
             "status": "error",
             "message": str(e),
             "games": []
+        }, status_code=500)
+
+
+@router.get("/api/stats/batting/recent-5")
+def recent_5_batting_stats() -> JSONResponse:
+    try:
+        data = _aggregate_recent_batting_stats(5)
+        return JSONResponse(data)
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse({
+            "status": "error",
+            "message": str(e),
+            "players": [],
+            "recent_games": [],
+        }, status_code=500)
+
+
+@router.get("/api/stats/batting/recent-10")
+def recent_10_batting_stats() -> JSONResponse:
+    try:
+        data = _aggregate_recent_batting_stats(10)
+        return JSONResponse(data)
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse({
+            "status": "error",
+            "message": str(e),
+            "players": [],
+            "recent_games": [],
+        }, status_code=500)
+
+
+@router.get("/api/stats/batting/recent/{games}")
+def recent_batting_stats(games: int) -> JSONResponse:
+    try:
+        data = _aggregate_recent_batting_stats(games)
+        return JSONResponse(data)
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse({
+            "status": "error",
+            "message": str(e),
+            "players": [],
+            "recent_games": [],
         }, status_code=500)
 
 
@@ -138,6 +757,16 @@ def index() -> HTMLResponse:
           <h2>今日の予想スタメン</h2>
           <p id="today-status" class="muted">読み込み中...</p>
           <div id="today-lineup" class="grid"></div>
+        </div>
+
+        <div class="card">
+          <h2>新しい打撃成績API</h2>
+          <ul>
+            <li><a href="/api/stats/batting/recent-5">直近5試合の打撃成績</a></li>
+            <li><a href="/api/stats/batting/recent-10">直近10試合の打撃成績</a></li>
+            <li><a href="/api/stats/batting/recent/5">可変API（5）</a></li>
+            <li><a href="/api/stats/batting/recent/10">可変API（10）</a></li>
+          </ul>
         </div>
 
         <div class="card">
@@ -227,7 +856,6 @@ def index() -> HTMLResponse:
     )
 
 
-
 @router.get("/data-policy", response_class=HTMLResponse)
 def data_policy() -> HTMLResponse:
     return _layout(
@@ -277,6 +905,7 @@ def sources() -> HTMLResponse:
           <ul>
             <li><a href="https://baseball-data.com/lineup/c.html">広島東洋カープ スタメン一覧（打順）</a></li>
             <li><a href="https://npb.jp/bis/teams/results_c_index.html">NPB公式 試合結果</a></li>
+            <li><a href="https://npb.jp/scores/">NPB公式 スコア速報</a></li>
             <li><a href="https://npb.jp/bis/2026/stats/idb1_c.html">NPB公式 1軍打撃成績</a></li>
             <li><a href="https://npb.jp/bis/teams/rst_c.html">NPB公式 選手登録一覧</a></li>
           </ul>

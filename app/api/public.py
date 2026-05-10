@@ -125,12 +125,19 @@ def index() -> HTMLResponse:
         "Carp Lineup Lab",
         """
         <span class="pill">β版 / 非公式</span>
-        <h1>直近5試合の実際のスタメン</h1>
-        <p class="muted">外部公開ページから取得した、広島東洋カープの直近スタメンです。</p>
+        <h1>Carp Lineup Lab</h1>
+        <p class="muted">上に直近5試合の実際のスタメン、下に今日の予想スタメンを表示します。</p>
 
         <div class="card">
-          <p id="status" class="muted">読み込み中...</p>
-          <div id="games" class="grid"></div>
+          <h2>直近5試合の実際のスタメン</h2>
+          <p id="actual-status" class="muted">読み込み中...</p>
+          <div id="actual-games" class="grid"></div>
+        </div>
+
+        <div class="card">
+          <h2>今日の予想スタメン</h2>
+          <p id="today-status" class="muted">読み込み中...</p>
+          <div id="today-lineup" class="grid"></div>
         </div>
 
         <div class="card">
@@ -146,9 +153,9 @@ def index() -> HTMLResponse:
         </div>
 
         <script>
-          async function loadRecentActualLineups() {
-            const statusEl = document.getElementById("status");
-            const gamesEl = document.getElementById("games");
+          async function loadActualLineups() {
+            const statusEl = document.getElementById("actual-status");
+            const gamesEl = document.getElementById("actual-games");
 
             try {
               const res = await fetch("/api/lineups/recent-actual");
@@ -173,14 +180,52 @@ def index() -> HTMLResponse:
                 </div>
               `).join("");
             } catch (e) {
-              statusEl.textContent = "いまは表示できません。少ししてからもう一度開いてください。";
+              statusEl.textContent = "直近スタメンを表示できませんでした。";
             }
           }
 
-          loadRecentActualLineups();
+          async function loadTodayLineup() {
+            const statusEl = document.getElementById("today-status");
+            const lineupEl = document.getElementById("today-lineup");
+
+            try {
+              const res = await fetch("/api/lineups/today");
+              const data = await res.json();
+
+              if (!data.lineup || !Array.isArray(data.lineup) || data.lineup.length === 0) {
+                statusEl.textContent = "今日の予想スタメンを取得できませんでした。";
+                return;
+              }
+
+              statusEl.innerHTML =
+                '更新元: <strong>' + data.source + '</strong> / 人数: <strong>' + data.count + '</strong>';
+
+              lineupEl.innerHTML = data.lineup.map(player => `
+                <div class="game-card">
+                  <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
+                    <div>
+                      <div class="small">${player.batting_order}番 / ${player.position}</div>
+                      <div class="date" style="margin-bottom:4px;">${player.player_name}</div>
+                    </div>
+                    <div style="text-align:right;">
+                      <div class="small">recent score</div>
+                      <div style="font-size:20px; font-weight:700;">${player.recent_score}</div>
+                    </div>
+                  </div>
+                  <div class="muted">${player.reason}</div>
+                </div>
+              `).join("");
+            } catch (e) {
+              statusEl.textContent = "今日の予想スタメンを表示できませんでした。";
+            }
+          }
+
+          loadActualLineups();
+          loadTodayLineup();
         </script>
         """,
     )
+
 
 
 @router.get("/data-policy", response_class=HTMLResponse)

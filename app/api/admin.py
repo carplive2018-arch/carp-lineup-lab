@@ -1,4 +1,5 @@
 import os
+from datetime import date, timedelta
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import create_engine, text
@@ -152,6 +153,119 @@ def seed_players(token: str = Query(...)):
 
 
 @router.get("/api/admin/players")
+def split_total(total: int, games_count: int = 5):
+    base = total // games_count
+    rem = total % games_count
+    return [base + (1 if i < rem else 0) for i in range(games_count)]
+
+
+@router.get("/api/admin/seed_recent_stats")
+def seed_recent_stats(token: str = Query(...)):
+    check_token(token)
+    engine = get_engine()
+
+    recent_totals = {
+        "秋山 翔吾": {"pa": 23, "ab": 20, "hits": 8, "doubles": 2, "triples": 0, "homeruns": 0, "walks": 3, "strikeouts": 1, "rbi": 2},
+        "菊池 涼介": {"pa": 21, "ab": 19, "hits": 6, "doubles": 1, "triples": 0, "homeruns": 0, "walks": 1, "strikeouts": 2, "rbi": 2},
+        "小園 海斗": {"pa": 22, "ab": 20, "hits": 7, "doubles": 2, "triples": 1, "homeruns": 0, "walks": 1, "strikeouts": 3, "rbi": 4},
+        "坂倉 将吾": {"pa": 20, "ab": 17, "hits": 7, "doubles": 1, "triples": 0, "homeruns": 1, "walks": 3, "strikeouts": 2, "rbi": 5},
+        "末包 昇大": {"pa": 19, "ab": 17, "hits": 6, "doubles": 1, "triples": 0, "homeruns": 2, "walks": 2, "strikeouts": 4, "rbi": 7},
+        "野間 峻祥": {"pa": 18, "ab": 16, "hits": 5, "doubles": 1, "triples": 0, "homeruns": 0, "walks": 2, "strikeouts": 2, "rbi": 1},
+        "矢野 雅哉": {"pa": 17, "ab": 15, "hits": 4, "doubles": 0, "triples": 0, "homeruns": 0, "walks": 2, "strikeouts": 1, "rbi": 1},
+        "堂林 翔太": {"pa": 18, "ab": 16, "hits": 5, "doubles": 2, "triples": 0, "homeruns": 1, "walks": 1, "strikeouts": 3, "rbi": 4},
+        "田村 俊介": {"pa": 16, "ab": 14, "hits": 4, "doubles": 1, "triples": 0, "homeruns": 0, "walks": 2, "strikeouts": 4, "rbi": 1},
+        "會澤 翼": {"pa": 12, "ab": 11, "hits": 3, "doubles": 0, "triples": 0, "homeruns": 1, "walks": 1, "strikeouts": 3, "rbi": 3},
+    }
+
+    game_days = [5, 4, 3, 2, 1]
+
+    with engine.begin() as conn:
+        player_rows = conn.execute(
+            text("SELECT id, player_name FROM players")
+        ).fetchall()
+        player_map = {r.player_name: r.id for r in player_rows}
+
+        game_ids = []
+        for days_ago in game_days:
+            game_date = date.today() - timedelta(days=days_ago)
+            away_team = f"recent-opponent-{days_ago}"
+
+            game_id = conn.execute(
+                text("""
+                    INSERT INTO games (game_date, home_team, away_team)
+                    VALUES (:game_date, '広島', :away_team)
+                    ON CONFLICT (game_date, home_team, away_team)
+                    DO UPDATE SET away_team = EXCLUDED.away_team
+                    RETURNING id
+                """),
+                {"game_date": game_date, "away_team": away_team},
+            ).scalar_one()
+
+            game_ids.append(game_id)
+
+        inserted = 0
+
+        for player_name, totals in recent_totals.items():
+            player_id = player_map.get(player_name)
+            if not player_id:
+                continue
+
+            pa_list = split_total(totals["pa"])
+            ab_list = split_total(totals["ab"])
+            hits_list = split_total(totals["hits"])
+            doubles_list = split_total(totals["doubles"])
+            triples_list = split_total(totals["triples"])
+            homeruns_list = split_total(totals["homeruns"])
+            walks_list = split_total(totals["walks"])
+            strikeouts_list = split_total(totals["strikeouts"])
+            rbi_list = split_total(totals["rbi"])
+
+            for i, game_id in enumerate(game_ids):
+                conn.execute(
+                    text("""
+                        INSERT INTO player_game_batting_stats (
+                            game_id, player_id, pa, ab, hits, doubles, triples,
+                            homeruns, walks, strikeouts, rbi
+                        )
+                        VALUES (
+                            :game_id, :player_id, :pa, :ab, :hits, :doubles, :triples,
+                            :homeruns, :walks, :strikeouts, :rbi
+                        )
+                        ON CONFLICT (game_id, player_id)
+                        DO UPDATE SET
+                            pa = EXCLUDED.pa,
+                            ab = EXCLUDED.ab,
+                            hits = EXCLUDED.hits,
+                            doubles = EXCLUDED.doubles,
+                            triples = EXCLUDED.triples,
+                            homeruns = EXCLUDED.homeruns,
+                            walks = EXCLUDED.walks,
+                            strikeouts = EXCLUDED.strikeouts,
+                            rbi = EXCLUDED.rbi
+                    """),
+                    {
+                        "game_id": game_id,
+                        "player_id": player_id,
+                        "pa": pa_list[i],
+                        "ab": ab_list[i],
+                        "hits": hits_list[i],
+                        "doubles": doubles_list[i],
+                        "triples": triples_list[i],
+                        "homeruns": homeruns_list[i],
+                        "walks": walks_list[i],
+                        "strikeouts": strikeouts_list[i],
+                        "rbi": rbi_list[i],
+                    },
+                )
+                inserted += 1
+
+    return {
+        "status": "ok",
+        "message": "recent stats seeded",
+        "games": len(game_ids),
+        "rows": inserted
+    }
+
 def list_players(token: str = Query(...)):
     check_token(token)
     engine = get_engine()

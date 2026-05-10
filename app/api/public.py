@@ -278,15 +278,44 @@ def _extract_previous_results_page_url(html: str) -> str | None:
         return f"https://npb.jp/bis/teams/{link.lstrip('/')}"
     return None
 
-
 def _extract_result_rows_from_html(html: str) -> list[list[str]]:
-    tables = _extract_tables(html)
-    table = _find_results_table(tables)
+    rows: list[list[str]] = []
 
-    if not table or len(table) <= 1:
-        return []
+    row_matches = re.findall(
+        r"<tr[^>]*>(.*?)</tr>",
+        html,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
 
-    return table[1:]
+    for row_html in row_matches:
+        cells = re.findall(
+            r"<t[dh][^>]*>(.*?)</t[dh]>",
+            row_html,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
+        cleaned = [_clean_text(cell) for cell in cells]
+        cleaned = [cell for cell in cleaned if cell != ""]
+
+        if len(cleaned) < 8:
+            continue
+
+        first_cell = cleaned[0].replace(" ", "")
+        opponent_cell = cleaned[1].replace(" ", "").replace("　", "")
+
+        if first_cell == "月日":
+            continue
+
+        if not re.fullmatch(r"\d{1,2}/\d{1,2}|\d{1,2}", first_cell):
+            continue
+
+        if opponent_cell not in TEAM_NAME_TO_CODE:
+            continue
+
+        rows.append(cleaned)
+
+    return rows
+
+
 
 
 def _parse_result_rows_to_games(rows: list[list[str]], year: str) -> list[dict]:

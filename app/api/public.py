@@ -35,26 +35,72 @@ def _layout(title: str, body: str) -> HTMLResponse:
 
 
 @router.get("/", response_class=HTMLResponse)
+@router.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
     return _layout(
         "Carp Lineup Lab",
         """
-        <span class=\"pill\">β版 / 非公式</span>
-        <h1>Carp Lineup Lab</h1>
-        <p class=\"muted\">広島東洋カープの1軍・2軍成績から、独自ロジックで翌日の予想スタメンを出す分析サイトです。</p>
-        <div class=\"card\">
-          <h2>主な入口</h2>
+        <span class="pill">β版 / 非公式</span>
+        <h1>今日の予想スタメン</h1>
+        <p class="muted">広島東洋カープの直近成績から、独自ロジックで予想したスタメンです。</p>
+
+        <div class="card">
+          <p id="status" class="muted">読み込み中...</p>
+          <div id="lineup" style="display:grid; gap:14px;"></div>
+        </div>
+
+        <div class="card">
+          <h2>主なリンク</h2>
           <ul>
-            <li><a href=\"/health\">/health</a> - 稼働確認</li>
-            <li><a href=\"/docs\">/docs</a> - APIドキュメント</li>
-            <li><a href=\"/api/lineups/today\">/api/lineups/today</a> - 当日の予想スタメンAPI</li>
-            <li><a href=\"/data-policy\">/data-policy</a> - データ表示ポリシー</li>
-            <li><a href=\"/disclaimer\">/disclaimer</a> - 免責</li>
-            <li><a href=\"/sources\">/sources</a> - 出典</li>
+            <li><a href="/docs">APIドキュメント</a></li>
+            <li><a href="/api/lineups/today">予想スタメンAPI</a></li>
+            <li><a href="/data-policy">データ表示ポリシー</a></li>
+            <li><a href="/disclaimer">免責</a></li>
+            <li><a href="/sources">出典</a></li>
           </ul>
         </div>
+
+        <script>
+          async function loadLineup() {
+            const statusEl = document.getElementById("status");
+            const lineupEl = document.getElementById("lineup");
+
+            try {
+              const res = await fetch("/api/lineups/today");
+              const data = await res.json();
+
+              if (!data.lineup || !Array.isArray(data.lineup)) {
+                statusEl.textContent = "データを読み込めませんでした。";
+                return;
+              }
+
+              statusEl.innerHTML = "更新元: <strong>" + data.source + "</strong> / 人数: <strong>" + data.count + "</strong>";
+
+              lineupEl.innerHTML = data.lineup.map(player => `
+                <div style="background:#0f1730; border:1px solid #26304d; border-radius:16px; padding:16px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+                    <div>
+                      <div style="font-size:12px; color:#a9b5d1;">${player.batting_order}番 / ${player.position}</div>
+                      <div style="font-size:24px; font-weight:700; margin-top:4px;">${player.player_name}</div>
+                    </div>
+                    <div style="text-align:right;">
+                      <div style="font-size:12px; color:#a9b5d1;">recent score</div>
+                      <div style="font-size:22px; font-weight:700;">${player.recent_score}</div>
+                    </div>
+                  </div>
+                  <div style="margin-top:10px; color:#d6def5;">${player.reason}</div>
+                </div>
+              `).join("");
+            } catch (e) {
+              statusEl.textContent = "いまは表示できません。少ししてからもう一度開いてください。";
+            }
+          }
+
+          loadLineup();
+        </script>
         """,
     )
+
 
 
 @router.get("/data-policy", response_class=HTMLResponse)

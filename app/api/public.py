@@ -262,6 +262,112 @@ def _build_game_meta_from_box_url(box_url: str) -> dict:
         "round": int(round_no),
         "box_url": box_url,
     }
+    
+def _extract_year_from_results_page(html: str) -> str:
+    m = re.search(r"(\d{4})年度", html)
+    return m.group(1) if m else "2026"
+
+
+def _extract_previous_results_page_url(html: str) -> str | None:
+    links = re.findall(r'href="([^"]*results_c[^"]*\.html)"', html)
+    for link in links:
+        if "results_c_index.html" in link:
+            continue
+        if link.startswith("http://") or link.startswith("https://"):
+            return link
+        return f"https://npb.jp/bis/teams/{link.lstrip('/')}"
+    return None
+
+
+def _extract_result_rows_from_html(html: str) -> list[list[str]]:
+    rows: list[list[str]] = []
+
+    table_matches = re.findall(
+        r'<table[^>]*class="terhdtbl"[^>]*>(.*?)</table>',
+        html,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+
+    for table_html in table_matches:
+        row_matches = re.findall(
+            r'<tr[^>]*class="terlist"[^>]*>(.*?)</tr>',
+            table_html,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
+
+        for row_html in row_matches:
+            cells = re.findall(
+                r"<t[dh][^>]*>(.*?)</t[dh]>",
+                row_html,
+                flags=re.DOTALL | re.IGNORECASE,
+            )
+            cleaned = [_clean_text(cell) for cell in cells]
+            if cleaned:
+                rows.append(cleaned)
+
+    return rows
+
+
+def _parse_result_rows_to_games(rows: list[list[str]], year: str) -> list[dict]:
+    games: list[dict] = []
+    current_month: int | None = None
+
+    for row in rows:
+        if len(row) < 8:
+            continue
+
+        date_cell = _clean_text(row[0])
+        if not date_cell:
+            continue
+
+        if "/" in date_cell:
+            parts = date_cell.split("/")
+            if len(parts) != 2:
+                continue
+            month = _safe_int(parts[0])
+            day = _safe_int(parts[1])
+            current_month = month
+        else:
+            if current_month is None:
+                continue
+            month = current_month
+            day = _safe_int(date_cell)
+
+        if month <= 0 or day <= 0:
+            continue
+
+        opponent_name = _normalize_opponent_name(row[1])
+        opponent_code = TEAM_NAME_TO_CODE.get(opponent_name)
+        if not opponent_code:
+            continue
+
+        round_no = _safe_int(row[2])
+        if round_no <= 0:
+            continue
+
+        venue = _clean_text(row[3])
+        score = _clean_text(row[6]) if len(row) > 6 else ""
+        result_mark = _clean_text(row[7]) if len(row) > 7 else ""
+
+        if not score:
+            continue
+
+        mmdd = f"{month:02d}{day:02d}"
+        matchup = f"c-{opponent_code}" if _is_home_game(venue) else f"{opponent_code}-c"
+        box_url = f"https://npb.jp/scores/{year}/{mmdd}/{matchup}-{round_no:02d}/box.html"
+
+        games.append({
+            "date": f"{month}月{day}日",
+            "date_sort": f"{year}-{month:02d}-{day:02d}",
+            "opponent": opponent_name,
+            "venue": venue,
+            "round": round_no,
+            "score": score,
+            "result": result_mark,
+            "box_url": box_url,
+        })
+
+    return games
 
 def _fetch_recent_carp_games(limit: int) -> list[dict]:
     current_results_url = "https://npb.jp/bis/teams/results_c_index.html"
@@ -414,118 +520,10 @@ def _parse_carp_batting_rows(box_url: str) -> list[dict]:
 
     return rows
 
-
 def _aggregate_recent_batting_stats(games: int) -> dict:
     if games not in (5, 10):
         raise HTTPException(status_code=400, detail="games は 5 または 10 にしてください。")
 
-def _extract_year_from_results_page(html: str) -> str:
-    m = re.search(r"(\d{4})年度", html)
-    return m.group(1) if m else "2026"
-
-
-def _extract_previous_results_page_url(html: str) -> str | None:
-    links = re.findall(r'href="([^"]*results_c[^"]*\.html)"', html)
-    for link in links:
-        if "results_c_index.html" in link:
-            continue
-        if link.startswith("http://") or link.startswith("https://"):
-            return link
-        return f"https://npb.jp/bis/teams/{link.lstrip('/')}"
-    return None
-
-
-def _extract_result_rows_from_html(html: str) -> list[list[str]]:
-    rows: list[list[str]] = []
-
-    table_matches = re.findall(
-        r'<table[^>]*class="terhdtbl"[^>]*>(.*?)</table>',
-        html,
-        flags=re.DOTALL | re.IGNORECASE,
-    )
-
-    for table_html in table_matches:
-        row_matches = re.findall(
-            r'<tr[^>]*class="terlist"[^>]*>(.*?)</tr>',
-            table_html,
-            flags=re.DOTALL | re.IGNORECASE,
-        )
-
-        for row_html in row_matches:
-            cells = re.findall(
-                r"<t[dh][^>]*>(.*?)</t[dh]>",
-                row_html,
-                flags=re.DOTALL | re.IGNORECASE,
-            )
-            cleaned = [_clean_text(cell) for cell in cells]
-            if cleaned:
-                rows.append(cleaned)
-
-    return rows
-
-
-def _parse_result_rows_to_games(rows: list[list[str]], year: str) -> list[dict]:
-    games: list[dict] = []
-    current_month: int | None = None
-
-    for row in rows:
-        if len(row) < 8:
-            continue
-
-        date_cell = _clean_text(row[0])
-        if not date_cell or date_cell == "":
-            continue
-
-        if "/" in date_cell:
-            parts = date_cell.split("/")
-            if len(parts) != 2:
-                continue
-            month = _safe_int(parts[0])
-            day = _safe_int(parts[1])
-            current_month = month
-        else:
-            if current_month is None:
-                continue
-            month = current_month
-            day = _safe_int(date_cell)
-
-        if month <= 0 or day <= 0:
-            continue
-
-        opponent_name = _normalize_opponent_name(row[1])
-        opponent_code = TEAM_NAME_TO_CODE.get(opponent_name)
-        if not opponent_code:
-            continue
-
-        round_no = _safe_int(row[2])
-        if round_no <= 0:
-            continue
-
-        venue = _clean_text(row[3])
-        score = _clean_text(row[6]) if len(row) > 6 else ""
-        result_mark = _clean_text(row[7]) if len(row) > 7 else ""
-
-        if not score:
-            continue
-
-        mmdd = f"{month:02d}{day:02d}"
-        matchup = f"c-{opponent_code}" if _is_home_game(venue) else f"{opponent_code}-c"
-        box_url = f"https://npb.jp/scores/{year}/{mmdd}/{matchup}-{round_no:02d}/box.html"
-
-        games.append({
-            "date": f"{month}月{day}日",
-            "date_sort": f"{year}-{month:02d}-{day:02d}",
-            "opponent": opponent_name,
-            "venue": venue,
-            "round": round_no,
-            "score": score,
-            "result": result_mark,
-            "box_url": box_url,
-        })
-
-    return games
-
-    
     recent_games = _fetch_recent_carp_games(games)
 
     aggregated: dict[str, dict] = {}
@@ -599,45 +597,44 @@ def _parse_result_rows_to_games(rows: list[list[str]], year: str) -> list[dict]:
             ):
                 aggregated[name][key] += row[key]
 
-players = list(aggregated.values())
+    players = list(aggregated.values())
 
-for player in players:
-    pa = (
-        player["at_bats"]
-        + player["walks"]
-        + player["hit_by_pitch"]
-        + player["sacrifice_bunts"]
-        + player["sacrifice_flies"]
+    for player in players:
+        pa = (
+            player["at_bats"]
+            + player["walks"]
+            + player["hit_by_pitch"]
+            + player["sacrifice_bunts"]
+            + player["sacrifice_flies"]
+        )
+        obp_den = (
+            player["at_bats"]
+            + player["walks"]
+            + player["hit_by_pitch"]
+            + player["sacrifice_flies"]
+        )
+
+        player["plate_appearances"] = pa
+        player["batting_average"] = _round3(player["hits"] / player["at_bats"]) if player["at_bats"] > 0 else 0.0
+        player["on_base_percentage"] = _round3(
+            (player["hits"] + player["walks"] + player["hit_by_pitch"]) / obp_den
+        ) if obp_den > 0 else 0.0
+
+    players = [
+        player for player in players
+        if player["at_bats"] > 0 or player["plate_appearances"] > 0
+    ]
+
+    players.sort(
+        key=lambda x: (
+            -x["hits"],
+            -x["homeruns"],
+            -x["rbi"],
+            -x["walks"],
+            -x["plate_appearances"],
+            x["player_name"],
+        )
     )
-    obp_den = (
-        player["at_bats"]
-        + player["walks"]
-        + player["hit_by_pitch"]
-        + player["sacrifice_flies"]
-    )
-
-    player["plate_appearances"] = pa
-    player["batting_average"] = _round3(player["hits"] / player["at_bats"]) if player["at_bats"] > 0 else 0.0
-    player["on_base_percentage"] = _round3(
-        (player["hits"] + player["walks"] + player["hit_by_pitch"]) / obp_den
-    ) if obp_den > 0 else 0.0
-
-players = [
-    player for player in players
-    if player["at_bats"] > 0 or player["plate_appearances"] > 0
-]
-
-players.sort(
-    key=lambda x: (
-        -x["hits"],
-        -x["homeruns"],
-        -x["rbi"],
-        -x["walks"],
-        -x["plate_appearances"],
-        x["player_name"],
-    )
-)
-
 
     team_totals = {
         "games": len(used_games),
@@ -675,6 +672,7 @@ players.sort(
         + team_totals["hit_by_pitch"]
         + team_totals["sacrifice_flies"]
     )
+
     if obp_den > 0:
         team_totals["on_base_percentage"] = _round3(
             (team_totals["hits"] + team_totals["walks"] + team_totals["hit_by_pitch"]) / obp_den
@@ -700,6 +698,7 @@ players.sort(
         "players_count": len(players),
         "players": players,
     }
+
 
 
 def _fetch_recent_actual_lineups() -> list[dict]:

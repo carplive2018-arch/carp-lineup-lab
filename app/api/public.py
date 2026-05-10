@@ -42,12 +42,13 @@ def _layout(title: str, body: str) -> HTMLResponse:
 
 
 def _clean_text(value: str) -> str:
-    value = re.sub(r"<br\\s*/?>", " ", value, flags=re.IGNORECASE)
+    value = re.sub(r"<br\s*/?>", " ", value, flags=re.IGNORECASE)
     value = re.sub(r"<[^>]+>", "", value)
     value = value.replace("&nbsp;", " ")
     value = value.replace("&#039;", "'")
-    value = re.sub(r"\\s+", " ", value).strip()
+    value = re.sub(r"\s+", " ", value).strip()
     return value
+
 
 
 def _fetch_recent_actual_lineups() -> list[dict]:
@@ -55,21 +56,22 @@ def _fetch_recent_actual_lineups() -> list[dict]:
     req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
     html = urlopen(req, timeout=15).read().decode("utf-8", errors="ignore")
 
-    pattern = re.compile(
-        r"<tr[^>]*>\\s*"
-        r"<td[^>]*>(.*?)</td>\\s*"
-        r"<td[^>]*>(.*?)</td>\\s*"
-        r"<td[^>]*>(.*?)</td>\\s*"
-        r"<td[^>]*>(.*?)</td>\\s*"
-        r"<td[^>]*>(.*?)</td>\\s*"
-        r"<td[^>]*>(.*?)</td>\\s*"
-        r"<td[^>]*>(.*?)</td>\\s*"
-        r"<td[^>]*>(.*?)</td>\\s*"
-        r"<td[^>]*>(.*?)</td>\\s*"
-        r"<td[^>]*>(.*?)</td>\\s*"
-        r"</tr>",
-        re.DOTALL,
-    )
+pattern = re.compile(
+    r"<tr[^>]*>\s*"
+    r"<td[^>]*>(.*?)</td>\s*"
+    r"<td[^>]*>(.*?)</td>\s*"
+    r"<td[^>]*>(.*?)</td>\s*"
+    r"<td[^>]*>(.*?)</td>\s*"
+    r"<td[^>]*>(.*?)</td>\s*"
+    r"<td[^>]*>(.*?)</td>\s*"
+    r"<td[^>]*>(.*?)</td>\s*"
+    r"<td[^>]*>(.*?)</td>\s*"
+    r"<td[^>]*>(.*?)</td>\s*"
+    r"<td[^>]*>(.*?)</td>\s*"
+    r"</tr>",
+    re.DOTALL,
+)
+
 
     rows = pattern.findall(html)
     games = []

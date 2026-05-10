@@ -167,7 +167,7 @@ def today_lineup():
         "strikeouts": 0,
     })
     
-lineup.sort(key=lambda x: BATTING_ORDER_POSITIONS.index(x["position"]))
+    lineup.sort(key=lambda x: BATTING_ORDER_POSITIONS.index(x["position"]))
 
     for i, player in enumerate(lineup, start=1):
         player["batting_order"] = i

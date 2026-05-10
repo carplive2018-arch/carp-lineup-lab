@@ -280,32 +280,13 @@ def _extract_previous_results_page_url(html: str) -> str | None:
 
 
 def _extract_result_rows_from_html(html: str) -> list[list[str]]:
-    rows: list[list[str]] = []
+    tables = _extract_tables(html)
+    table = _find_results_table(tables)
 
-    table_matches = re.findall(
-        r'<table[^>]*class="terhdtbl"[^>]*>(.*?)</table>',
-        html,
-        flags=re.DOTALL | re.IGNORECASE,
-    )
+    if not table or len(table) <= 1:
+        return []
 
-    for table_html in table_matches:
-        row_matches = re.findall(
-            r'<tr[^>]*class="terlist"[^>]*>(.*?)</tr>',
-            table_html,
-            flags=re.DOTALL | re.IGNORECASE,
-        )
-
-        for row_html in row_matches:
-            cells = re.findall(
-                r"<t[dh][^>]*>(.*?)</t[dh]>",
-                row_html,
-                flags=re.DOTALL | re.IGNORECASE,
-            )
-            cleaned = [_clean_text(cell) for cell in cells]
-            if cleaned:
-                rows.append(cleaned)
-
-    return rows
+    return table[1:]
 
 
 def _parse_result_rows_to_games(rows: list[list[str]], year: str) -> list[dict]:

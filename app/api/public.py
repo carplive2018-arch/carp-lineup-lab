@@ -49,39 +49,34 @@ def _clean_text(value: str) -> str:
     value = re.sub(r"\s+", " ", value).strip()
     return value
 
-
-
 def _fetch_recent_actual_lineups() -> list[dict]:
     url = "https://baseball-data.com/lineup/c.html"
     req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
     html = urlopen(req, timeout=15).read().decode("utf-8", errors="ignore")
 
-pattern = re.compile(
-    r"<tr[^>]*>\s*"
-    r"<td[^>]*>(.*?)</td>\s*"
-    r"<td[^>]*>(.*?)</td>\s*"
-    r"<td[^>]*>(.*?)</td>\s*"
-    r"<td[^>]*>(.*?)</td>\s*"
-    r"<td[^>]*>(.*?)</td>\s*"
-    r"<td[^>]*>(.*?)</td>\s*"
-    r"<td[^>]*>(.*?)</td>\s*"
-    r"<td[^>]*>(.*?)</td>\s*"
-    r"<td[^>]*>(.*?)</td>\s*"
-    r"<td[^>]*>(.*?)</td>\s*"
-    r"</tr>",
-    re.DOTALL,
-)
+    table_match = re.search(
+        r'<table class="lineup".*?</table>',
+        html,
+        re.DOTALL
+    )
+    if not table_match:
+        return []
 
+    table_html = table_match.group(0)
+    row_matches = re.findall(r"<tr.*?</tr>", table_html, re.DOTALL)
 
-    rows = pattern.findall(html)
     games = []
 
-    for row in rows:
-        date = _clean_text(row[0])
+    for row_html in row_matches:
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", row_html, re.DOTALL)
+        if len(cells) != 10:
+            continue
+
+        date = _clean_text(cells[0])
         if "月" not in date:
             continue
 
-        players = [_clean_text(cell) for cell in row[1:10]]
+        players = [_clean_text(cell) for cell in cells[1:10]]
         if not all(players):
             continue
 
@@ -100,6 +95,9 @@ pattern = re.compile(
     recent_games = games[-5:]
     recent_games.reverse()
     return recent_games
+
+
+
 
 
 @router.get("/api/lineups/recent-actual")

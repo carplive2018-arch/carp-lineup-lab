@@ -45,7 +45,10 @@ POSITION_MAP = {
     "石原 貴規": "C",
 }
 
-LINEUP_POSITIONS = ["CF", "2B", "SS", "LF", "C", "1B", "3B", "RF"]
+FIELD_POSITIONS = ["CF", "2B", "SS", "LF", "C", "1B", "3B", "RF"]
+
+BATTING_ORDER_POSITIONS = ["CF", "2B", "SS", "LF", "C", "1B", "RF", "3B", "P"]
+
 
 
 def calc_recent_score(row):
@@ -139,7 +142,7 @@ def today_lineup():
     lineup = []
     used_ids = set()
 
-    for position in LINEUP_POSITIONS:
+    for position in FIELD_POSITIONS:
         pool = [
             c for c in candidates
             if c["position"] == position and c["player_id"] not in used_ids
@@ -163,6 +166,8 @@ def today_lineup():
         "walks": 0,
         "strikeouts": 0,
     })
+    
+lineup.sort(key=lambda x: BATTING_ORDER_POSITIONS.index(x["position"]))
 
     for i, player in enumerate(lineup, start=1):
         player["batting_order"] = i

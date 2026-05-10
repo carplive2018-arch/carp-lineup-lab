@@ -700,7 +700,6 @@ def _aggregate_recent_batting_stats(games: int) -> dict:
     }
 
 
-
 def _fetch_recent_actual_lineups() -> list[dict]:
     url = "https://baseball-data.com/lineup/c.html"
     html = _fetch_html(url)

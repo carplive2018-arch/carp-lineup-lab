@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 import re
+
+
 from html import unescape
 from html.parser import HTMLParser
 from urllib.request import Request, urlopen
@@ -45,6 +48,227 @@ TEAM_NAME_TO_CODE = {
 }
 
 HOME_VENUE_KEYWORDS = ["マツダ"]
+POSITION_BATTING_PRIOR_PA = 60
+POSITION_BATTING_PRIOR_AB = 80
+
+# 守備位置コード
+POS_C = "C"
+POS_1B = "1B"
+POS_2B = "2B"
+POS_3B = "3B"
+POS_SS = "SS"
+POS_LF = "LF"
+POS_CF = "CF"
+POS_RF = "RF"
+POS_DH = "DH"
+POS_P = "P"
+
+POSITION_LABELS = {
+    POS_C: "捕手",
+    POS_1B: "一塁",
+    POS_2B: "二塁",
+    POS_3B: "三塁",
+    POS_SS: "遊撃",
+    POS_LF: "左翼",
+    POS_CF: "中堅",
+    POS_RF: "右翼",
+    POS_DH: "DH",
+    POS_P: "投手",
+}
+
+# まずは「器」だけ置く。数値はあとで埋めればOK。
+# eligible_positions は「その選手に守らせてもよい位置」
+PLAYER_PROFILE = {
+    "坂倉 将吾": {"eligible_positions": [POS_C, POS_1B, POS_3B, POS_DH]},
+    "小園 海斗": {"eligible_positions": [POS_SS, POS_3B]},
+    "菊池 涼介": {"eligible_positions": [POS_2B]},
+    "モンテロ": {"eligible_positions": [POS_1B, POS_DH]},
+    "持丸 泰輝": {"eligible_positions": [POS_C, POS_DH]},
+    "石原 貴規": {"eligible_positions": [POS_C]},
+    "矢野 雅哉": {"eligible_positions": [POS_SS]},
+    "二俣 翔一": {"eligible_positions": [POS_1B, POS_3B, POS_SS, POS_2B, POS_RF, POS_CF,POS_LF]},
+    "秋山 翔吾": {"eligible_positions": [POS_LF, POS_CF, POS_RF]},
+    "大盛 穂": {"eligible_positions": [POS_LF, POS_CF, POS_RF]},
+    "野間 峻祥": {"eligible_positions": [POS_LF, POS_CF, POS_RF]},
+    "平川 蓮": {"eligible_positions": [POS_LF, POS_CF, POS_RF]},
+    "ファビアン": {"eligible_positions": [POS_LF, POS_RF, POS_DH]},
+    "佐々木 泰": {"eligible_positions": [POS_1B, POS_3B, POS_DH]},
+    "勝田 成": {"eligible_positions": [POS_2B, POS_SS]},
+}
+
+# 今季通算の打撃。最初は空でOK。あとで手入力で埋める。
+# 値の目安:
+# {"obp": 0.350, "iso": 0.120}
+SEASON_OVERALL_BATTING = {
+    name: {"obp": 0.0, "iso": 0.0}
+    for name in PLAYER_PROFILE
+}
+
+# 今季「その守備位置に入った時」の打撃。
+# これが今回の追加要素。
+# 書式:
+# SEASON_POSITION_BATTING["坂倉 将吾"] = {
+#     "C": {"pa": 0, "ab": 0, "obp": 0.000, "iso": 0.000},
+#     "1B": {"pa": 0, "ab": 0, "obp": 0.000, "iso": 0.000},
+# }
+SEASON_POSITION_BATTING = {
+    name: {}
+    for name in PLAYER_PROFILE
+}
+
+# 守備スコア。理想はUZR、なければ代理守備スコアでもOK。
+# -2.0 ～ +2.0 くらいの感覚で入れると使いやすい。
+# 書式:
+# PLAYER_DEFENSE["菊池 涼介"] = {"2B": 1.40}
+PLAYER_DEFENSE = {
+    name: {}
+    for name in PLAYER_PROFILE
+}
+
+# DHあり版
+DH_LINEUP_SLOTS = [
+    {
+        "order": 1,
+        "allowed_positions": [POS_CF, POS_2B],
+        "role": "leadoff",
+        "weights": {"recent": 0.45, "defense": 0.35, "season_pos": 0.20},
+        "min_defense": 0.00,
+        "low_defense_penalty": 1.20,
+    },
+    {
+        "order": 2,
+        "allowed_positions": [POS_DH, POS_1B],
+        "role": "middle",
+        "weights": {"recent": 0.50, "defense": 0.10, "season_pos": 0.40},
+        "min_defense": -9.99,
+        "low_defense_penalty": 0.00,
+    },
+    {
+        "order": 3,
+        "allowed_positions": [POS_3B, POS_RF],
+        "role": "middle",
+        "weights": {"recent": 0.45, "defense": 0.20, "season_pos": 0.35},
+        "min_defense": -0.30,
+        "low_defense_penalty": 0.80,
+    },
+    {
+        "order": 4,
+        "allowed_positions": [POS_1B, POS_DH],
+        "role": "cleanup",
+        "weights": {"recent": 0.50, "defense": 0.05, "season_pos": 0.45},
+        "min_defense": -9.99,
+        "low_defense_penalty": 0.00,
+    },
+    {
+        "order": 5,
+        "allowed_positions": [POS_LF],
+        "role": "middle",
+        "weights": {"recent": 0.45, "defense": 0.15, "season_pos": 0.40},
+        "min_defense": -0.60,
+        "low_defense_penalty": 0.90,
+    },
+    {
+        "order": 6,
+        "allowed_positions": [POS_2B, POS_CF],
+        "role": "connector",
+        "weights": {"recent": 0.35, "defense": 0.40, "season_pos": 0.25},
+        "min_defense": 0.00,
+        "low_defense_penalty": 1.20,
+    },
+    {
+        "order": 7,
+        "allowed_positions": [POS_SS, POS_C],
+        "role": "bottom_glove",
+        "weights": {"recent": 0.15, "defense": 0.65, "season_pos": 0.20},
+        "min_defense": 0.30,
+        "low_defense_penalty": 1.50,
+    },
+    {
+        "order": 8,
+        "allowed_positions": [POS_C, POS_SS],
+        "role": "bottom_glove",
+        "weights": {"recent": 0.10, "defense": 0.70, "season_pos": 0.20},
+        "min_defense": 0.30,
+        "low_defense_penalty": 1.50,
+    },
+    {
+        "order": 9,
+        "allowed_positions": [POS_SS, POS_2B],
+        "role": "turnover",
+        "weights": {"recent": 0.35, "defense": 0.45, "season_pos": 0.20},
+        "min_defense": 0.00,
+        "low_defense_penalty": 1.20,
+    },
+]
+
+# DHなし版
+# 9番は投手固定なので、ここでは 1～8番だけ最適化する
+NO_DH_LINEUP_SLOTS = [
+    {
+        "order": 1,
+        "allowed_positions": [POS_CF, POS_2B],
+        "role": "leadoff",
+        "weights": {"recent": 0.40, "defense": 0.40, "season_pos": 0.20},
+        "min_defense": 0.00,
+        "low_defense_penalty": 1.20,
+    },
+    {
+        "order": 2,
+        "allowed_positions": [POS_1B, POS_3B],
+        "role": "table_plus_power",
+        "weights": {"recent": 0.40, "defense": 0.20, "season_pos": 0.40},
+        "min_defense": -0.40,
+        "low_defense_penalty": 0.90,
+    },
+    {
+        "order": 3,
+        "allowed_positions": [POS_RF, POS_3B],
+        "role": "middle",
+        "weights": {"recent": 0.45, "defense": 0.20, "season_pos": 0.35},
+        "min_defense": -0.30,
+        "low_defense_penalty": 0.80,
+    },
+    {
+        "order": 4,
+        "allowed_positions": [POS_LF, POS_1B],
+        "role": "cleanup",
+        "weights": {"recent": 0.45, "defense": 0.15, "season_pos": 0.40},
+        "min_defense": -0.50,
+        "low_defense_penalty": 0.90,
+    },
+    {
+        "order": 5,
+        "allowed_positions": [POS_3B, POS_RF],
+        "role": "middle",
+        "weights": {"recent": 0.40, "defense": 0.20, "season_pos": 0.40},
+        "min_defense": -0.30,
+        "low_defense_penalty": 0.80,
+    },
+    {
+        "order": 6,
+        "allowed_positions": [POS_2B, POS_CF],
+        "role": "connector",
+        "weights": {"recent": 0.35, "defense": 0.40, "season_pos": 0.25},
+        "min_defense": 0.00,
+        "low_defense_penalty": 1.20,
+    },
+    {
+        "order": 7,
+        "allowed_positions": [POS_C, POS_SS],
+        "role": "bottom_glove",
+        "weights": {"recent": 0.10, "defense": 0.70, "season_pos": 0.20},
+        "min_defense": 0.30,
+        "low_defense_penalty": 1.50,
+    },
+    {
+        "order": 8,
+        "allowed_positions": [POS_SS, POS_C],
+        "role": "bottom_glove",
+        "weights": {"recent": 0.10, "defense": 0.70, "season_pos": 0.20},
+        "min_defense": 0.30,
+        "low_defense_penalty": 1.50,
+    },
+]
 
 
 def _layout(title: str, body: str) -> HTMLResponse:
@@ -118,6 +342,208 @@ def _safe_int(value: str) -> int:
 
 
 def _round3(value: float) -> float:
+    def _safe_float(value) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return 0.0
+
+
+def _calc_iso_from_stats(stats: dict) -> float:
+    at_bats = int(stats.get("at_bats", stats.get("ab", 0)) or 0)
+    if at_bats <= 0:
+        return 0.0
+
+    doubles = int(stats.get("doubles", 0) or 0)
+    triples = int(stats.get("triples", 0) or 0)
+    homeruns = int(stats.get("homeruns", 0) or 0)
+
+    iso = (doubles + 2 * triples + 3 * homeruns) / at_bats
+    return _round3(iso)
+
+
+def _zscore_map(values: dict[str, float]) -> dict[str, float]:
+    if not values:
+        return {}
+
+    nums = list(values.values())
+    mean = sum(nums) / len(nums)
+    variance = sum((x - mean) ** 2 for x in nums) / len(nums)
+    std = variance ** 0.5
+
+    if std == 0:
+        return {k: 0.0 for k in values}
+
+    return {k: (v - mean) / std for k, v in values.items()}
+
+
+def _position_universe(slot_defs: list[dict]) -> list[str]:
+    result: list[str] = []
+    for slot in slot_defs:
+        for pos in slot["allowed_positions"]:
+            if pos not in result:
+                result.append(pos)
+    return result
+
+
+def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
+    overall = SEASON_OVERALL_BATTING.get(player_name, {})
+    split = SEASON_POSITION_BATTING.get(player_name, {}).get(position, {})
+
+    overall_obp = _safe_float(overall.get("obp", 0.0))
+    overall_iso = _safe_float(overall.get("iso", 0.0))
+
+    pos_pa = int(split.get("pa", 0) or 0)
+    pos_ab = int(split.get("ab", 0) or 0)
+    pos_obp = _safe_float(split.get("obp", overall_obp))
+    pos_iso = _safe_float(split.get("iso", overall_iso))
+
+    adj_obp_den = pos_pa + POSITION_BATTING_PRIOR_PA
+    adj_iso_den = pos_ab + POSITION_BATTING_PRIOR_AB
+
+    adj_obp = (
+        ((pos_pa * pos_obp) + (POSITION_BATTING_PRIOR_PA * overall_obp)) / adj_obp_den
+        if adj_obp_den > 0 else overall_obp
+    )
+
+    adj_iso = (
+        ((pos_ab * pos_iso) + (POSITION_BATTING_PRIOR_AB * overall_iso)) / adj_iso_den
+        if adj_iso_den > 0 else overall_iso
+    )
+
+    return {
+        "pa": pos_pa,
+        "ab": pos_ab,
+        "adj_obp": _round3(adj_obp),
+        "adj_iso": _round3(adj_iso),
+    }
+
+
+def _build_recent_score_maps(window_games: int, candidate_names: list[str]) -> dict:
+    recent_data = _aggregate_recent_batting_stats(window_games)
+    recent_players = {p["player_name"]: p for p in recent_data.get("players", [])}
+
+    obp_map: dict[str, float] = {}
+    iso_map: dict[str, float] = {}
+
+    for name in candidate_names:
+        player = recent_players.get(name, {})
+        obp_map[name] = _safe_float(player.get("on_base_percentage", 0.0))
+        iso_map[name] = _calc_iso_from_stats(player)
+
+    obp_z = _zscore_map(obp_map)
+    iso_z = _zscore_map(iso_map)
+
+    recent_form_score = {
+        name: 0.55 * obp_z.get(name, 0.0) + 0.45 * iso_z.get(name, 0.0)
+        for name in candidate_names
+    }
+
+    return {
+        "raw_players": recent_players,
+        "obp_map": obp_map,
+        "iso_map": iso_map,
+        "obp_z": obp_z,
+        "iso_z": iso_z,
+        "recent_form_score": recent_form_score,
+    }
+
+
+def _build_season_position_score_map(candidate_names: list[str], position: str) -> dict[str, float]:
+    adj_obp_map: dict[str, float] = {}
+    adj_iso_map: dict[str, float] = {}
+
+    for name in candidate_names:
+        adj = _get_adjusted_position_batting(name, position)
+        adj_obp_map[name] = adj["adj_obp"]
+        adj_iso_map[name] = adj["adj_iso"]
+
+    obp_z = _zscore_map(adj_obp_map)
+    iso_z = _zscore_map(adj_iso_map)
+
+    return {
+        name: 0.60 * obp_z.get(name, 0.0) + 0.40 * iso_z.get(name, 0.0)
+        for name in candidate_names
+    }
+
+
+def _slot_score(
+    player_name: str,
+    slot: dict,
+    chosen_position: str,
+    recent_maps: dict,
+    season_pos_score_maps: dict[str, dict[str, float]],
+) -> float:
+    eligible = PLAYER_PROFILE.get(player_name, {}).get("eligible_positions", [])
+    if chosen_position not in eligible:
+        return -1000000.0
+
+    recent_form = recent_maps["recent_form_score"].get(player_name, 0.0)
+    recent_obp_z = recent_maps["obp_z"].get(player_name, 0.0)
+    recent_iso_z = recent_maps["iso_z"].get(player_name, 0.0)
+    defense_score = _safe_float(PLAYER_DEFENSE.get(player_name, {}).get(chosen_position, 0.0))
+    season_pos_score = season_pos_score_maps.get(chosen_position, {}).get(player_name, 0.0)
+
+    weights = slot["weights"]
+
+    # 基本式
+    score = (
+        weights["recent"] * recent_form
+        + weights["defense"] * defense_score
+        + weights["season_pos"] * season_pos_score
+    )
+
+    # 打順の役割で少しだけ味付け
+    role = slot["role"]
+
+    if role == "leadoff":
+        score += 0.20 * recent_obp_z
+
+    elif role == "table_plus_power":
+        score += 0.15 * recent_obp_z + 0.15 * recent_iso_z
+
+    elif role == "middle":
+        score += 0.10 * recent_obp_z + 0.25 * recent_iso_z
+
+    elif role == "cleanup":
+        score += 0.10 * recent_obp_z + 0.30 * recent_iso_z
+
+    elif role == "connector":
+        score += 0.20 * recent_obp_z + 0.10 * defense_score
+
+    elif role == "bottom_glove":
+        score += 0.20 * defense_score - 0.05 * recent_iso_z
+
+    elif role == "turnover":
+        score += 0.20 * recent_obp_z + 0.15 * defense_score
+
+    # 守備が足りない時のペナルティ
+    if defense_score < slot.get("min_defense", -999):
+        score -= slot.get("low_defense_penalty", 0.0)
+
+    return score
+
+
+def _build_slot_reason(
+    player_name: str,
+    chosen_position: str,
+    slot: dict,
+    recent_maps: dict,
+) -> str:
+    recent_player = recent_maps["raw_players"].get(player_name, {})
+    recent_obp = _safe_float(recent_player.get("on_base_percentage", 0.0))
+    recent_iso = _calc_iso_from_stats(recent_player)
+    defense_score = _safe_float(PLAYER_DEFENSE.get(player_name, {}).get(chosen_position, 0.0))
+    season_adj = _get_adjusted_position_batting(player_name, chosen_position)
+
+    return (
+        f"直近OBP {recent_obp:.3f} / 直近ISO {recent_iso:.3f} / "
+        f"{POSITION_LABELS.get(chosen_position, chosen_position)}時の今季補正OBP {season_adj['adj_obp']:.3f} / "
+        f"今季補正ISO {season_adj['adj_iso']:.3f} / "
+        f"守備スコア {defense_score:+.2f} を評価して "
+        f"{slot['order']}番 {POSITION_LABELS.get(chosen_position, chosen_position)}"
+    )
+
     return round(value, 3)
 
 
@@ -546,6 +972,122 @@ def _parse_carp_batting_rows(box_url: str) -> list[dict]:
     return rows
 
 def _aggregate_recent_batting_stats(games: int) -> dict:
+    def build_predicted_lineup(
+    dh: bool,
+    window_games: int = 5,
+    predicted_pitcher_name: str = "先発投手",
+) -> dict:
+    if window_games not in (5, 10):
+        raise HTTPException(status_code=400, detail="window_games は 5 または 10 にしてください。")
+
+    slot_defs = DH_LINEUP_SLOTS if dh else NO_DH_LINEUP_SLOTS
+    candidate_names = list(PLAYER_PROFILE.keys())
+    position_list = _position_universe(slot_defs)
+    position_to_bit = {pos: idx for idx, pos in enumerate(position_list)}
+
+    recent_maps = _build_recent_score_maps(window_games, candidate_names)
+    season_pos_score_maps = {
+        pos: _build_season_position_score_map(candidate_names, pos)
+        for pos in position_list
+    }
+
+    @lru_cache(maxsize=None)
+    def dp(slot_idx: int, used_player_mask: int, used_position_mask: int):
+        if slot_idx >= len(slot_defs):
+            return 0.0, tuple()
+
+        slot = slot_defs[slot_idx]
+        best_score = -1000000.0
+        best_line = tuple()
+
+        for player_idx, player_name in enumerate(candidate_names):
+            if used_player_mask & (1 << player_idx):
+                continue
+
+            for pos in slot["allowed_positions"]:
+                pos_bit = 1 << position_to_bit[pos]
+                if used_position_mask & pos_bit:
+                    continue
+
+                score = _slot_score(
+                    player_name=player_name,
+                    slot=slot,
+                    chosen_position=pos,
+                    recent_maps=recent_maps,
+                    season_pos_score_maps=season_pos_score_maps,
+                )
+
+                if score <= -999999:
+                    continue
+
+                tail_score, tail_line = dp(
+                    slot_idx + 1,
+                    used_player_mask | (1 << player_idx),
+                    used_position_mask | pos_bit,
+                )
+
+                total_score = score + tail_score
+
+                if total_score > best_score:
+                    best_score = total_score
+                    best_line = (
+                        {
+                            "order": slot["order"],
+                            "position": pos,
+                            "position_label": POSITION_LABELS.get(pos, pos),
+                            "player_name": player_name,
+                            "score": _round3(score),
+                            "reason": _build_slot_reason(
+                                player_name=player_name,
+                                chosen_position=pos,
+                                slot=slot,
+                                recent_maps=recent_maps,
+                            ),
+                        },
+                    ) + tail_line
+
+        return best_score, best_line
+
+    total_score, lineup_tuple = dp(0, 0, 0)
+
+    if not lineup_tuple:
+        return {
+            "status": "error",
+            "message": "候補選手や守備位置の設定が足りず、スタメンを組めませんでした。",
+            "mode": "dh" if dh else "no_dh",
+            "window_games": window_games,
+            "lineup": [],
+        }
+
+    lineup = list(lineup_tuple)
+
+    if not dh:
+        lineup.append(
+            {
+                "order": 9,
+                "position": POS_P,
+                "position_label": POSITION_LABELS[POS_P],
+                "player_name": predicted_pitcher_name,
+                "score": 0.0,
+                "reason": "DHなし版のため 9番投手固定",
+            }
+        )
+
+    lineup.sort(key=lambda x: x["order"])
+
+    return {
+        "status": "ok",
+        "mode": "dh" if dh else "no_dh",
+        "window_games": window_games,
+        "model_notes": {
+            "recent_weight_source": "recent-5 / recent-10 API",
+            "season_position_weight_source": "SEASON_POSITION_BATTING",
+            "defense_weight_source": "PLAYER_DEFENSE",
+        },
+        "total_score": _round3(total_score),
+        "lineup": lineup,
+    }
+
     if games not in (5, 10):
         raise HTTPException(status_code=400, detail="games は 5 または 10 にしてください。")
 

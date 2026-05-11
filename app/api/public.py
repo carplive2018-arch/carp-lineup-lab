@@ -1465,9 +1465,7 @@ def index() -> HTMLResponse:
           <div id="actual-games" class="grid"></div>
         </div>
 
-        <div class="card">
-          <h2>今日の予想スタメン</h2>
-        <div class="card">
+<div class="card">
   <h2>予想スタメン（DHあり / DHなし）</h2>
   <p class="muted">直近5試合 / 10試合 と、DHあり / なし を切り替えて予想スタメンを表示します。</p>
 
@@ -1484,6 +1482,7 @@ def index() -> HTMLResponse:
   <p id="predicted-status" class="muted">読み込み中...</p>
   <div id="predicted-lineup" class="grid"></div>
 </div>
+
 
         <div class="card">
           <h2>直近打撃成績</h2>
@@ -1543,36 +1542,6 @@ def index() -> HTMLResponse:
         </div>
 
         <script>
-          async function loadActualLineups() {
-            const statusEl = document.getElementById("actual-status");
-            const gamesEl = document.getElementById("actual-games");
-
-            try {
-              const res = await fetch("/api/lineups/recent-actual");
-              const data = await res.json();
-
-              if (!data.games || !Array.isArray(data.games) || data.games.length === 0) {
-                statusEl.textContent = "直近スタメンを取得できませんでした。";
-                return;
-              }
-
-              statusEl.innerHTML =
-                '取得元: <a href="' + data.source_url + '" target="_blank" rel="noopener noreferrer">' +
-                data.source +
-                '</a> / 表示試合数: <strong>' + data.count + '</strong>';
-
-              gamesEl.innerHTML = data.games.map(game => `
-                <div class="game-card">
-                  <div class="date">${game.date}</div>
-                  <ol>
-                    ${game.lineup.map(player => `<li>${player.player_name}</li>`).join("")}
-                  </ol>
-                </div>
-              `).join("");
-            } catch (e) {
-              statusEl.textContent = "直近スタメンを表示できませんでした。";
-            }
-          }
 
 
           function formatDecimal(value) {

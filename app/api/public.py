@@ -72,6 +72,19 @@ def _layout(title: str, body: str) -> HTMLResponse:
             code {{ background: #0f1730; padding: 2px 6px; border-radius: 6px; }}
           </style>
         </head>
+        .segmented { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 14px; }
+            .segmented button { border: 1px solid #39507d; background: #16203d; color: #eaf1ff; border-radius: 999px; padding: 10px 14px; cursor: pointer; font-weight: 700; }
+            .segmented button.active { background: #ffd54a; color: #182033; border-color: #ffd54a; }
+            .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-top: 14px; }
+            .stat-box { background: #0f1730; border: 1px solid #26304d; border-radius: 12px; padding: 12px; }
+            .stat-label { font-size: 12px; color: #a9b5d1; margin-bottom: 6px; }
+            .stat-value { font-size: 20px; font-weight: 700; }
+            .table-wrap { margin-top: 16px; overflow-x: auto; }
+            .stats-table { width: 100%; border-collapse: collapse; min-width: 880px; }
+            .stats-table th, .stats-table td { border-bottom: 1px solid #26304d; padding: 10px 8px; text-align: right; }
+            .stats-table th:first-child, .stats-table td:first-child { text-align: left; position: sticky; left: 0; background: #121a31; }
+            .stats-table th { font-size: 12px; color: #a9b5d1; }
+
         <body>
           <div class="wrap">{body}</div>
         </body>
@@ -849,6 +862,40 @@ def index() -> HTMLResponse:
           <p id="today-status" class="muted">読み込み中...</p>
           <div id="today-lineup" class="grid"></div>
         </div>
+        <div class="card">
+          <h2>直近打撃成績</h2>
+          <p class="muted">直近5試合と10試合を切り替えて、試合一覧・チーム合計・選手成績を見られます。</p>
+
+          <div class="segmented">
+            <button id="batting-btn-5" class="active" type="button" onclick="loadBattingStats(5)">直近5試合</button>
+            <button id="batting-btn-10" type="button" onclick="loadBattingStats(10)">直近10試合</button>
+          </div>
+
+          <p id="batting-status" class="muted">読み込み中...</p>
+
+          <div id="batting-games" class="grid"></div>
+
+          <div id="batting-team" class="stats-grid"></div>
+
+          <div class="table-wrap">
+            <table class="stats-table">
+              <thead>
+                <tr>
+                  <th>選手</th>
+                  <th>試合</th>
+                  <th>打数</th>
+                  <th>安打</th>
+                  <th>本塁打</th>
+                  <th>打点</th>
+                  <th>四球</th>
+                  <th>打率</th>
+                  <th>出塁率</th>
+                </tr>
+              </thead>
+              <tbody id="batting-players"></tbody>
+            </table>
+          </div>
+        </div>
 
         <div class="card">
           <h2>新しい打撃成績API</h2>
@@ -939,9 +986,117 @@ def index() -> HTMLResponse:
               statusEl.textContent = "今日の予想スタメンを表示できませんでした。";
             }
           }
+          function formatDecimal(value) {
+            if (value === null || value === undefined) return "-";
+            const num = Number(value);
+            if (Number.isNaN(num)) return "-";
+            return num.toFixed(3).replace(/^0(?=\.)/, "");
+          }
+
+          function setBattingTab(activeGames) {
+            document.getElementById("batting-btn-5")?.classList.toggle("active", activeGames === 5);
+            document.getElementById("batting-btn-10")?.classList.toggle("active", activeGames === 10);
+          }
+
+          function renderBattingGames(games) {
+            const gamesEl = document.getElementById("batting-games");
+
+            if (!games || games.length === 0) {
+              gamesEl.innerHTML = '<p class="muted">試合データがありません。</p>';
+              return;
+            }
+
+            gamesEl.innerHTML = games.map(game => `
+              <div class="game-card">
+                <div class="date">${game.date}</div>
+                <div>${game.opponent} / ${game.venue} / ${game.round}回戦</div>
+                <div style="margin-top: 6px; font-weight: 700;">${game.score} ${game.result}</div>
+                <div class="small" style="margin-top: 6px;">
+                  <a href="${game.box_url}" target="_blank" rel="noopener noreferrer">ボックススコア</a>
+                </div>
+              </div>
+            `).join("");
+          }
+
+          function renderBattingTeamTotals(team) {
+            const teamEl = document.getElementById("batting-team");
+
+            teamEl.innerHTML = `
+              <div class="stat-box"><div class="stat-label">試合</div><div class="stat-value">${team.games ?? "-"}</div></div>
+              <div class="stat-box"><div class="stat-label">打数</div><div class="stat-value">${team.at_bats ?? "-"}</div></div>
+              <div class="stat-box"><div class="stat-label">安打</div><div class="stat-value">${team.hits ?? "-"}</div></div>
+              <div class="stat-box"><div class="stat-label">本塁打</div><div class="stat-value">${team.homeruns ?? "-"}</div></div>
+              <div class="stat-box"><div class="stat-label">打率</div><div class="stat-value">${formatDecimal(team.batting_average)}</div></div>
+              <div class="stat-box"><div class="stat-label">出塁率</div><div class="stat-value">${formatDecimal(team.on_base_percentage)}</div></div>
+            `;
+          }
+
+          function renderBattingPlayers(players) {
+            const playersEl = document.getElementById("batting-players");
+
+            if (!players || players.length === 0) {
+              playersEl.innerHTML = '<tr><td colspan="9" class="muted">選手データがありません。</td></tr>';
+              return;
+            }
+
+            playersEl.innerHTML = players.map(player => `
+              <tr>
+                <td>${player.player_name}</td>
+                <td>${player.games}</td>
+                <td>${player.at_bats}</td>
+                <td>${player.hits}</td>
+                <td>${player.homeruns}</td>
+                <td>${player.rbi}</td>
+                <td>${player.walks}</td>
+                <td>${formatDecimal(player.batting_average)}</td>
+                <td>${formatDecimal(player.on_base_percentage)}</td>
+              </tr>
+            `).join("");
+          }
+
+          async function loadBattingStats(windowGames) {
+            const statusEl = document.getElementById("batting-status");
+            const gamesEl = document.getElementById("batting-games");
+            const teamEl = document.getElementById("batting-team");
+            const playersEl = document.getElementById("batting-players");
+
+            setBattingTab(windowGames);
+            statusEl.textContent = "打撃成績を読み込み中...";
+            gamesEl.innerHTML = "";
+            teamEl.innerHTML = "";
+            playersEl.innerHTML = "";
+
+            try {
+              const res = await fetch(`/api/stats/batting/recent-${windowGames}`);
+              const data = await res.json();
+
+              if (!data || data.status !== "ok") {
+                throw new Error(data?.message || "API取得に失敗しました。");
+              }
+
+              const resultsUrl = data.source_urls?.[0] || "https://npb.jp/bis/teams/results_c_index.html";
+              const scoresUrl = data.source_urls?.[1] || "https://npb.jp/scores/";
+
+              statusEl.innerHTML =
+                `取得元: <a href="${resultsUrl}" target="_blank" rel="noopener noreferrer">試合結果</a> / ` +
+                `<a href="${scoresUrl}" target="_blank" rel="noopener noreferrer">スコア速報</a> / ` +
+                `表示試合数: <strong>${data.games_used}</strong> / ` +
+                `選手数: <strong>${data.players_count}</strong>`;
+
+              renderBattingGames(data.recent_games || []);
+              renderBattingTeamTotals(data.team_totals || {});
+              renderBattingPlayers(data.players || []);
+            } catch (e) {
+              statusEl.textContent = "打撃成績を表示できませんでした。";
+              gamesEl.innerHTML = "";
+              teamEl.innerHTML = "";
+              playersEl.innerHTML = '<tr><td colspan="9" class="muted">読み込み失敗</td></tr>';
+            }
+          }
 
           loadActualLineups();
           loadTodayLineup();
+          loadBattingStats(5);
         </script>
         """,
     )

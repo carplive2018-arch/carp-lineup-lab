@@ -50,6 +50,9 @@ TEAM_NAME_TO_CODE = {
 HOME_VENUE_KEYWORDS = ["マツダ"]
 POSITION_BATTING_PRIOR_PA = 60
 POSITION_BATTING_PRIOR_AB = 80
+RECENT_OBP_PRIOR_PA = 12
+RECENT_ISO_PRIOR_AB = 20
+RECENT_FULL_TRUST_PA = 8
 
 # 守備位置コード
 POS_C = "C"
@@ -421,9 +424,9 @@ def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
         "adj_iso": _round3(adj_iso),
     }
 
-
 def _build_recent_score_maps(window_games: int, candidate_names: list[str]) -> dict:
     recent_data = _aggregate_recent_batting_stats(window_games)
+
     short_to_full = {}
     for name in candidate_names:
         cleaned = _clean_text(name)
@@ -436,31 +439,72 @@ def _build_recent_score_maps(window_games: int, candidate_names: list[str]) -> d
         mapped_name = short_to_full.get(raw_name, raw_name)
         recent_players[mapped_name] = p
 
+    team_totals = recent_data.get("team_totals", {})
+    team_obp = _safe_float(team_totals.get("on_base_percentage", 0.0))
+    team_iso = _calc_iso_from_stats(team_totals)
 
-    obp_map: dict[str, float] = {}
-    iso_map: dict[str, float] = {}
+    raw_obp_map: dict[str, float] = {}
+    raw_iso_map: dict[str, float] = {}
+    adj_obp_map: dict[str, float] = {}
+    adj_iso_map: dict[str, float] = {}
+    pa_map: dict[str, int] = {}
+    ab_map: dict[str, int] = {}
+    sample_weight_map: dict[str, float] = {}
 
     for name in candidate_names:
         player = recent_players.get(name, {})
-        obp_map[name] = _safe_float(player.get("on_base_percentage", 0.0))
-        iso_map[name] = _calc_iso_from_stats(player)
 
-    obp_z = _zscore_map(obp_map)
-    iso_z = _zscore_map(iso_map)
+        raw_obp = _safe_float(player.get("on_base_percentage", 0.0))
+        raw_iso = _calc_iso_from_stats(player)
+        pa = int(player.get("plate_appearances", 0) or 0)
+        ab = int(player.get("at_bats", 0) or 0)
+
+        adj_obp_den = pa + RECENT_OBP_PRIOR_PA
+        adj_iso_den = ab + RECENT_ISO_PRIOR_AB
+
+        adj_obp = (
+            ((pa * raw_obp) + (RECENT_OBP_PRIOR_PA * team_obp)) / adj_obp_den
+            if adj_obp_den > 0 else team_obp
+        )
+        adj_iso = (
+            ((ab * raw_iso) + (RECENT_ISO_PRIOR_AB * team_iso)) / adj_iso_den
+            if adj_iso_den > 0 else team_iso
+        )
+
+        sample_weight = min(pa / RECENT_FULL_TRUST_PA, 1.0)
+
+        raw_obp_map[name] = raw_obp
+        raw_iso_map[name] = raw_iso
+        adj_obp_map[name] = _round3(adj_obp)
+        adj_iso_map[name] = _round3(adj_iso)
+        pa_map[name] = pa
+        ab_map[name] = ab
+        sample_weight_map[name] = sample_weight
+
+    obp_z = _zscore_map(adj_obp_map)
+    iso_z = _zscore_map(adj_iso_map)
 
     recent_form_score = {
-        name: 0.55 * obp_z.get(name, 0.0) + 0.45 * iso_z.get(name, 0.0)
+        name: sample_weight_map.get(name, 0.0) * (
+            0.55 * obp_z.get(name, 0.0) + 0.45 * iso_z.get(name, 0.0)
+        )
         for name in candidate_names
     }
 
     return {
         "raw_players": recent_players,
-        "obp_map": obp_map,
-        "iso_map": iso_map,
+        "raw_obp_map": raw_obp_map,
+        "raw_iso_map": raw_iso_map,
+        "adj_obp_map": adj_obp_map,
+        "adj_iso_map": adj_iso_map,
+        "pa_map": pa_map,
+        "ab_map": ab_map,
+        "sample_weight": sample_weight_map,
         "obp_z": obp_z,
         "iso_z": iso_z,
         "recent_form_score": recent_form_score,
     }
+
 
 
 def _build_season_position_score_map(candidate_names: list[str], position: str) -> dict[str, float]:
@@ -492,11 +536,13 @@ def _slot_score(
     if chosen_position not in eligible:
         return -1000000.0
 
+    sample_weight = recent_maps["sample_weight"].get(player_name, 0.0)
     recent_form = recent_maps["recent_form_score"].get(player_name, 0.0)
-    recent_obp_z = recent_maps["obp_z"].get(player_name, 0.0)
-    recent_iso_z = recent_maps["iso_z"].get(player_name, 0.0)
+    recent_obp_z = recent_maps["obp_z"].get(player_name, 0.0) * sample_weight
+    recent_iso_z = recent_maps["iso_z"].get(player_name, 0.0) * sample_weight
     defense_score = _safe_float(PLAYER_DEFENSE.get(player_name, {}).get(chosen_position, 0.0))
-    season_pos_score = season_pos_score_maps.get(chosen_position, {}).get(player_name, 0.0)
+
+
 
     weights = slot["weights"]
 
@@ -532,7 +578,8 @@ def _slot_score(
     elif role == "turnover_obp":
         score += 0.25 * recent_obp_z + 0.10 * defense_score
 
-
+    if sample_weight < 0.5:
+        score -= (0.5 - sample_weight) * 0.8
     if defense_score < slot.get("min_defense", -999):
         score -= slot.get("low_defense_penalty", 0.0)
 

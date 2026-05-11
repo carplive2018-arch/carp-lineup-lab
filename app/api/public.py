@@ -1458,7 +1458,7 @@ def index() -> HTMLResponse:
         """
         <span class="pill">β版 / 非公式</span>
         <h1>Carp Lineup Lab</h1>
-        <p class="muted">上に直近5試合の実際のスタメン、下に今日の予想スタメンを表示します。</p>
+        <p class="muted">上に直近5試合の実際のスタメン、上に直近5試合の実際のスタメン、下に直近5試合 / 10試合 × DHあり / なし の予想スタメンを表示します。</p>
 
         <div class="card">
           <h2>直近5試合の実際のスタメン</h2>
@@ -1522,6 +1522,7 @@ def index() -> HTMLResponse:
 
         <div class="card">
           <h2>新しい打撃成績API</h2>
+          <p class="muted">画面の切り替えで使っているAPIです。直接開いて内容確認もできます。</p>
           <ul>
             <li><a href="/api/stats/batting/recent-5">直近5試合の打撃成績</a></li>
             <li><a href="/api/stats/batting/recent-10">直近10試合の打撃成績</a></li>
@@ -1534,7 +1535,11 @@ def index() -> HTMLResponse:
           <h2>主なリンク</h2>
           <ul>
             <li><a href="/api/lineups/recent-actual">直近スタメンAPI</a></li>
-            <li><a href="/api/lineups/today">予想スタメンAPI</a></li>
+            <li><a href="/api/lineups/predicted/dh-yes?window=5">予想スタメンAPI（直近5試合 / DHあり）</a></li>
+　　　　   　<li><a href="/api/lineups/predicted/dh-no?window=5">予想スタメンAPI（直近5試合 / DHなし）</a></li>
+　　　　　　 <li><a href="/api/lineups/predicted/dh-yes?window=10">予想スタメンAPI（直近10試合 / DHあり）</a></li>
+　　　　　　 <li><a href="/api/lineups/predicted/dh-no?window=10">予想スタメンAPI（直近10試合 / DHなし）</a></li>
+
             <li><a href="/docs">APIドキュメント</a></li>
             <li><a href="/data-policy">データ表示ポリシー</a></li>
             <li><a href="/disclaimer">免責</a></li>

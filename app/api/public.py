@@ -610,7 +610,8 @@ def _aggregate_recent_batting_stats(games: int) -> dict:
                 aggregated[name][key] += row[key]
 
     players = list(aggregated.values())
-
+    players_before_filter = len(players)
+    
     for player in players:
         pa = (
             player["at_bats"]
@@ -628,15 +629,22 @@ def _aggregate_recent_batting_stats(games: int) -> dict:
 
         player["plate_appearances"] = pa
         player["batting_average"] = _round3(player["hits"] / player["at_bats"]) if player["at_bats"] > 0 else 0.0
+        
         player["on_base_percentage"] = _round3(
             (player["hits"] + player["walks"] + player["hit_by_pitch"]) / obp_den
         ) if obp_den > 0 else 0.0
+    zero_appearance_players_count = sum(
+        1 for player in players
+        if player["at_bats"] == 0 and player["plate_appearances"] == 0
+    )
 
     players = [
         player for player in players
         if player["at_bats"] > 0 or player["plate_appearances"] > 0
     ]
+    players_after_filter = len(players)
 
+    
     players.sort(
         key=lambda x: (
             -x["hits"],
@@ -699,6 +707,9 @@ def _aggregate_recent_batting_stats(games: int) -> dict:
         "games_found": len(recent_games),
         "games_used": len(used_games),
         "games_skipped": len(skipped_games),
+        "players_before_filter": players_before_filter,
+        "players_after_filter": players_after_filter,
+        "zero_appearance_players_count": zero_appearance_players_count,
         "source": "NPB公式",
         "source_urls": [
             "https://npb.jp/bis/teams/results_c_index.html",

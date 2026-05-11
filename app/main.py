@@ -7,4 +7,6 @@ app.include_router(api_router)
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "marker": "koidanshi-check-0511"}
+
+

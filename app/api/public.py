@@ -53,6 +53,10 @@ POSITION_BATTING_PRIOR_AB = 80
 RECENT_OBP_PRIOR_PA = 12
 RECENT_ISO_PRIOR_AB = 20
 RECENT_FULL_TRUST_PA = 8
+MIN_CATCHER_RECENT_PA = 4
+WEAK_CATCHER_PENALTY = 1.6
+TOP_CATCHER_TO_DH_PENALTY = 1.0
+TOP_CATCHER_AT_C_BONUS = 0.8
 
 # 守備位置コード
 POS_C = "C"
@@ -485,6 +489,23 @@ def _build_recent_score_maps(window_games: int, candidate_names: list[str]) -> d
     iso_z = _zscore_map(adj_iso_map)
 
     recent_form_score = {
+            recent_bat_value = {
+        name: sample_weight_map.get(name, 0.0) * (
+            0.60 * obp_z.get(name, 0.0) + 0.40 * iso_z.get(name, 0.0)
+        )
+        for name in candidate_names
+    }
+
+    catcher_candidates = [
+        name for name in candidate_names
+        if POS_C in PLAYER_PROFILE.get(name, {}).get("eligible_positions", [])
+    ]
+    catcher_candidates.sort(
+        key=lambda name: recent_bat_value.get(name, -9999.0),
+        reverse=True,
+    )
+    top_catcher_bats = set(catcher_candidates[:2])
+
         name: sample_weight_map.get(name, 0.0) * (
             0.55 * obp_z.get(name, 0.0) + 0.45 * iso_z.get(name, 0.0)
         )
@@ -503,6 +524,8 @@ def _build_recent_score_maps(window_games: int, candidate_names: list[str]) -> d
         "obp_z": obp_z,
         "iso_z": iso_z,
         "recent_form_score": recent_form_score,
+        "recent_bat_value": recent_bat_value,
+        "top_catcher_bats": list(top_catcher_bats),
     }
 
 
@@ -542,6 +565,8 @@ def _slot_score(
     recent_iso_z = recent_maps["iso_z"].get(player_name, 0.0) * sample_weight
     defense_score = _safe_float(PLAYER_DEFENSE.get(player_name, {}).get(chosen_position, 0.0))
     season_pos_score = season_pos_score_maps.get(chosen_position, {}).get(player_name, 0.0)
+    recent_pa = int(recent_maps["pa_map"].get(player_name, 0) or 0)
+    top_catcher_bats = set(recent_maps.get("top_catcher_bats", []))
 
 
 
@@ -578,6 +603,15 @@ def _slot_score(
 
     elif role == "turnover_obp":
         score += 0.25 * recent_obp_z + 0.10 * defense_score
+        
+    if chosen_position == POS_C and recent_pa < MIN_CATCHER_RECENT_PA:
+        score -= WEAK_CATCHER_PENALTY
+
+    if chosen_position == POS_DH and player_name in top_catcher_bats:
+        score -= TOP_CATCHER_TO_DH_PENALTY
+
+    if chosen_position == POS_C and player_name in top_catcher_bats:
+        score += TOP_CATCHER_AT_C_BONUS
 
     if sample_weight < 0.5:
         score -= (0.5 - sample_weight) * 0.8

@@ -1374,6 +1374,81 @@ def recent_batting_stats(games: int) -> JSONResponse:
             "recent_games": [],
         }, status_code=500)
 
+@router.get("/api/lineups/predicted/dh-yes")
+def predicted_lineup_dh_yes(window: int = 5) -> JSONResponse:
+    try:
+        data = build_predicted_lineup(dh=True, window_games=window)
+        return JSONResponse(content=data)
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "mode": "dh",
+                "window_games": window,
+                "message": str(e),
+                "lineup": [],
+            },
+        )
+
+
+@router.get("/api/lineups/predicted/dh-no")
+def predicted_lineup_dh_no(window: int = 5) -> JSONResponse:
+    try:
+        data = build_predicted_lineup(dh=False, window_games=window)
+        return JSONResponse(content=data)
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "mode": "no_dh",
+                "window_games": window,
+                "message": str(e),
+                "lineup": [],
+            },
+        )
+
+
+@router.get("/api/lineups/today")
+def today_lineup() -> JSONResponse:
+    try:
+        data = build_predicted_lineup(dh=False, window_games=5)
+
+        lineup = [
+            {
+                "batting_order": row["order"],
+                "position": row["position_label"],
+                "player_name": row["player_name"],
+                "recent_score": row["score"],
+                "reason": row["reason"],
+            }
+            for row in data["lineup"]
+        ]
+
+        return JSONResponse(
+            content={
+                "status": "ok",
+                "source": "predicted lineup model",
+                "count": len(lineup),
+                "lineup": lineup,
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": str(e),
+                "lineup": [],
+            },
+        )
 
 @router.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
@@ -1722,10 +1797,10 @@ async function loadPredictedLineup() {
   }
 }
 
-　　　　　　loadActualLineups();
-　　　　　　loadTodayLineup();
-　　　　　　loadPredictedLineup();
-　　　　　　loadBattingStats(5);
+loadActualLineups();
+loadTodayLineup();
+loadPredictedLineup();
+loadBattingStats(5);
         </script>
         """,
     )

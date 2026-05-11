@@ -798,22 +798,31 @@ def recent_5_batting_stats():
         )
 
 
-
-
 @router.get("/api/stats/batting/recent-10")
-def recent_10_batting_stats() -> JSONResponse:
+def recent_10_batting_stats():
     try:
-        data = _aggregate_recent_batting_stats(10)
-        return JSONResponse(data)
-    except HTTPException:
-        raise
+        result = _aggregate_recent_batting_stats(10)
+        result["debug_marker"] = "recent10-debug-0511"
+        result["debug_count"] = {
+            "games_found": result.get("games_found"),
+            "games_used": result.get("games_used"),
+            "recent_games_count": len(result.get("recent_games", [])),
+            "players_count": len(result.get("players", [])),
+        }
+        return result
     except Exception as e:
-        return JSONResponse({
-            "status": "error",
-            "message": str(e),
-            "players": [],
-            "recent_games": [],
-        }, status_code=500)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": str(e),
+                "recent_games": [],
+                "players": [],
+                "debug_marker": "recent10-debug-0511-error",
+            },
+        )
+
+
 
 
 @router.get("/api/stats/batting/recent/{games}")

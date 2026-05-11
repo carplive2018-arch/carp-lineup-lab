@@ -1467,7 +1467,7 @@ def index() -> HTMLResponse:
 
         <div class="card">
           <h2>今日の予想スタメン</h2>
-          <div class="card">
+        <div class="card">
   <h2>予想スタメン（DHあり / DHなし）</h2>
   <p class="muted">直近5試合 / 10試合 と、DHあり / なし を切り替えて予想スタメンを表示します。</p>
 
@@ -1485,9 +1485,6 @@ def index() -> HTMLResponse:
   <div id="predicted-lineup" class="grid"></div>
 </div>
 
-          <p id="today-status" class="muted">読み込み中...</p>
-          <div id="today-lineup" class="grid"></div>
-        </div>
         <div class="card">
           <h2>直近打撃成績</h2>
           <p class="muted">直近5試合と10試合を切り替えて、試合一覧・チーム合計・選手成績を見られます。</p>
@@ -1577,41 +1574,7 @@ def index() -> HTMLResponse:
             }
           }
 
-          async function loadTodayLineup() {
-            const statusEl = document.getElementById("today-status");
-            const lineupEl = document.getElementById("today-lineup");
 
-            try {
-              const res = await fetch("/api/lineups/today");
-              const data = await res.json();
-
-              if (!data.lineup || !Array.isArray(data.lineup) || data.lineup.length === 0) {
-                statusEl.textContent = "今日の予想スタメンを取得できませんでした。";
-                return;
-              }
-
-              statusEl.innerHTML =
-                '更新元: <strong>' + data.source + '</strong> / 人数: <strong>' + data.count + '</strong>';
-
-              lineupEl.innerHTML = data.lineup.map(player => `
-                <div class="game-card">
-                  <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
-                    <div>
-                      <div class="small">${player.batting_order}番 / ${player.position}</div>
-                      <div class="date" style="margin-bottom:4px;">${player.player_name}</div>
-                    </div>
-                    <div style="text-align:right;">
-                      <div class="small">recent score</div>
-                      <div style="font-size:20px; font-weight:700;">${player.recent_score}</div>
-                    </div>
-                  </div>
-                  <div class="muted">${player.reason}</div>
-                </div>
-              `).join("");
-            } catch (e) {
-              statusEl.textContent = "今日の予想スタメンを表示できませんでした。";
-            }
-          }
           function formatDecimal(value) {
             if (value === null || value === undefined) return "-";
             const num = Number(value);
@@ -1798,7 +1761,6 @@ async function loadPredictedLineup() {
 }
 
 loadActualLineups();
-loadTodayLineup();
 loadPredictedLineup();
 loadBattingStats(5);
         </script>

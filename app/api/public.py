@@ -842,19 +842,6 @@ def _fetch_recent_carp_games(limit: int) -> list[dict]:
         except Exception:
             pass
 
-    for box_url in _extract_current_scoreboard_game_urls(current_html):
-        meta = _build_game_meta_from_box_url(box_url)
-        all_games.append({
-            "date": meta["date"],
-            "date_sort": meta["date_sort"],
-            "opponent": meta["opponent"],
-            "venue": meta["venue"],
-            "round": meta["round"],
-            "score": "",
-            "result": "",
-            "box_url": box_url,
-        })
-
     dedup: dict[str, dict] = {}
     for game in all_games:
         dedup[game["box_url"]] = game

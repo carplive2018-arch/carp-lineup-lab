@@ -811,7 +811,7 @@ def _parse_result_rows_to_games(rows: list[list[str]], year: str) -> list[dict]:
         })
 
     return games
-
+@lru_cache(maxsize=4)
 def _fetch_recent_carp_games(limit: int) -> list[dict]:
     current_results_url = "https://npb.jp/bis/teams/results_c_index.html"
     current_html = _fetch_html(current_results_url)
@@ -901,7 +901,7 @@ def _analyze_plate_results(result_cells: list[str]) -> dict:
 
     return stats
 
-
+@lru_cache(maxsize=32)
 def _parse_carp_batting_rows(box_url: str) -> list[dict]:
     html = _fetch_html(box_url)
     tables = _extract_tables(html)
@@ -1015,6 +1015,8 @@ def build_predicted_lineup(
                     used_player_mask | (1 << player_idx),
                     used_position_mask | pos_bit,
                 )
+                if tail_score <= -999999:
+                    continue
 
                 total_score = score + tail_score
 
@@ -1040,7 +1042,7 @@ def build_predicted_lineup(
 
     total_score, lineup_tuple = dp(0, 0, 0)
 
-    if not lineup_tuple:
+    if len(lineup_tuple) != len(slot_defs):
         return {
             "status": "error",
             "message": "候補選手や守備位置の設定が足りず、スタメンを組めませんでした。",
@@ -1077,8 +1079,9 @@ def build_predicted_lineup(
         "total_score": _round3(total_score),
         "lineup": lineup,
     }
-
+@lru_cache(maxsize=2)
 def _aggregate_recent_batting_stats(games: int) -> dict:
+    
     if games not in (5, 10):
         raise HTTPException(status_code=400, detail="games は 5 または 10 にしてください。")
 

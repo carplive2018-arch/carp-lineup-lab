@@ -610,7 +610,6 @@ def _aggregate_recent_batting_stats(games: int) -> dict:
                 aggregated[name][key] += row[key]
 
     players = list(aggregated.values())
-    players_before_filter = len(players)
     
     for player in players:
         pa = (
@@ -633,16 +632,12 @@ def _aggregate_recent_batting_stats(games: int) -> dict:
         player["on_base_percentage"] = _round3(
             (player["hits"] + player["walks"] + player["hit_by_pitch"]) / obp_den
         ) if obp_den > 0 else 0.0
-    zero_appearance_players_count = sum(
-        1 for player in players
-        if player["at_bats"] == 0 and player["plate_appearances"] == 0
-    )
+    
 
     players = [
         player for player in players
         if player["at_bats"] > 0 or player["plate_appearances"] > 0
     ]
-    players_after_filter = len(players)
 
     
     players.sort(
@@ -707,9 +702,7 @@ def _aggregate_recent_batting_stats(games: int) -> dict:
         "games_found": len(recent_games),
         "games_used": len(used_games),
         "games_skipped": len(skipped_games),
-        "players_before_filter": players_before_filter,
-        "players_after_filter": players_after_filter,
-        "zero_appearance_players_count": zero_appearance_players_count,
+
         "source": "NPB公式",
         "source_urls": [
             "https://npb.jp/bis/teams/results_c_index.html",
@@ -788,13 +781,6 @@ def recent_actual_lineups() -> JSONResponse:
 def recent_5_batting_stats():
     try:
         result = _aggregate_recent_batting_stats(5)
-        result["debug_marker"] = "recent5-debug-0511"
-        result["debug_count"] = {
-            "games_found": result.get("games_found"),
-            "games_used": result.get("games_used"),
-            "recent_games_count": len(result.get("recent_games", [])),
-            "players_count": len(result.get("players", [])),
-        }
         return result
     except Exception as e:
         return JSONResponse(
@@ -804,7 +790,6 @@ def recent_5_batting_stats():
                 "message": str(e),
                 "recent_games": [],
                 "players": [],
-                "debug_marker": "recent5-debug-0511-error",
             },
         )
 
@@ -813,13 +798,6 @@ def recent_5_batting_stats():
 def recent_10_batting_stats():
     try:
         result = _aggregate_recent_batting_stats(10)
-        result["debug_marker"] = "recent10-debug-0511"
-        result["debug_count"] = {
-            "games_found": result.get("games_found"),
-            "games_used": result.get("games_used"),
-            "recent_games_count": len(result.get("recent_games", [])),
-            "players_count": len(result.get("players", [])),
-        }
         return result
     except Exception as e:
         return JSONResponse(
@@ -829,7 +807,6 @@ def recent_10_batting_stats():
                 "message": str(e),
                 "recent_games": [],
                 "players": [],
-                "debug_marker": "recent10-debug-0511-error",
             },
         )
 

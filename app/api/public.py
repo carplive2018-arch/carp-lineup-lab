@@ -342,7 +342,10 @@ def _safe_int(value: str) -> int:
 
 
 def _round3(value: float) -> float:
-    def _safe_float(value) -> float:
+    return round(value, 3)
+
+
+def _safe_float(value) -> float:
     try:
         return float(value)
     except Exception:
@@ -486,38 +489,29 @@ def _slot_score(
 
     weights = slot["weights"]
 
-    # 基本式
     score = (
         weights["recent"] * recent_form
         + weights["defense"] * defense_score
         + weights["season_pos"] * season_pos_score
     )
 
-    # 打順の役割で少しだけ味付け
     role = slot["role"]
 
     if role == "leadoff":
         score += 0.20 * recent_obp_z
-
     elif role == "table_plus_power":
         score += 0.15 * recent_obp_z + 0.15 * recent_iso_z
-
     elif role == "middle":
         score += 0.10 * recent_obp_z + 0.25 * recent_iso_z
-
     elif role == "cleanup":
         score += 0.10 * recent_obp_z + 0.30 * recent_iso_z
-
     elif role == "connector":
         score += 0.20 * recent_obp_z + 0.10 * defense_score
-
     elif role == "bottom_glove":
         score += 0.20 * defense_score - 0.05 * recent_iso_z
-
     elif role == "turnover":
         score += 0.20 * recent_obp_z + 0.15 * defense_score
 
-    # 守備が足りない時のペナルティ
     if defense_score < slot.get("min_defense", -999):
         score -= slot.get("low_defense_penalty", 0.0)
 
@@ -543,8 +537,6 @@ def _build_slot_reason(
         f"守備スコア {defense_score:+.2f} を評価して "
         f"{slot['order']}番 {POSITION_LABELS.get(chosen_position, chosen_position)}"
     )
-
-    return round(value, 3)
 
 
 def _fetch_html(url: str) -> str:
@@ -970,9 +962,7 @@ def _parse_carp_batting_rows(box_url: str) -> list[dict]:
         })
 
     return rows
-
-def _aggregate_recent_batting_stats(games: int) -> dict:
-    def build_predicted_lineup(
+def build_predicted_lineup(
     dh: bool,
     window_games: int = 5,
     predicted_pitcher_name: str = "先発投手",
@@ -1088,6 +1078,7 @@ def _aggregate_recent_batting_stats(games: int) -> dict:
         "lineup": lineup,
     }
 
+def _aggregate_recent_batting_stats(games: int) -> dict:
     if games not in (5, 10):
         raise HTTPException(status_code=400, detail="games は 5 または 10 にしてください。")
 

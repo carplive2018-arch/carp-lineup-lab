@@ -70,21 +70,21 @@ def _layout(title: str, body: str) -> HTMLResponse:
             .date {{ font-size: 18px; font-weight: 700; margin-bottom: 8px; }}
             .small {{ font-size: 12px; color: #a9b5d1; }}
             code {{ background: #0f1730; padding: 2px 6px; border-radius: 6px; }}
-          </style>
-        </head>
-        .segmented { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 14px; }
-            .segmented button { border: 1px solid #39507d; background: #16203d; color: #eaf1ff; border-radius: 999px; padding: 10px 14px; cursor: pointer; font-weight: 700; }
-            .segmented button.active { background: #ffd54a; color: #182033; border-color: #ffd54a; }
-            .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-top: 14px; }
-            .stat-box { background: #0f1730; border: 1px solid #26304d; border-radius: 12px; padding: 12px; }
-            .stat-label { font-size: 12px; color: #a9b5d1; margin-bottom: 6px; }
-            .stat-value { font-size: 20px; font-weight: 700; }
-            .table-wrap { margin-top: 16px; overflow-x: auto; }
-            .stats-table { width: 100%; border-collapse: collapse; min-width: 880px; }
-            .stats-table th, .stats-table td { border-bottom: 1px solid #26304d; padding: 10px 8px; text-align: right; }
-            .stats-table th:first-child, .stats-table td:first-child { text-align: left; position: sticky; left: 0; background: #121a31; }
-            .stats-table th { font-size: 12px; color: #a9b5d1; }
+            .segmented {{ display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 14px; }}
+            .segmented button {{ border: 1px solid #39507d; background: #16203d; color: #eaf1ff; border-radius: 999px; padding: 10px 14px; cursor: pointer; font-weight: 700; }}
+            .segmented button.active {{ background: #ffd54a; color: #182033; border-color: #ffd54a; }}
+            .stats-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-top: 14px; }}
+            .stat-box {{ background: #0f1730; border: 1px solid #26304d; border-radius: 12px; padding: 12px; }}
+            .stat-label {{ font-size: 12px; color: #a9b5d1; margin-bottom: 6px; }}
+            .stat-value {{ font-size: 20px; font-weight: 700; }}
+            .table-wrap {{ margin-top: 16px; overflow-x: auto; }}
+            .stats-table {{ width: 100%; border-collapse: collapse; min-width: 880px; }}
+            .stats-table th, .stats-table td {{ border-bottom: 1px solid #26304d; padding: 10px 8px; text-align: right; }}
+            .stats-table th:first-child, .stats-table td:first-child {{ text-align: left; position: sticky; left: 0; background: #121a31; }}
+            .stats-table th {{ font-size: 12px; color: #a9b5d1; }}
 
+        </style>
+        </head>
         <body>
           <div class="wrap">{body}</div>
         </body>

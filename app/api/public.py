@@ -177,7 +177,7 @@ DH_LINEUP_SLOTS = [
     },
     {
         "order": 7,
-        "allowed_positions": [POS_SS, POS_C],
+        "allowed_positions": [POS_C],
         "role": "bottom_glove",
         "weights": {"recent": 0.15, "defense": 0.65, "season_pos": 0.20},
         "min_defense": 0.30,
@@ -185,7 +185,7 @@ DH_LINEUP_SLOTS = [
     },
     {
         "order": 8,
-        "allowed_positions": [POS_C, POS_SS],
+        "allowed_positions": [POS_SS],
         "role": "bottom_glove",
         "weights": {"recent": 0.10, "defense": 0.70, "season_pos": 0.20},
         "min_defense": 0.30,
@@ -193,11 +193,11 @@ DH_LINEUP_SLOTS = [
     },
     {
         "order": 9,
-        "allowed_positions": [POS_SS, POS_2B],
+        "allowed_positions": [POS_RF, POS_3B],
         "role": "turnover",
-        "weights": {"recent": 0.35, "defense": 0.45, "season_pos": 0.20},
-        "min_defense": 0.00,
-        "low_defense_penalty": 1.20,
+        "weights": {"recent": 0.35, "defense": 0.25, "season_pos": 0.40},
+        "min_defense": -0.30,
+        "low_defense_penalty": 0.80,
     },
 ]
 
@@ -424,7 +424,18 @@ def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
 
 def _build_recent_score_maps(window_games: int, candidate_names: list[str]) -> dict:
     recent_data = _aggregate_recent_batting_stats(window_games)
-    recent_players = {p["player_name"]: p for p in recent_data.get("players", [])}
+    short_to_full = {}
+    for name in candidate_names:
+        cleaned = _clean_text(name)
+        short = cleaned.split(" ")[0] if " " in cleaned else cleaned
+        short_to_full[short] = name
+
+    recent_players = {}
+    for p in recent_data.get("players", []):
+        raw_name = _clean_text(p.get("player_name", ""))
+        mapped_name = short_to_full.get(raw_name, raw_name)
+        recent_players[mapped_name] = p
+
 
     obp_map: dict[str, float] = {}
     iso_map: dict[str, float] = {}

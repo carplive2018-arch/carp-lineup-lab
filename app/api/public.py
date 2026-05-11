@@ -1392,6 +1392,24 @@ def index() -> HTMLResponse:
 
         <div class="card">
           <h2>今日の予想スタメン</h2>
+          <div class="card">
+  <h2>予想スタメン（DHあり / DHなし）</h2>
+  <p class="muted">直近5試合 / 10試合 と、DHあり / なし を切り替えて予想スタメンを表示します。</p>
+
+  <div class="segmented">
+    <button id="predicted-window-5" class="active" type="button" onclick="setPredictedWindow(5)">直近5試合</button>
+    <button id="predicted-window-10" type="button" onclick="setPredictedWindow(10)">直近10試合</button>
+  </div>
+
+  <div class="segmented">
+    <button id="predicted-mode-dh-yes" class="active" type="button" onclick="setPredictedMode('dh-yes')">DHあり</button>
+    <button id="predicted-mode-dh-no" type="button" onclick="setPredictedMode('dh-no')">DHなし</button>
+  </div>
+
+  <p id="predicted-status" class="muted">読み込み中...</p>
+  <div id="predicted-lineup" class="grid"></div>
+</div>
+
           <p id="today-status" class="muted">読み込み中...</p>
           <div id="today-lineup" class="grid"></div>
         </div>
@@ -1626,10 +1644,88 @@ def index() -> HTMLResponse:
               playersEl.innerHTML = '<tr><td colspan="9" class="muted">読み込み失敗</td></tr>';
             }
           }
+let predictedWindow = 5;
+let predictedMode = "dh-yes";
 
-          loadActualLineups();
-          loadTodayLineup();
-          loadBattingStats(5);
+function syncPredictedButtons() {
+  document.getElementById("predicted-window-5")?.classList.toggle("active", predictedWindow === 5);
+  document.getElementById("predicted-window-10")?.classList.toggle("active", predictedWindow === 10);
+
+  document.getElementById("predicted-mode-dh-yes")?.classList.toggle("active", predictedMode === "dh-yes");
+  document.getElementById("predicted-mode-dh-no")?.classList.toggle("active", predictedMode === "dh-no");
+}
+
+function setPredictedWindow(windowGames) {
+  predictedWindow = windowGames;
+  syncPredictedButtons();
+  loadPredictedLineup();
+}
+
+function setPredictedMode(mode) {
+  predictedMode = mode;
+  syncPredictedButtons();
+  loadPredictedLineup();
+}
+
+function renderPredictedLineup(lineup) {
+  const lineupEl = document.getElementById("predicted-lineup");
+
+  if (!lineup || !Array.isArray(lineup) || lineup.length === 0) {
+    lineupEl.innerHTML = '<p class="muted">予想スタメンを表示できませんでした。</p>';
+    return;
+  }
+
+  lineupEl.innerHTML = lineup.map(player => `
+    <div class="game-card">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
+        <div>
+          <div class="small">${player.order}番 / ${player.position_label}</div>
+          <div class="date" style="margin-bottom:4px;">${player.player_name}</div>
+        </div>
+        <div style="text-align:right;">
+          <div class="small">model score</div>
+          <div style="font-size:20px; font-weight:700;">${player.score ?? "-"}</div>
+        </div>
+      </div>
+      <div class="muted">${player.reason || ""}</div>
+    </div>
+  `).join("");
+}
+
+async function loadPredictedLineup() {
+  const statusEl = document.getElementById("predicted-status");
+  const lineupEl = document.getElementById("predicted-lineup");
+
+  syncPredictedButtons();
+  statusEl.textContent = "予想スタメンを読み込み中...";
+  lineupEl.innerHTML = "";
+
+  try {
+    const res = await fetch(`/api/lineups/predicted/${predictedMode}?window=${predictedWindow}`);
+    const data = await res.json();
+
+    if (!data || data.status !== "ok") {
+      throw new Error(data?.message || "予想スタメンAPIの取得に失敗しました。");
+    }
+
+    const modeLabel = predictedMode === "dh-yes" ? "DHあり" : "DHなし";
+
+    statusEl.innerHTML =
+      `モード: <strong>${modeLabel}</strong> / ` +
+      `対象: <strong>直近${predictedWindow}試合</strong> / ` +
+      `合計スコア: <strong>${data.total_score ?? "-"}</strong>`;
+
+    renderPredictedLineup(data.lineup || []);
+  } catch (e) {
+    statusEl.textContent = "予想スタメンを表示できませんでした。";
+    lineupEl.innerHTML = '<p class="muted">読み込み失敗</p>';
+  }
+}
+
+　　　　　　loadActualLineups();
+　　　　　　loadTodayLineup();
+　　　　　　loadPredictedLineup();
+　　　　　　loadBattingStats(5);
         </script>
         """,
     )

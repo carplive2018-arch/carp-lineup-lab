@@ -541,6 +541,7 @@ def _slot_score(
     recent_obp_z = recent_maps["obp_z"].get(player_name, 0.0) * sample_weight
     recent_iso_z = recent_maps["iso_z"].get(player_name, 0.0) * sample_weight
     defense_score = _safe_float(PLAYER_DEFENSE.get(player_name, {}).get(chosen_position, 0.0))
+    season_pos_score = season_pos_score_maps.get(chosen_position, {}).get(player_name, 0.0)
 
 
 

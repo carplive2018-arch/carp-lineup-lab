@@ -428,19 +428,29 @@ def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
         "adj_iso": _round3(adj_iso),
     }
 
+
 def _build_recent_score_maps(window_games: int, candidate_names: list[str]) -> dict:
     recent_data = _aggregate_recent_batting_stats(window_games)
 
-    short_to_full = {}
+    alias_to_full = {}
     for name in candidate_names:
         cleaned = _clean_text(name)
-        short = cleaned.split(" ")[0] if " " in cleaned else cleaned
-        short_to_full[short] = name
+        nospace = cleaned.replace(" ", "").replace("　", "")
+        surname = cleaned.split(" ")[0] if " " in cleaned else cleaned
+
+        alias_to_full[cleaned] = name
+        alias_to_full[nospace] = name
+        alias_to_full[surname] = name
 
     recent_players = {}
     for p in recent_data.get("players", []):
         raw_name = _clean_text(p.get("player_name", ""))
-        mapped_name = short_to_full.get(raw_name, raw_name)
+        raw_nospace = raw_name.replace(" ", "").replace("　", "")
+        mapped_name = (
+            alias_to_full.get(raw_name)
+            or alias_to_full.get(raw_nospace)
+            or raw_name
+        )
         recent_players[mapped_name] = p
 
     team_totals = recent_data.get("team_totals", {})
@@ -489,7 +499,13 @@ def _build_recent_score_maps(window_games: int, candidate_names: list[str]) -> d
     iso_z = _zscore_map(adj_iso_map)
 
     recent_form_score = {
-            recent_bat_value = {
+        name: sample_weight_map.get(name, 0.0) * (
+            0.55 * obp_z.get(name, 0.0) + 0.45 * iso_z.get(name, 0.0)
+        )
+        for name in candidate_names
+    }
+
+    recent_bat_value = {
         name: sample_weight_map.get(name, 0.0) * (
             0.60 * obp_z.get(name, 0.0) + 0.40 * iso_z.get(name, 0.0)
         )
@@ -505,12 +521,6 @@ def _build_recent_score_maps(window_games: int, candidate_names: list[str]) -> d
         reverse=True,
     )
     top_catcher_bats = set(catcher_candidates[:2])
-
-        name: sample_weight_map.get(name, 0.0) * (
-            0.55 * obp_z.get(name, 0.0) + 0.45 * iso_z.get(name, 0.0)
-        )
-        for name in candidate_names
-    }
 
     return {
         "raw_players": recent_players,

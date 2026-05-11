@@ -130,7 +130,7 @@ DH_LINEUP_SLOTS = [
     {
         "order": 1,
         "allowed_positions": [POS_CF, POS_2B],
-        "role": "leadoff",
+        "role": "lead_obp_glove",
         "weights": {"recent": 0.45, "defense": 0.35, "season_pos": 0.20},
         "min_defense": 0.00,
         "low_defense_penalty": 1.20,
@@ -138,7 +138,7 @@ DH_LINEUP_SLOTS = [
     {
         "order": 2,
         "allowed_positions": [POS_DH, POS_1B],
-        "role": "middle",
+        "role": "two_hole_bat",
         "weights": {"recent": 0.50, "defense": 0.10, "season_pos": 0.40},
         "min_defense": -9.99,
         "low_defense_penalty": 0.00,
@@ -146,7 +146,7 @@ DH_LINEUP_SLOTS = [
     {
         "order": 3,
         "allowed_positions": [POS_3B, POS_RF],
-        "role": "middle",
+        "role": "three_hole_iso_glove",
         "weights": {"recent": 0.45, "defense": 0.20, "season_pos": 0.35},
         "min_defense": -0.30,
         "low_defense_penalty": 0.80,
@@ -154,7 +154,7 @@ DH_LINEUP_SLOTS = [
     {
         "order": 4,
         "allowed_positions": [POS_1B, POS_DH],
-        "role": "cleanup",
+        "role": "cleanup_bat",
         "weights": {"recent": 0.50, "defense": 0.05, "season_pos": 0.45},
         "min_defense": -9.99,
         "low_defense_penalty": 0.00,
@@ -162,7 +162,7 @@ DH_LINEUP_SLOTS = [
     {
         "order": 5,
         "allowed_positions": [POS_LF],
-        "role": "middle",
+        "role": "five_hole_power",
         "weights": {"recent": 0.45, "defense": 0.15, "season_pos": 0.40},
         "min_defense": -0.60,
         "low_defense_penalty": 0.90,
@@ -170,7 +170,7 @@ DH_LINEUP_SLOTS = [
     {
         "order": 6,
         "allowed_positions": [POS_2B, POS_CF],
-        "role": "connector",
+        "role": "six_hole_balance",
         "weights": {"recent": 0.35, "defense": 0.40, "season_pos": 0.25},
         "min_defense": 0.00,
         "low_defense_penalty": 1.20,
@@ -178,7 +178,7 @@ DH_LINEUP_SLOTS = [
     {
         "order": 7,
         "allowed_positions": [POS_C],
-        "role": "bottom_glove",
+        "role": "glove_bottom",
         "weights": {"recent": 0.15, "defense": 0.65, "season_pos": 0.20},
         "min_defense": 0.30,
         "low_defense_penalty": 1.50,
@@ -186,7 +186,7 @@ DH_LINEUP_SLOTS = [
     {
         "order": 8,
         "allowed_positions": [POS_SS],
-        "role": "bottom_glove",
+        "role": "glove_bottom",
         "weights": {"recent": 0.10, "defense": 0.70, "season_pos": 0.20},
         "min_defense": 0.30,
         "low_defense_penalty": 1.50,
@@ -194,7 +194,7 @@ DH_LINEUP_SLOTS = [
     {
         "order": 9,
         "allowed_positions": [POS_RF, POS_3B],
-        "role": "turnover",
+        "role": "turnover_obp",
         "weights": {"recent": 0.35, "defense": 0.25, "season_pos": 0.40},
         "min_defense": -0.30,
         "low_defense_penalty": 0.80,
@@ -207,7 +207,7 @@ NO_DH_LINEUP_SLOTS = [
     {
         "order": 1,
         "allowed_positions": [POS_CF, POS_2B],
-        "role": "leadoff",
+        "role": "lead_obp_glove",
         "weights": {"recent": 0.40, "defense": 0.40, "season_pos": 0.20},
         "min_defense": 0.00,
         "low_defense_penalty": 1.20,
@@ -215,7 +215,7 @@ NO_DH_LINEUP_SLOTS = [
     {
         "order": 2,
         "allowed_positions": [POS_1B, POS_3B],
-        "role": "table_plus_power",
+        "role": "two_hole_bat",
         "weights": {"recent": 0.40, "defense": 0.20, "season_pos": 0.40},
         "min_defense": -0.40,
         "low_defense_penalty": 0.90,
@@ -223,7 +223,7 @@ NO_DH_LINEUP_SLOTS = [
     {
         "order": 3,
         "allowed_positions": [POS_RF, POS_3B],
-        "role": "middle",
+        "role": "three_hole_iso_glove",
         "weights": {"recent": 0.45, "defense": 0.20, "season_pos": 0.35},
         "min_defense": -0.30,
         "low_defense_penalty": 0.80,
@@ -231,7 +231,7 @@ NO_DH_LINEUP_SLOTS = [
     {
         "order": 4,
         "allowed_positions": [POS_LF, POS_1B],
-        "role": "cleanup",
+        "role": "cleanup_bat",
         "weights": {"recent": 0.45, "defense": 0.15, "season_pos": 0.40},
         "min_defense": -0.50,
         "low_defense_penalty": 0.90,
@@ -239,7 +239,7 @@ NO_DH_LINEUP_SLOTS = [
     {
         "order": 5,
         "allowed_positions": [POS_3B, POS_RF],
-        "role": "middle",
+        "role": "five_hole_power",
         "weights": {"recent": 0.40, "defense": 0.20, "season_pos": 0.40},
         "min_defense": -0.30,
         "low_defense_penalty": 0.80,
@@ -247,7 +247,7 @@ NO_DH_LINEUP_SLOTS = [
     {
         "order": 6,
         "allowed_positions": [POS_2B, POS_CF],
-        "role": "connector",
+        "role": "six_hole_balance",
         "weights": {"recent": 0.35, "defense": 0.40, "season_pos": 0.25},
         "min_defense": 0.00,
         "low_defense_penalty": 1.20,
@@ -255,7 +255,7 @@ NO_DH_LINEUP_SLOTS = [
     {
         "order": 7,
         "allowed_positions": [POS_C, POS_SS],
-        "role": "bottom_glove",
+        "role": "glove_bottom",
         "weights": {"recent": 0.10, "defense": 0.70, "season_pos": 0.20},
         "min_defense": 0.30,
         "low_defense_penalty": 1.50,
@@ -263,7 +263,7 @@ NO_DH_LINEUP_SLOTS = [
     {
         "order": 8,
         "allowed_positions": [POS_SS, POS_C],
-        "role": "bottom_glove",
+        "role": "glove_bottom",
         "weights": {"recent": 0.10, "defense": 0.70, "season_pos": 0.20},
         "min_defense": 0.30,
         "low_defense_penalty": 1.50,
@@ -508,20 +508,30 @@ def _slot_score(
 
     role = slot["role"]
 
-    if role == "leadoff":
-        score += 0.20 * recent_obp_z
-    elif role == "table_plus_power":
-        score += 0.15 * recent_obp_z + 0.15 * recent_iso_z
-    elif role == "middle":
-        score += 0.10 * recent_obp_z + 0.25 * recent_iso_z
-    elif role == "cleanup":
-        score += 0.10 * recent_obp_z + 0.30 * recent_iso_z
-    elif role == "connector":
-        score += 0.20 * recent_obp_z + 0.10 * defense_score
-    elif role == "bottom_glove":
-        score += 0.20 * defense_score - 0.05 * recent_iso_z
-    elif role == "turnover":
-        score += 0.20 * recent_obp_z + 0.15 * defense_score
+    if role == "lead_obp_glove":
+        score += 0.30 * recent_obp_z + 0.15 * defense_score
+
+    elif role == "two_hole_bat":
+        score += 0.30 * recent_obp_z + 0.30 * recent_iso_z
+
+    elif role == "three_hole_iso_glove":
+        score += 0.15 * recent_obp_z + 0.30 * recent_iso_z + 0.10 * defense_score
+
+    elif role == "cleanup_bat":
+        score += 0.15 * recent_obp_z + 0.40 * recent_iso_z
+
+    elif role == "five_hole_power":
+        score += 0.05 * recent_obp_z + 0.35 * recent_iso_z
+
+    elif role == "six_hole_balance":
+        score += 0.20 * recent_obp_z + 0.20 * defense_score
+
+    elif role == "glove_bottom":
+        score += 0.25 * defense_score - 0.05 * recent_obp_z - 0.05 * recent_iso_z
+
+    elif role == "turnover_obp":
+        score += 0.25 * recent_obp_z + 0.10 * defense_score
+
 
     if defense_score < slot.get("min_defense", -999):
         score -= slot.get("low_defense_penalty", 0.0)

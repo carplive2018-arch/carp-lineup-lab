@@ -124,7 +124,24 @@ POSITION_LABELS = {
 # まずは「器」だけ置く。数値はあとで埋めればOK。
 # eligible_positions は「その選手に守らせてもよい位置」
 PLAYER_PROFILE = {
-    FARM_PROMOTION_CANDIDATES = {
+    "坂倉 将吾": {"eligible_positions": [POS_C, POS_1B, POS_3B, POS_DH]},
+    "小園 海斗": {"eligible_positions": [POS_SS, POS_3B]},
+    "菊池 涼介": {"eligible_positions": [POS_2B]},
+    "モンテロ": {"eligible_positions": [POS_1B, POS_DH]},
+    "持丸 泰輝": {"eligible_positions": [POS_C, POS_DH]},
+    "石原 貴規": {"eligible_positions": [POS_C]},
+    "矢野 雅哉": {"eligible_positions": [POS_SS]},
+    "二俣 翔一": {"eligible_positions": [POS_1B, POS_3B, POS_SS, POS_2B, POS_RF, POS_CF, POS_LF]},
+    "秋山 翔吾": {"eligible_positions": [POS_LF, POS_CF, POS_RF]},
+    "大盛 穂": {"eligible_positions": [POS_LF, POS_CF, POS_RF]},
+    "野間 峻祥": {"eligible_positions": [POS_LF, POS_CF, POS_RF]},
+    "平川 蓮": {"eligible_positions": [POS_LF, POS_CF, POS_RF]},
+    "ファビアン": {"eligible_positions": [POS_LF, POS_RF, POS_DH]},
+    "佐々木 泰": {"eligible_positions": [POS_1B, POS_3B, POS_DH]},
+    "勝田 成": {"eligible_positions": [POS_2B, POS_SS]},
+}
+
+FARM_PROMOTION_CANDIDATES = {
     "堂林 翔太": {"eligible_positions": [POS_1B, POS_3B]},
     "末包 昇大": {"eligible_positions": [POS_LF, POS_RF, POS_DH]},
     "田村 俊介": {"eligible_positions": [POS_LF, POS_CF, POS_RF]},
@@ -136,22 +153,6 @@ PLAYER_PROFILE = {
 
 PLAYER_PROFILE.update(FARM_PROMOTION_CANDIDATES)
 
-    "坂倉 将吾": {"eligible_positions": [POS_C, POS_1B, POS_3B, POS_DH]},
-    "小園 海斗": {"eligible_positions": [POS_SS, POS_3B]},
-    "菊池 涼介": {"eligible_positions": [POS_2B]},
-    "モンテロ": {"eligible_positions": [POS_1B, POS_DH]},
-    "持丸 泰輝": {"eligible_positions": [POS_C, POS_DH]},
-    "石原 貴規": {"eligible_positions": [POS_C]},
-    "矢野 雅哉": {"eligible_positions": [POS_SS]},
-    "二俣 翔一": {"eligible_positions": [POS_1B, POS_3B, POS_SS, POS_2B, POS_RF, POS_CF,POS_LF]},
-    "秋山 翔吾": {"eligible_positions": [POS_LF, POS_CF, POS_RF]},
-    "大盛 穂": {"eligible_positions": [POS_LF, POS_CF, POS_RF]},
-    "野間 峻祥": {"eligible_positions": [POS_LF, POS_CF, POS_RF]},
-    "平川 蓮": {"eligible_positions": [POS_LF, POS_CF, POS_RF]},
-    "ファビアン": {"eligible_positions": [POS_LF, POS_RF, POS_DH]},
-    "佐々木 泰": {"eligible_positions": [POS_1B, POS_3B, POS_DH]},
-    "勝田 成": {"eligible_positions": [POS_2B, POS_SS]},
-}
 
 # 今季通算の打撃。最初は空でOK。あとで手入力で埋める。
 # 値の目安:

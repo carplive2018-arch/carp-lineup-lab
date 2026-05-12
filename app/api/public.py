@@ -901,15 +901,46 @@ def _build_slot_reason(
     recent_player = recent_maps["raw_players"].get(player_name, {})
     recent_obp = _safe_float(recent_player.get("on_base_percentage", 0.0))
     recent_iso = _calc_iso_from_stats(recent_player)
+    recent_pa = int(recent_maps.get("pa_map", {}).get(player_name, 0) or 0)
+
     defense_score = _safe_float(PLAYER_DEFENSE.get(player_name, {}).get(chosen_position, 0.0))
     season_adj = _get_adjusted_position_batting(player_name, chosen_position)
 
+    active_first_team = set(recent_maps.get("active_first_team", []))
+    farm_score_map = recent_maps.get("farm_score_map", {})
+    farm_pa_map = recent_maps.get("farm_pa_map", {})
+    farm_pa = int(farm_pa_map.get(player_name, 0) or 0)
+    farm_score = _safe_float(farm_score_map.get(player_name, 0.0))
+
+    is_recent_promotion = _is_recently_promoted(player_name) and player_name in farm_score_map
+    is_farm_candidate = player_name not in active_first_team and player_name in farm_score_map
+
+    position_label = POSITION_LABELS.get(chosen_position, chosen_position)
+
+    if is_recent_promotion:
+        return (
+            f"昇格7日特例 / 二軍{farm_pa}打席の比較値(0.9倍) {farm_score:+.3f} / "
+            f"{position_label}時の今季補正OBP {season_adj['adj_obp']:.3f} / "
+            f"今季補正ISO {season_adj['adj_iso']:.3f} / "
+            f"守備スコア {defense_score:+.2f} を評価して "
+            f"{slot['order']}番 {position_label}"
+        )
+
+    if is_farm_candidate:
+        return (
+            f"二軍候補 / 二軍{farm_pa}打席の比較値(0.9倍) {farm_score:+.3f} / "
+            f"{position_label}時の今季補正OBP {season_adj['adj_obp']:.3f} / "
+            f"今季補正ISO {season_adj['adj_iso']:.3f} / "
+            f"守備スコア {defense_score:+.2f} を評価して "
+            f"{slot['order']}番 {position_label}"
+        )
+
     return (
-        f"直近OBP {recent_obp:.3f} / 直近ISO {recent_iso:.3f} / "
-        f"{POSITION_LABELS.get(chosen_position, chosen_position)}時の今季補正OBP {season_adj['adj_obp']:.3f} / "
+        f"一軍比較 / 直近PA {recent_pa} / 直近OBP {recent_obp:.3f} / 直近ISO {recent_iso:.3f} / "
+        f"{position_label}時の今季補正OBP {season_adj['adj_obp']:.3f} / "
         f"今季補正ISO {season_adj['adj_iso']:.3f} / "
         f"守備スコア {defense_score:+.2f} を評価して "
-        f"{slot['order']}番 {POSITION_LABELS.get(chosen_position, chosen_position)}"
+        f"{slot['order']}番 {position_label}"
     )
 
 

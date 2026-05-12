@@ -105,8 +105,9 @@ def main() -> None:
     first_team_block = extract_first_team_block(html)
     detected_names = detect_first_team_position_players(first_team_block, candidate_names)
 
-    if not detected_names:
-        raise RuntimeError("一軍メンバーの野手を検出できませんでした。")
+if not names:
+    print("WARNING: 一軍メンバーの野手名候補を取得できなかったため、既存の LAST_FIXED_FIRST_TEAM_POSITION_PLAYERS をそのまま使います。")
+    return
 
     updated_text = replace_last_fixed_block(public_py_text, detected_names)
 

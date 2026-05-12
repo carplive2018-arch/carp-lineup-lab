@@ -7,7 +7,6 @@ from pathlib import Path
 
 MEMBERS_URL = "https://www.carp.co.jp/team/members/"
 PUBLIC_PY_PATH = Path("app/api/public.py")
-print("SCRIPT_MARKER_2026_05_12_A")
 
 NAME_ALIASES = {
     "E.モンテロ": "モンテロ",
@@ -147,6 +146,8 @@ def _replace_last_fixed_block(public_py_text: str, names: list[str]) -> str:
 
 
 def main() -> None:
+    print("SCRIPT_MARKER_2026_05_12_A")
+
     public_py_text = PUBLIC_PY_PATH.read_text(encoding="utf-8")
     profile_names = _extract_player_profile_names(public_py_text)
 

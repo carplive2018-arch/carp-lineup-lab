@@ -1,0 +1,40 @@
+name: Update fixed first-team position players
+
+on:
+  schedule:
+    - cron: "35 8 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Update LAST_FIXED_FIRST_TEAM_POSITION_PLAYERS
+        run: python scripts/update_fixed_first_team_players.py
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add app/api/public.py
+
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+
+          git commit -m "auto update fixed first-team position players"
+          git push

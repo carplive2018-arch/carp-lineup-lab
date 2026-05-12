@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
 import re
 
 
@@ -57,6 +60,41 @@ MIN_CATCHER_RECENT_PA = 4
 WEAK_CATCHER_PENALTY = 1.6
 TOP_CATCHER_TO_DH_PENALTY = 1.0
 TOP_CATCHER_AT_C_BONUS = 0.8
+JST = ZoneInfo("Asia/Tokyo")
+
+FIRST_TEAM_MEMBERS_URL = "https://www.carp.co.jp/team/members"
+FARM_BATTING_STATS_URL = "https://npb.jp/bis/2026/stats/idb2_c.html"
+
+FIRST_TEAM_CONFIRM_HOUR = 17
+FIRST_TEAM_CONFIRM_MINUTE = 30
+
+FARM_MIN_PA = 50
+FARM_DISCOUNT = 0.90
+PROMOTION_GRACE_DAYS = 7
+
+LAST_FIXED_FIRST_TEAM_POSITION_PLAYERS = {
+    "坂倉 将吾",
+    "石原 貴規",
+    "持丸 泰輝",
+    "勝田 成",
+    "矢野 雅哉",
+    "小園 海斗",
+    "菊池 涼介",
+    "林 晃汰",
+    "辰見 鴻之介",
+    "前川 誠太",
+    "モンテロ",
+    "二俣 翔一",
+    "野間 峻祥",
+    "平川 蓮",
+    "大盛 穂",
+}
+
+PROMOTED_FROM_FARM = {
+    # 例:
+    # "田村 俊介": "2026-05-12",
+    # "末包 昇大": "2026-05-12",
+}
 
 # 守備位置コード
 POS_C = "C"
@@ -86,6 +124,18 @@ POSITION_LABELS = {
 # まずは「器」だけ置く。数値はあとで埋めればOK。
 # eligible_positions は「その選手に守らせてもよい位置」
 PLAYER_PROFILE = {
+    FARM_PROMOTION_CANDIDATES = {
+    "堂林 翔太": {"eligible_positions": [POS_1B, POS_3B]},
+    "末包 昇大": {"eligible_positions": [POS_LF, POS_RF, POS_DH]},
+    "田村 俊介": {"eligible_positions": [POS_LF, POS_CF, POS_RF]},
+    "中村 貴浩": {"eligible_positions": [POS_LF, POS_RF]},
+    "名原 典彦": {"eligible_positions": [POS_LF, POS_CF, POS_RF]},
+    "岸本 大希": {"eligible_positions": [POS_2B, POS_SS]},
+    "内田 湘大": {"eligible_positions": [POS_1B, POS_3B]},
+}
+
+PLAYER_PROFILE.update(FARM_PROMOTION_CANDIDATES)
+
     "坂倉 将吾": {"eligible_positions": [POS_C, POS_1B, POS_3B, POS_DH]},
     "小園 海斗": {"eligible_positions": [POS_SS, POS_3B]},
     "菊池 涼介": {"eligible_positions": [POS_2B]},
@@ -428,30 +478,221 @@ def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
         "adj_iso": _round3(adj_iso),
     }
 
+def _now_jst() -> datetime:
+    return datetime.now(JST)
+
+
+def _is_after_first_team_confirm_time(now: datetime | None = None) -> bool:
+    now = now or _now_jst()
+    check_time = now.replace(
+        hour=FIRST_TEAM_CONFIRM_HOUR,
+        minute=FIRST_TEAM_CONFIRM_MINUTE,
+        second=0,
+        microsecond=0,
+    )
+    return now >= check_time
+
+
+def _name_aliases(name: str) -> set[str]:
+    cleaned = _clean_text(name)
+    nospace = cleaned.replace(" ", "").replace("　", "")
+    aliases = {cleaned, nospace}
+
+    if " " in cleaned:
+        parts = [p for p in cleaned.split(" ") if p]
+        if parts:
+            aliases.add(parts[0])
+
+    if "." in cleaned:
+        tail = cleaned.split(".")[-1].strip()
+        if tail:
+            aliases.add(tail)
+            aliases.add(_normalize_name(tail))
+
+    return {a for a in aliases if a}
+
+
+def _find_farm_batting_table(tables: list[list[list[str]]]) -> list[list[str]]:
+    for table in tables:
+        if not table:
+            continue
+
+        header = [_clean_text(cell) for cell in table[0]]
+        required = {"選手", "打席", "打数", "打率", "長打率", "出塁率"}
+
+        if required.issubset(set(header)):
+            return table
+
+    return []
+
+
+@lru_cache(maxsize=1)
+def _fetch_current_first_team_position_players() -> set[str]:
+    try:
+        html = _fetch_html(FIRST_TEAM_MEMBERS_URL)
+        text = _clean_text(html)
+        normalized_text = text.replace(" ", "").replace("　", "")
+
+        m = re.search(r"一軍メンバー(.*?)二軍メンバー", normalized_text)
+        block = m.group(1) if m else normalized_text
+
+        result = set()
+        for name in PLAYER_PROFILE.keys():
+            for alias in _name_aliases(name):
+                if _normalize_name(alias) in block:
+                    result.add(name)
+                    break
+
+        if result:
+            return result
+    except Exception:
+        pass
+
+    return set(LAST_FIXED_FIRST_TEAM_POSITION_PLAYERS)
+
+
+def _get_active_first_team_position_players(now: datetime | None = None) -> set[str]:
+    now = now or _now_jst()
+
+    if _is_after_first_team_confirm_time(now):
+        current = _fetch_current_first_team_position_players()
+        if current:
+            return set(current)
+
+    return set(LAST_FIXED_FIRST_TEAM_POSITION_PLAYERS)
+
+
+def _is_recently_promoted(player_name: str, now: datetime | None = None) -> bool:
+    now = now or _now_jst()
+    date_str = PROMOTED_FROM_FARM.get(player_name)
+    if not date_str:
+        return False
+
+    try:
+        promoted_at = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=JST)
+    except Exception:
+        return False
+
+    return now < promoted_at + timedelta(days=PROMOTION_GRACE_DAYS)
+
+
+def _build_farm_score_maps(candidate_names: list[str]) -> dict:
+    try:
+        html = _fetch_html(FARM_BATTING_STATS_URL)
+        tables = _extract_tables(html)
+        table = _find_farm_batting_table(tables)
+
+        if not table:
+            return {
+                "farm_score": {},
+                "farm_pa": {},
+            }
+
+        header = [_clean_text(cell) for cell in table[0]]
+        idx = {name: i for i, name in enumerate(header)}
+
+        def cell(row: list[str], key: str) -> str:
+            i = idx.get(key)
+            if i is None or i >= len(row):
+                return ""
+            return row[i]
+
+        alias_to_full = {}
+        for name in candidate_names:
+            for alias in _name_aliases(name):
+                alias_to_full[_normalize_name(alias)] = name
+
+        obp_map: dict[str, float] = {}
+        iso_map: dict[str, float] = {}
+        pa_map: dict[str, int] = {}
+
+        for row in table[1:]:
+            raw_name = _clean_text(cell(row, "選手"))
+            raw_name = re.sub(r"^[*+]+", "", raw_name).strip()
+
+            mapped_name = None
+            for alias in _name_aliases(raw_name):
+                mapped_name = alias_to_full.get(_normalize_name(alias))
+                if mapped_name:
+                    break
+
+            if not mapped_name:
+                continue
+
+            pa = _safe_int(cell(row, "打席"))
+            if pa < FARM_MIN_PA:
+                continue
+
+            ba = _safe_float(cell(row, "打率"))
+            obp = _safe_float(cell(row, "出塁率"))
+            slg = _safe_float(cell(row, "長打率"))
+            iso = max(0.0, slg - ba)
+
+            pa_map[mapped_name] = pa
+            obp_map[mapped_name] = obp
+            iso_map[mapped_name] = iso
+
+        obp_z = _zscore_map(obp_map)
+        iso_z = _zscore_map(iso_map)
+
+        farm_score = {
+            name: FARM_DISCOUNT * (
+                0.55 * obp_z.get(name, 0.0) + 0.45 * iso_z.get(name, 0.0)
+            )
+            for name in obp_map.keys()
+        }
+
+        return {
+            "farm_score": farm_score,
+            "farm_pa": pa_map,
+        }
+
+    except Exception:
+        return {
+            "farm_score": {},
+            "farm_pa": {},
+        }
+
+
+def _get_prediction_candidate_names(now: datetime | None = None) -> list[str]:
+    now = now or _now_jst()
+
+    active_first_team = _get_active_first_team_position_players(now)
+    farm_maps = _build_farm_score_maps(list(FARM_PROMOTION_CANDIDATES.keys()))
+
+    candidates: list[str] = []
+
+    for name in PLAYER_PROFILE.keys():
+        if name in active_first_team and name not in candidates:
+            candidates.append(name)
+
+    for name in FARM_PROMOTION_CANDIDATES.keys():
+        if name in farm_maps["farm_score"] and name not in candidates:
+            candidates.append(name)
+
+    return candidates
+
 
 def _build_recent_score_maps(window_games: int, candidate_names: list[str]) -> dict:
     recent_data = _aggregate_recent_batting_stats(window_games)
 
     alias_to_full = {}
     for name in candidate_names:
-        cleaned = _clean_text(name)
-        nospace = cleaned.replace(" ", "").replace("　", "")
-        surname = cleaned.split(" ")[0] if " " in cleaned else cleaned
-
-        alias_to_full[cleaned] = name
-        alias_to_full[nospace] = name
-        alias_to_full[surname] = name
+        for alias in _name_aliases(name):
+            alias_to_full[_normalize_name(alias)] = name
 
     recent_players = {}
     for p in recent_data.get("players", []):
         raw_name = _clean_text(p.get("player_name", ""))
-        raw_nospace = raw_name.replace(" ", "").replace("　", "")
-        mapped_name = (
-            alias_to_full.get(raw_name)
-            or alias_to_full.get(raw_nospace)
-            or raw_name
-        )
-        recent_players[mapped_name] = p
+        mapped_name = None
+
+        for alias in _name_aliases(raw_name):
+            mapped_name = alias_to_full.get(_normalize_name(alias))
+            if mapped_name:
+                break
+
+        if mapped_name:
+            recent_players[mapped_name] = p
 
     team_totals = recent_data.get("team_totals", {})
     team_obp = _safe_float(team_totals.get("on_base_percentage", 0.0))
@@ -512,8 +753,22 @@ def _build_recent_score_maps(window_games: int, candidate_names: list[str]) -> d
         for name in candidate_names
     }
 
+    active_first_team = _get_active_first_team_position_players()
+    farm_maps = _build_farm_score_maps(candidate_names)
+    farm_score_map = farm_maps.get("farm_score", {})
+    farm_pa_map = farm_maps.get("farm_pa", {})
+
+    for name in candidate_names:
+        if _is_recently_promoted(name) and name in farm_score_map:
+            recent_form_score[name] = farm_score_map[name]
+            recent_bat_value[name] = farm_score_map[name]
+        elif name not in active_first_team and name in farm_score_map:
+            recent_form_score[name] = farm_score_map[name]
+            recent_bat_value[name] = farm_score_map[name]
+
     catcher_candidates = [
-        name for name in candidate_names
+        name
+        for name in candidate_names
         if POS_C in PLAYER_PROFILE.get(name, {}).get("eligible_positions", [])
     ]
     catcher_candidates.sort(
@@ -536,7 +791,12 @@ def _build_recent_score_maps(window_games: int, candidate_names: list[str]) -> d
         "recent_form_score": recent_form_score,
         "recent_bat_value": recent_bat_value,
         "top_catcher_bats": list(top_catcher_bats),
+        "farm_score_map": farm_score_map,
+        "farm_pa_map": farm_pa_map,
+        "active_first_team": list(active_first_team),
     }
+
+
 
 
 
@@ -1071,7 +1331,7 @@ def build_predicted_lineup(
         raise HTTPException(status_code=400, detail="window_games は 5 または 10 にしてください。")
 
     slot_defs = DH_LINEUP_SLOTS if dh else NO_DH_LINEUP_SLOTS
-    candidate_names = list(PLAYER_PROFILE.keys())
+    candidate_names = _get_prediction_candidate_names()
     position_list = _position_universe(slot_defs)
     position_to_bit = {pos: idx for idx, pos in enumerate(position_list)}
 

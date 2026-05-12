@@ -7,6 +7,7 @@ from pathlib import Path
 
 MEMBERS_URL = "https://www.carp.co.jp/team/members/"
 PUBLIC_PY_PATH = Path("app/api/public.py")
+print("SCRIPT_MARKER_2026_05_12_A")
 
 NAME_ALIASES = {
     "E.モンテロ": "モンテロ",

@@ -551,7 +551,7 @@ def _zscore_map(values: dict[str, float]) -> dict[str, float]:
 
 
 def _fetch_text(url: str) -> str:
-        req = URLRequest(
+    req = URLRequest(
         url,
         headers={
             "User-Agent": "Mozilla/5.0",

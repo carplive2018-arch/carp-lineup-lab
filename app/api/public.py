@@ -6,10 +6,14 @@ from functools import lru_cache
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import json
 import re
 
 
 from html import unescape
+from urllib.parse import urljoin
+from urllib.request import Request, urlopen
+
 from html.parser import HTMLParser
 from urllib.request import Request, urlopen
 
@@ -152,20 +156,13 @@ FARM_PROMOTION_CANDIDATES = {
 }
 
 PLAYER_PROFILE.update(FARM_PROMOTION_CANDIDATES)
-PRORAN_PLAYER_DETAIL_MORE_URL = "https://proran.jp/player_detail_more.php?id={player_id}&y={year}"
-NPBBASEMENT_FIELDING_URL = "https://npbbasement.com/fielding"
+CURRENT_SEASON_YEAR = 2026
 
-PRORAN_PLAYER_IDS = {
-    "小園 海斗": "1800072",
-    # ここから下を順番に追加
-    # "坂倉 将吾": "xxxxxxx",
-    # "秋山 翔吾": "xxxxxxx",
-    # "大盛 穂": "xxxxxxx",
-    # "佐々木 泰": "xxxxxxx",
-    # "勝田 成": "xxxxxxx",
-    # "ファビアン": "xxxxxxx",
-    # "二俣 翔一": "xxxxxxx",
-}
+PRORAN_TEAM_BATTERS_URL = "https://proran.jp/team_detail_b.php?t=_c"
+PRORAN_PLAYER_DETAIL_MORE_URL = "https://proran.jp/player_detail_more.php?id={player_id}&y={year}"
+
+NPBBASEMENT_FIELDING_URL = "https://npbbasement.com/fielding"
+NPBBASEMENT_BASE_URL = "https://npbbasement.com"
 
 POSITION_LABEL_TO_CODE = {
     "捕手": "C",
@@ -178,6 +175,11 @@ POSITION_LABEL_TO_CODE = {
     "右翼手": "RF",
     "指名打者": "DH",
 }
+
+PRORAN_PLAYER_DETAIL_MORE_URL = "https://proran.jp/player_detail_more.php?id={player_id}&y={year}"
+NPBBASEMENT_FIELDING_URL = "https://npbbasement.com/fielding"
+
+
 
 # 守備スコア（守備スコア欄に直接出る値）
 PLAYER_DEFENSE_FALLBACK = {
@@ -445,18 +447,19 @@ def _to_float_or_none(value: str | None) -> float | None:
         return None
 
 
-def _safe_float(value) -> float:
+def _safe_float(value):
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip().replace(",", "")
+    if text in {"", "-", "—", "–", "None", "null"}:
+        return None
     try:
-        if value is None:
-            return 0.0
-        s = str(value).strip()
-        if s in {"", "-", "---", "—", "None", "null"}:
-            return 0.0
-        if s.startswith("."):
-            s = "0" + s
-        return float(s)
+        return float(text)
     except Exception:
-        return 0.0
+        return None
+
 
 def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]]:
     marker = "守備ポジション別成績"
@@ -525,9 +528,10 @@ def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]
     return result
 
 
-def _fetch_proran_position_batting(player_name: str, year: int | None = None) -> dict[str, dict[str, float]]:
-    player_id = PRORAN_PLAYER_IDS.get(player_name)
-    if not player_id:
+def _get_proran_player_ids() -> dict[str, str]:
+    try:
+        return _discover_proran_player_ids()
+    except Exception:
         return {}
 
     if year is None:
@@ -541,10 +545,14 @@ def _fetch_proran_position_batting(player_name: str, year: int | None = None) ->
 def _build_season_position_batting_from_proran() -> dict[str, dict[str, dict[str, float]]]:
     data: dict[str, dict[str, dict[str, float]]] = {}
 
-    for player_name in PLAYER_PROFILE.keys():
-        pos_stats = _fetch_proran_position_batting(player_name)
-        if pos_stats:
-            data[player_name] = pos_stats
+def _fetch_proran_position_batting(player_name: str, player_id: str) -> dict:
+    url = PRORAN_PLAYER_DETAIL_MORE_URL.format(
+        player_id=player_id,
+        year=CURRENT_SEASON_YEAR,
+    )
+    html = _fetch_text(url)
+    return _extract_proran_position_table(html)
+
 
     return data
 def _normalize_player_name_for_fielding(name: str) -> str:
@@ -609,91 +617,120 @@ def _extract_npbbasement_fielding_rows(html_text: str) -> list[dict[str, str]]:
     return rows
 
 
-def _calc_def_from_components(row: dict[str, str], position: str) -> float | None:
-    direct_def = _safe_float(row.get("DEF"))
-    if direct_def is not None:
-        return round(direct_def, 3)
+def _calc_def_from_components(fld: dict) -> float:
+    value = 0.0
 
-    rngr = _safe_float(row.get("RngR")) or 0.0
-    dpr  = _safe_float(row.get("DPR")) or 0.0
-    arm  = _safe_float(row.get("ARM")) or 0.0
-    errr = _safe_float(row.get("ErrR")) or 0.0
-    posv = _safe_float(row.get("POS_VALUE")) or 0.0
+    for key in ["RngR", "DPR", "ARM", "ErrR", "Positional"]:
+        value += _safe_float(fld.get(key)) or 0.0
 
-    total = rngr + dpr + arm + errr + posv
+    if (fld.get("POS") or "").upper() == "C":
+        value += _safe_float(fld.get("Framing")) or 0.0
+        value += _safe_float(fld.get("Blocking")) or 0.0
 
-    if position == "C":
-        frm = _safe_float(row.get("FRM")) or 0.0
-        blk = _safe_float(row.get("BLK")) or 0.0
-        total += frm + blk
-
-    return round(total, 3)
+    return round(value, 3)
 
 
-def _build_player_defense_from_npbbasement() -> dict[str, dict[str, float]]:
-    html_text = _fetch_html(NPBBASEMENT_FIELDING_URL)
-    rows = _extract_npbbasement_fielding_rows(html_text)
+def _discover_npbbasement_main_bundle_url() -> str | None:
+    html = _fetch_text(NPBBASEMENT_FIELDING_URL)
+    match = re.search(
+        r'<script type="module" crossorigin src="([^"]+index-[^"]+\.js)">',
+        html,
+    )
+    if not match:
+        return None
+    return urljoin(NPBBASEMENT_BASE_URL, match.group(1))
 
-    result: dict[str, dict[str, float]] = {}
 
-    for row in rows:
-        if row.get("TEAM") != "C":
+def _discover_npbbasement_2026_chunk_url() -> str | None:
+    main_bundle_url = _discover_npbbasement_main_bundle_url()
+    if not main_bundle_url:
+        return None
+
+    js = _fetch_text(main_bundle_url)
+    match = re.search(r'\./2026_1g-[A-Za-z0-9_-]+\.js', js)
+    if not match:
+        return None
+
+    chunk_name = match.group(0).replace("./", "")
+    return urljoin(NPBBASEMENT_BASE_URL + "/assets/", chunk_name)
+
+
+def _load_npbbasement_players() -> list[dict]:
+    chunk_url = _discover_npbbasement_2026_chunk_url()
+    if not chunk_url:
+        return []
+
+    js = _fetch_text(chunk_url)
+    match = re.search(r'JSON\.parse\(`(.*)`\)', js, flags=re.S)
+    if not match:
+        return []
+
+    raw_json = match.group(1)
+    return json.loads(raw_json)
+
+
+
+
+def _build_player_defense_from_npbbasement() -> dict:
+    result = {}
+    players = _load_npbbasement_players()
+
+    normalized_profile_names = {
+        _normalize_player_name(name): name
+        for name in PLAYER_PROFILE.keys()
+    }
+
+    for player in players:
+        name = _normalize_player_name(
+            player.get("nameJ") or player.get("nameSponavi") or ""
+        )
+        real_name = normalized_profile_names.get(name)
+        if not real_name:
             continue
 
-        player_name = _normalize_player_name_for_fielding(row.get("PLAYER", ""))
-        position = row.get("POS", "")
+        fld_list = ((player.get("Stats") or {}).get("fld") or [])
+        for fld in fld_list:
+            pos = (fld.get("POS") or "").upper().strip()
+            if not pos:
+                continue
 
-        if not player_name or position not in {"C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "DH"}:
-            continue
-
-        matched_name = None
-        for profile_name in PLAYER_PROFILE.keys():
-            if _normalize_player_name_for_fielding(profile_name) == player_name:
-                matched_name = profile_name
-                break
-
-        if matched_name is None:
-            for profile_name in PLAYER_PROFILE.keys():
-                if player_name in profile_name or profile_name in player_name:
-                    matched_name = profile_name
-                    break
-
-        if matched_name is None:
-            continue
-
-        defense_value = _calc_def_from_components(row, position)
-        if defense_value is None:
-            continue
-
-        result.setdefault(matched_name, {})
-        result[matched_name][position] = defense_value
+            defense_value = _calc_def_from_components(fld)
+            result.setdefault(real_name, {})[pos] = defense_value
 
     return result
 
 
-def _get_player_defense() -> dict[str, dict[str, float]]:
+def _build_season_position_batting_from_proran() -> dict:
+    result = {}
+    player_ids = _get_proran_player_ids()
+
+    for player_name in PLAYER_PROFILE.keys():
+        normalized_name = _normalize_player_name(player_name)
+        player_id = player_ids.get(normalized_name)
+        if not player_id:
+            continue
+
+        try:
+            position_stats = _fetch_proran_position_batting(normalized_name, player_id)
+            if position_stats:
+                result[normalized_name] = position_stats
+        except Exception:
+            continue
+
+    return result
+
+
+
+def _get_player_defense() -> dict:
     try:
         data = _build_player_defense_from_npbbasement()
         if data:
             return data
-    except Exception as e:
-        print(f"WARNING: NPB BASEMENT の守備データ取得に失敗: {e}")
-
+    except Exception:
+        pass
     return PLAYER_DEFENSE_FALLBACK
 
-def _get_season_position_batting() -> dict[str, dict[str, dict[str, float]]]:
-    try:
-        data = _build_season_position_batting_from_proran()
-        if data:
-            return data
-    except Exception as e:
-        print(f"WARNING: Proran の守備位置別打撃取得に失敗: {e}")
 
-    return {name: {} for name in PLAYER_PROFILE.keys()}
-
-
-PLAYER_DEFENSE = _get_player_defense()
-SEASON_POSITION_BATTING = _get_season_position_batting()
 
 
 
@@ -710,6 +747,34 @@ def _safe_int(value: str) -> int:
         return 0
     return int(m.group(0))
 
+def _fetch_text(url: str) -> str:
+    req = Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0",
+            "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+        },
+    )
+    with urlopen(req, timeout=20) as res:
+        return res.read().decode("utf-8", errors="ignore")
+def _normalize_player_name(name: str) -> str:
+    if not name:
+        return ""
+    text = unescape(str(name)).strip()
+    text = re.sub(r"\s+", " ", text)
+    return text
+
+def _discover_proran_player_ids() -> dict[str, str]:
+    html = _fetch_text(PRORAN_TEAM_BATTERS_URL)
+    pairs = re.findall(
+        r'href="\./player_detail\.php\?id=(\d+)(?:&y=\d+)?".*?>([^<]+)</a>',
+        html,
+        flags=re.S,
+    )
+    result = {}
+    for player_id, player_name in pairs:
+        result[_normalize_player_name(player_name)] = player_id
+    return result
 
 def _round3(value: float) -> float:
     return round(value, 3)
@@ -754,17 +819,16 @@ def _position_universe(slot_defs: list[dict]) -> list[str]:
     return result
 
 
-def _get_adjusted_position_batting(player_name: str, position: str) -> dict[str, float]:
-    player_stats = SEASON_POSITION_BATTING.get(player_name, {})
-    pos_stats = player_stats.get(position)
+def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
+    player_stats = SEASON_POSITION_BATTING.get(_normalize_player_name(player_name), {})
+    pos_stats = player_stats.get(position, {})
+    return {
+        "pa": float(pos_stats.get("pa", 0.0) or 0.0),
+        "ab": float(pos_stats.get("ab", 0.0) or 0.0),
+        "obp": float(pos_stats.get("obp", 0.0) or 0.0),
+        "iso": float(pos_stats.get("iso", 0.0) or 0.0),
+    }
 
-    if pos_stats:
-        return {
-            "pa": float(pos_stats.get("pa", 0)),
-            "ab": float(pos_stats.get("ab", 0)),
-            "obp": float(pos_stats.get("obp", 0.0)),
-            "iso": float(pos_stats.get("iso", 0.0)),
-        }
 
     return {
         "pa": 0.0,
@@ -1136,10 +1200,12 @@ def _slot_score(
 
     weights = slot["weights"]
 
-    score = (
-        weights["recent"] * recent_form
-        + weights["defense"] * defense_score
-        + weights["season_pos"] * season_pos_score
+score = (
+    recent_score
+    + adjusted_obp * 100 * OBP_WEIGHT
+    + adjusted_iso * 100 * ISO_WEIGHT
+    + defense_score * DEFENSE_WEIGHT
+)
     )
 
     role = slot["role"]
@@ -1231,56 +1297,44 @@ def _slot_score(
 
 
 def _build_slot_reason(
-    player_name: str,
-    chosen_position: str,
-    slot: dict,
-    recent_maps: dict,
-) -> str:
-    recent_player = recent_maps["raw_players"].get(player_name, {})
-    recent_obp = _safe_float(recent_player.get("on_base_percentage", 0.0))
-    recent_iso = _calc_iso_from_stats(recent_player)
-    recent_pa = int(recent_maps.get("pa_map", {}).get(player_name, 0) or 0)
-
-    defense_score = _safe_float(PLAYER_DEFENSE.get(player_name, {}).get(chosen_position, 0.0))
-    season_adj = _get_adjusted_position_batting(player_name, chosen_position)
-
-    active_first_team = set(recent_maps.get("active_first_team", []))
-    farm_score_map = recent_maps.get("farm_score_map", {})
-    farm_pa_map = recent_maps.get("farm_pa_map", {})
-    farm_pa = int(farm_pa_map.get(player_name, 0) or 0)
-    farm_score = _safe_float(farm_score_map.get(player_name, 0.0))
-
-    is_recent_promotion = _is_recently_promoted(player_name) and player_name in farm_score_map
-    is_farm_candidate = player_name not in active_first_team and player_name in farm_score_map
-
-    position_label = POSITION_LABELS.get(chosen_position, chosen_position)
-
-    if is_recent_promotion:
-        return (
-            f"昇格7日特例 / 二軍{farm_pa}打席の比較値(0.9倍) {farm_score:+.3f} / "
-            f"{position_label}時の今季補正OBP {season_adj['obp']:.3f} / "
-            f"今季補正ISO {season_adj['iso']:.3f} / "
-            f"守備スコア {defense_score:+.2f} を評価して "
-            f"{slot['order']}番 {position_label}"
-        )
-
-    if is_farm_candidate:
-        return (
-            f"二軍候補 / 二軍{farm_pa}打席の比較値(0.9倍) {farm_score:+.3f} / "
-            f"{position_label}時の今季補正OBP {season_adj['obp']:.3f} / "
-            f"今季補正ISO {season_adj['iso']:.3f} / "
-            f"守備スコア {defense_score:+.2f} を評価して "
-            f"{slot['order']}番 {position_label}"
-        )
-
-    return (
-        f"一軍比較 / 直近PA {recent_pa} / 直近OBP {recent_obp:.3f} / 直近ISO {recent_iso:.3f} / "
-        f"{position_label}時の今季補正OBP {season_adj['obp']:.3f} / "
-        f"今季補正ISO {season_adj['iso']:.3f} / "
-        f"守備スコア {defense_score:+.2f} を評価して "
-        f"{slot['order']}番 {position_label}"
+    _player_name = (
+        locals().get("player_name")
+        or locals().get("name")
+        or locals().get("player")
+        or ""
+    )
+    _chosen_position = (
+        locals().get("chosen_position")
+        or locals().get("position")
+        or locals().get("pos")
+        or ""
+    )
+    _recent_score = (
+        locals().get("recent_score")
+        if "recent_score" in locals()
+        else locals().get("score", locals().get("recent"))
     )
 
+    adj = _get_adjusted_position_batting(_player_name, _chosen_position)
+    adjusted_obp = _safe_float(adj.get("obp")) or 0.0
+    adjusted_iso = _safe_float(adj.get("iso")) or 0.0
+    defense_score = _safe_float(
+        PLAYER_DEFENSE.get(_player_name, {}).get(_chosen_position, 0.0)
+    ) or 0.0
+
+    parts = []
+
+    if _recent_score is not None:
+        try:
+            parts.append(f"直近スコア {_recent_score:.3f}")
+        except Exception:
+            pass
+
+    parts.append(f"今期補正OBP {adjusted_obp:.3f}")
+    parts.append(f"今期補正ISO {adjusted_iso:.3f}")
+    parts.append(f"守備スコア {defense_score:.3f}")
+
+    return " / ".join(parts)
 
 def _fetch_html(url: str) -> str:
     req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -2037,6 +2091,8 @@ def _fetch_recent_actual_lineups() -> list[dict]:
     recent_games.reverse()
     return recent_games
 
+PLAYER_DEFENSE = _get_player_defense()
+SEASON_POSITION_BATTING = _get_season_position_batting()
 
 @router.get("/api/lineups/recent-actual")
 def recent_actual_lineups() -> JSONResponse:

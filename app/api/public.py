@@ -19,6 +19,13 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 router = APIRouter(tags=["public"])
 
+@router.get("/public/recent-batting")
+def public_recent_batting(...):
+    ...
+
+@router.get("/public/predicted-lineup")
+def public_predicted_lineup(...):
+    ...
 
 
 TEAM_CODE_TO_NAME = {

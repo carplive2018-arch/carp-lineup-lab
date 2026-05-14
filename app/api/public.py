@@ -176,20 +176,29 @@ CACHE_TTL_PREDICTED_LINEUP = 60 * 3
 
 POSITION_LABEL_TO_CODE = {
     "捕手": "C",
+    "捕": "C",
+    "C": "C",
     "一塁": "1B",
     "一塁手": "1B",
+    "1B": "1B",
     "二塁": "2B",
     "二塁手": "2B",
+    "2B": "2B",
     "三塁": "3B",
     "三塁手": "3B",
+    "3B": "3B",
     "遊撃": "SS",
     "遊撃手": "SS",
+    "SS": "SS",
     "左翼": "LF",
     "左翼手": "LF",
+    "LF": "LF",
     "中堅": "CF",
     "中堅手": "CF",
+    "CF": "CF",
     "右翼": "RF",
     "右翼手": "RF",
+    "RF": "RF",
     "指名打者": "DH",
     "DH": "DH",
 }
@@ -203,13 +212,13 @@ CACHE = {
 
 SEASON_POSITION_BATTING = {}
 
-
 PLAYER_DEFENSE_FALLBACK = {
     "坂倉 将吾": {"C": 0.30, "1B": 0.20, "3B": -0.20, "DH": 0.00},
     "小園 海斗": {"SS": 0.80, "3B": 0.40},
     "菊池 涼介": {"2B": 1.50},
 }
 PLAYER_DEFENSE = dict(PLAYER_DEFENSE_FALLBACK)
+
 SEASON_OVERALL_BATTING = {
     "坂倉 将吾": {"obp": 0.330, "iso": 0.130},
     "小園 海斗": {"obp": 0.310, "iso": 0.110},
@@ -234,7 +243,6 @@ SEASON_OVERALL_BATTING = {
     "岸本 大希": {"obp": 0.290, "iso": 0.080},
     "内田 湘大": {"obp": 0.290, "iso": 0.110},
 }
-
 
 DH_LINEUP_SLOTS = [
     {
@@ -393,19 +401,6 @@ def _cache_get_bucket(bucket: str):
     return CACHE.setdefault(bucket, {})
 
 
-def _canonical_player_name(name: str) -> str:
-    normalized = _normalize_player_name(name)
-
-    if normalized in PLAYER_NAME_ALIASES:
-        return PLAYER_NAME_ALIASES[normalized]
-
-    for full_name in PLAYER_PROFILE.keys():
-        if _normalize_player_name(full_name) == normalized:
-            return full_name
-
-    return name
-
-
 def _layout(title: str, body: str) -> HTMLResponse:
     return HTMLResponse(
         f"""
@@ -470,6 +465,19 @@ def _normalize_player_name(name: str) -> str:
     return text
 
 
+def _canonical_player_name(name: str) -> str:
+    normalized = _normalize_player_name(name)
+
+    if normalized in PLAYER_NAME_ALIASES:
+        return PLAYER_NAME_ALIASES[normalized]
+
+    for full_name in PLAYER_PROFILE.keys():
+        if _normalize_player_name(full_name) == normalized:
+            return full_name
+
+    return name
+
+
 def _to_float_or_none(value: str | None) -> float | None:
     if value is None:
         return None
@@ -497,6 +505,7 @@ def _safe_float(value):
     except Exception:
         return None
 
+
 def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]]:
     result: dict[str, dict[str, float]] = {}
 
@@ -504,7 +513,77 @@ def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]
         print("DEBUG_PRORAN_POSITION_EMPTY_HTML")
         return result
 
+    def _clean_label(text: str) -> str:
+        text = _clean_text(text or "")
+        text = re.sub(r"[（(].*?[）)]", "", text).strip()
+        return text
 
+    def _to_float(text: str) -> float:
+        text = _clean_text(text or "")
+        if not text:
+            return 0.0
+        m = re.search(r"([0-9]*\.[0-9]+|[0-9]+)", text)
+        return float(m.group(1)) if m else 0.0
+
+    th_matches = re.findall(
+        r'<div class="player_detail_more_th">(.*?)</div>',
+        html_text,
+        flags=re.S | re.I,
+    )
+    ba_matches = re.findall(
+        r'<div class="player_detail_more_ba">(.*?)</div>',
+        html_text,
+        flags=re.S | re.I,
+    )
+
+    raw_labels = [_clean_label(x) for x in th_matches if _clean_label(x)]
+    raw_values = [_clean_label(x) for x in ba_matches if _clean_label(x)]
+
+    print("DEBUG_PRORAN_POSITION_LABELS", raw_labels)
+
+    debug_obp: dict[str, float] = {}
+    debug_ops: dict[str, float] = {}
+
+    # Proran 詳細ページの並び想定:
+    # 守備位置 / 打数 / 打率 / 出塁率 / OPS
+    row_size = 5
+
+    for i, raw_label in enumerate(raw_labels):
+        position = POSITION_LABEL_TO_CODE.get(raw_label, "")
+        if not position:
+            continue
+
+        base = i * row_size
+        row = raw_values[base:base + row_size]
+        if len(row) < 5:
+            continue
+
+        ab = _to_float(row[1])
+        avg = _to_float(row[2])
+        obp = _to_float(row[3])
+        ops = _to_float(row[4])
+
+        if ab <= 0 and obp <= 0 and ops <= 0:
+            continue
+
+        slg = max(0.0, ops - obp)
+        iso = max(0.0, slg - avg)
+
+        result[position] = {
+            "pa": ab,
+            "ab": ab,
+            "avg": round(avg, 3),
+            "obp": round(obp, 3),
+            "ops": round(ops, 3),
+            "iso": round(iso, 3),
+        }
+        debug_obp[position] = round(obp, 3)
+        debug_ops[position] = round(ops, 3)
+
+    print("DEBUG_PRORAN_POSITION_OBP", debug_obp)
+    print("DEBUG_PRORAN_POSITION_OPS", debug_ops)
+    print("DEBUG_PRORAN_POSITION_RESULT", result)
+    return result
 
 
 def _fetch_text(url: str) -> str:
@@ -524,12 +603,10 @@ def _discover_proran_player_ids() -> dict[str, str]:
     html = _fetch_text(PRORAN_TEAM_BATTERS_URL)
     result: dict[str, str] = {}
 
-    # team_detail_b.php には player_detail.php?id=... のリンクがある
     patterns = [
         r'href=["\']\./player_detail\.php\?id=(\d+)(?:&[^"\']*)?["\'][^>]*>(.*?)</a>',
         r'href=["\']/player_detail\.php\?id=(\d+)(?:&[^"\']*)?["\'][^>]*>(.*?)</a>',
         r'href=["\']player_detail\.php\?id=(\d+)(?:&[^"\']*)?["\'][^>]*>(.*?)</a>',
-        # 念のため more も拾う
         r'href=["\']\./player_detail_more\.php\?id=(\d+)(?:&[^"\']*)?["\'][^>]*>(.*?)</a>',
         r'href=["\']/player_detail_more\.php\?id=(\d+)(?:&[^"\']*)?["\'][^>]*>(.*?)</a>',
         r'href=["\']player_detail_more\.php\?id=(\d+)(?:&[^"\']*)?["\'][^>]*>(.*?)</a>',
@@ -553,7 +630,6 @@ def _discover_proran_player_ids() -> dict[str, str]:
 
     print("DEBUG_PRORAN_PLAYER_IDS_COUNT", len(result))
     return result
-
 
 
 def _get_proran_player_ids() -> dict[str, str]:
@@ -614,7 +690,6 @@ def _get_season_position_batting() -> dict:
         print("DEBUG_SEASON_POSITION_BATTING_ERROR", str(e))
         data = {}
 
-    # 成功時だけ長めにキャッシュ
     if data:
         SEASON_POSITION_BATTING = data
         CACHE["season_position_batting"] = {
@@ -624,7 +699,6 @@ def _get_season_position_batting() -> dict:
         print("DEBUG_SEASON_POSITION_BATTING_OK", len(data))
         return data
 
-    # 失敗時は 6時間キャッシュしない。60秒だけ
     fallback = SEASON_POSITION_BATTING if isinstance(SEASON_POSITION_BATTING, dict) else {}
     CACHE["season_position_batting"] = {
         "expires_at": _cache_now() + 60,
@@ -632,7 +706,6 @@ def _get_season_position_batting() -> dict:
     }
     print("DEBUG_SEASON_POSITION_BATTING_EMPTY")
     return fallback
-
 
 
 def _calc_def_from_components(fld: dict) -> float:
@@ -816,12 +889,20 @@ def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
         or {}
     )
 
+    overall = (
+        SEASON_OVERALL_BATTING.get(canonical_name)
+        or SEASON_OVERALL_BATTING.get(normalized_name)
+        or {"obp": 0.0, "iso": 0.0}
+    )
+    overall_obp = float(overall.get("obp", 0.0) or 0.0)
+    overall_iso = float(overall.get("iso", 0.0) or 0.0)
+
     if player_stats.get("__empty__"):
         return {
             "pa": 0.0,
             "ab": 0.0,
-            "obp": 0.0,
-            "iso": 0.0,
+            "obp": _round3(overall_obp),
+            "iso": _round3(overall_iso),
         }
 
     if not player_stats:
@@ -856,17 +937,43 @@ def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
         return {
             "pa": 0.0,
             "ab": 0.0,
-            "obp": 0.0,
-            "iso": 0.0,
+            "obp": _round3(overall_obp),
+            "iso": _round3(overall_iso),
         }
 
     pos_stats = (player_stats or {}).get(position, {})
+    if not pos_stats:
+        return {
+            "pa": 0.0,
+            "ab": 0.0,
+            "obp": _round3(overall_obp),
+            "iso": _round3(overall_iso),
+        }
+
+    pa = float(pos_stats.get("pa", pos_stats.get("ab", 0.0)) or 0.0)
+    ab = float(pos_stats.get("ab", 0.0) or 0.0)
+    raw_obp = float(pos_stats.get("obp", 0.0) or 0.0)
+    raw_iso = float(pos_stats.get("iso", 0.0) or 0.0)
+
+    adj_obp_den = pa + POSITION_BATTING_PRIOR_PA
+    adj_iso_den = ab + POSITION_BATTING_PRIOR_AB
+
+    adjusted_obp = (
+        ((pa * raw_obp) + (POSITION_BATTING_PRIOR_PA * overall_obp)) / adj_obp_den
+        if adj_obp_den > 0
+        else overall_obp
+    )
+    adjusted_iso = (
+        ((ab * raw_iso) + (POSITION_BATTING_PRIOR_AB * overall_iso)) / adj_iso_den
+        if adj_iso_den > 0
+        else overall_iso
+    )
 
     return {
-        "pa": float(pos_stats.get("pa", 0.0) or 0.0),
-        "ab": float(pos_stats.get("ab", 0.0) or 0.0),
-        "obp": float(pos_stats.get("obp", 0.0) or 0.0),
-        "iso": float(pos_stats.get("iso", 0.0) or 0.0),
+        "pa": pa,
+        "ab": ab,
+        "obp": _round3(adjusted_obp),
+        "iso": _round3(adjusted_iso),
     }
 
 
@@ -1580,144 +1687,4 @@ def _parse_result_rows_to_games(rows: list[list[str]], year: str) -> list[dict]:
             "date_sort": f"{year}-{month:02d}-{day:02d}",
             "opponent": opponent_name,
             "venue": venue,
-            "round": round_no,
-            "score": score,
-            "result": result_mark,
-            "box_url": box_url,
-        })
-
-    return games
-
-
-@lru_cache(maxsize=4)
-def _fetch_recent_carp_games(limit: int) -> list[dict]:
-    current_results_url = "https://npb.jp/bis/teams/results_c_index.html"
-    current_html = _fetch_html(current_results_url)
-    year = _extract_year_from_results_page(current_html)
-
-    all_games: list[dict] = []
-
-    current_rows = _extract_result_rows_from_html(current_html)
-    all_games.extend(_parse_result_rows_to_games(current_rows, year))
-
-    previous_url = _extract_previous_results_page_url(current_html)
-    if previous_url:
-        try:
-            previous_html = _fetch_html(previous_url)
-            previous_rows = _extract_result_rows_from_html(previous_html)
-            all_games.extend(_parse_result_rows_to_games(previous_rows, year))
-        except Exception:
-            pass
-
-    dedup: dict[str, dict] = {}
-    for game in all_games:
-        dedup[game["box_url"]] = game
-
-    sorted_games = sorted(dedup.values(), key=lambda x: x["date_sort"])
-    recent_games = sorted_games[-limit:]
-    recent_games.reverse()
-    return recent_games
-
-
-def _is_batting_table(table: list[list[str]]) -> bool:
-    if not table:
-        return False
-    header = table[0]
-    required = {"守備", "選手", "打数", "得点", "安打", "打点", "盗塁"}
-    return required.issubset(set(header))
-
-
-def _analyze_plate_results(result_cells: list[str]) -> dict:
-    stats = {
-        "doubles": 0,
-        "triples": 0,
-        "homeruns": 0,
-        "walks": 0,
-        "hit_by_pitch": 0,
-        "strikeouts": 0,
-        "sacrifice_bunts": 0,
-        "sacrifice_flies": 0,
-    }
-
-    for raw in result_cells:
-        text = _clean_text(raw).replace(" ", "").replace("　", "")
-        if text in ("", "-", "－"):
-            continue
-
-        if "四球" in text:
-            stats["walks"] += 1
-        if "死球" in text:
-            stats["hit_by_pitch"] += 1
-        if "三振" in text:
-            stats["strikeouts"] += 1
-        if "犠飛" in text:
-            stats["sacrifice_flies"] += 1
-        if "犠打" in text:
-            stats["sacrifice_bunts"] += 1
-
-        if "本" in text:
-            stats["homeruns"] += 1
-        elif "３" in text or "三塁打" in text:
-            stats["triples"] += 1
-        elif "２" in text or "二塁打" in text:
-            stats["doubles"] += 1
-
-    return stats
-
-
-@lru_cache(maxsize=32)
-def _parse_carp_batting_rows(box_url: str) -> list[dict]:
-    html = _fetch_html(box_url)
-    tables = _extract_tables(html)
-
-    batting_tables = [table for table in tables if _is_batting_table(table)]
-    if len(batting_tables) < 2:
-        raise ValueError(f"打撃表を見つけられませんでした: {box_url}")
-
-    carp_is_home = bool(re.search(r"/scores/\d{4}/\d{4}/c-[a-z]{1,2}-\d{2}/box\.html", box_url))
-    carp_table = batting_tables[1] if carp_is_home else batting_tables[0]
-
-    header = carp_table[0]
-    index_map = {name: idx for idx, name in enumerate(header)}
-
-    def cell(row: list[str], name: str) -> str:
-        idx = index_map.get(name)
-        if idx is None or idx >= len(row):
-            return ""
-        return row[idx]
-
-    result_start_idx = index_map.get("盗塁", 7) + 1
-
-    rows: list[dict] = []
-
-    for row in carp_table[1:]:
-        if len(row) < 3:
-            continue
-
-        player_name = _normalize_name(cell(row, "選手"))
-        if not player_name or player_name == "チーム計":
-            continue
-
-        ab = _safe_int(cell(row, "打数"))
-        runs = _safe_int(cell(row, "得点"))
-        hits = _safe_int(cell(row, "安打"))
-        rbi = _safe_int(cell(row, "打点"))
-        steals = _safe_int(cell(row, "盗塁"))
-
-        plate_results = row[result_start_idx:] if len(row) > result_start_idx else []
-        extra = _analyze_plate_results(plate_results)
-
-        rows.append({
-            "player_name": player_name,
-            "position": _clean_text(cell(row, "守備")),
-            "at_bats": ab,
-            "runs": runs,
-            "hits": hits,
-            "rbi": rbi,
-            "steals": steals,
-            "doubles": extra["doubles"],
-            "triples": extra["triples"],
-            "homeruns": extra["homeruns"],
-            "walks": extra["walks"],
-            "hit_by_pitch": extra["hit_by_pitch"],
-            "strikeouts": extra
+            "round

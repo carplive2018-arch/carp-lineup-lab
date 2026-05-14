@@ -11,7 +11,7 @@ import time
 from html import escape, unescape
 from html.parser import HTMLParser
 from urllib.parse import urljoin
-from urllib.request import Request, urlopen
+from urllib.request import Request as URLRequest, urlopen
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -551,7 +551,7 @@ def _zscore_map(values: dict[str, float]) -> dict[str, float]:
 
 
 def _fetch_text(url: str) -> str:
-    req = Request(
+        req = URLRequest(
         url,
         headers={
             "User-Agent": "Mozilla/5.0",

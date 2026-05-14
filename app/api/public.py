@@ -495,37 +495,37 @@ def _safe_float(value):
     except Exception:
         return None
 
-
 def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]]:
     result: dict[str, dict[str, float]] = {}
 
-    start = html_text.find("守備ポジション別成績")
-    if start == -1:
+    if not html_text:
+        print("DEBUG_PRORAN_POSITION_EMPTY_HTML")
         return result
 
-    end = html_text.find("対球団別成績", start)
-    if end == -1:
-        end = html_text.find("球場別成績", start)
-    if end == -1:
-        end = start + 40000
+    start = html_text.find("守備ポジション別成績")
+    if start == -1:
+        print("DEBUG_PRORAN_POSITION_SECTION_NOT_FOUND")
+        return result
 
-    section = html_text[start:end]
+    tail = html_text[start:]
 
-    def _clean(text: str) -> str:
+    # 次の見出しまでで切る
+    end_match = re.search(r'<h1 class="header1[^"]*">', tail[1:], flags=re.I)
+    section = tail[: end_match.start() + 1] if end_match else tail[:50000]
+
+    def _clean_label(text: str) -> str:
         text = re.sub(r"<br\s*/?>", "", text, flags=re.I)
         text = re.sub(r"<[^>]+>", "", text)
         text = unescape(text)
-        text = text.replace("　", " ")
-        text = text.replace("&nbsp;", " ")
-        text = re.sub(r"\s+", "", text)
-        text = text.replace("Ｏ", "O")
+        text = text.replace("　", "").replace(" ", "")
+        text = text.replace("Ｏ", "O").replace("Ｐ", "P").replace("Ｓ", "S")
         return text.strip()
 
     def _to_float(text: str) -> float:
-        text = _clean(text)
+        text = _clean_label(text)
         if text in {"", "-", "--", "---", "----"}:
             return 0.0
-        text = text.replace("−", "-").replace("%", "")
+        text = text.replace("%", "").replace("−", "-")
         if text.startswith("."):
             text = "0" + text
         try:
@@ -533,73 +533,80 @@ def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]
         except Exception:
             return 0.0
 
-    # 位置ラベルは section 全体から拾う
-    raw_labels = re.findall(
-        r'<div class="player_detail_more_ba[^"]*bg_c_th[^"]*">(.*?)</div>',
+    # 左端の固定列からポジション名を取る
+    pos_match = re.search(
+        r'fixed_l.*?<div><div class="player_detail_more_th[^>]*>.*?</div>(.*?)</div></div>\s*<div><div class="player_detail_more_th',
         section,
         flags=re.S | re.I,
     )
+    if not pos_match:
+        print("DEBUG_PRORAN_POSITION_LABELS_NOT_FOUND")
+        return result
 
-    position_labels: list[str] = []
-    for raw in raw_labels:
-        label = _clean(raw)
-        if label in POSITION_LABEL_TO_CODE and label not in position_labels:
-            position_labels.append(label)
+    pos_html = pos_match.group(1)
+    raw_positions = re.findall(
+        r'player_detail_more_ba[^"]*bg_c_th[^"]*">(.*?)</div>',
+        pos_html,
+        flags=re.S | re.I,
+    )
+    position_labels = [_clean_label(x) for x in raw_positions]
+    position_labels = [x for x in position_labels if x]
+
+    print("DEBUG_PRORAN_POSITION_LABELS", position_labels)
 
     if not position_labels:
         return result
 
-    metrics: dict[str, list[float]] = {}
-
-    # 行ごとに分解して指標名と数値列を拾う
-    blocks = re.split(r'(?is)<div>\s*<div class="player_detail_more_th', section)
-    for chunk in blocks[1:]:
-        block = '<div><div class="player_detail_more_th' + chunk
-
-        header_match = re.search(
-            r'(?is)<div class="player_detail_more_th[^"]*">(.*?)</div>',
-            block,
+    def _extract_metric_values(label_pattern: str) -> list[float]:
+        metric_match = re.search(
+            rf'player_detail_more_th[^>]*>\s*{label_pattern}\s*</div>(.*?)(?=<div><div class="player_detail_more_th|</div></div>)',
+            section,
+            flags=re.S | re.I,
         )
-        if not header_match:
-            continue
+        if not metric_match:
+            return []
 
-        header = _clean(header_match.group(1))
         values = re.findall(
-            r'(?is)<div class="player_detail_more_ba[^"]*right[^"]*">(.*?)</div>',
-            block,
+            r'player_detail_more_ba[^"]*right[^"]*">(.*?)</div>',
+            metric_match.group(1),
+            flags=re.S | re.I,
         )
+        return [_to_float(v) for v in values[:len(position_labels)]]
 
-        metrics[header] = [_to_float(v) for v in values[:len(position_labels)]]
+    ab_list = _extract_metric_values(r"打\s*<br>\s*数")
+    avg_list = _extract_metric_values(r"打\s*<br>\s*率")
+    obp_list = _extract_metric_values(r"出\s*<br>\s*塁\s*<br>\s*率")
+    ops_list = _extract_metric_values(r"(?:Ｏ|O)\s*<br>\s*(?:Ｐ|P)\s*<br>\s*(?:Ｓ|S)")
 
-    pa_list = metrics.get("打席", [])
-    ab_list = metrics.get("打数", [])
-    avg_list = metrics.get("打率", [])
-    obp_list = metrics.get("出塁率", [])
-    ops_list = metrics.get("OPS", [])
+    print("DEBUG_PRORAN_POSITION_AB", ab_list)
+    print("DEBUG_PRORAN_POSITION_OBP", obp_list)
+    print("DEBUG_PRORAN_POSITION_OPS", ops_list)
 
     for i, label in enumerate(position_labels):
         pos_code = POSITION_LABEL_TO_CODE.get(label)
         if not pos_code:
             continue
 
-        pa = pa_list[i] if i < len(pa_list) else 0.0
         ab = ab_list[i] if i < len(ab_list) else 0.0
         avg = avg_list[i] if i < len(avg_list) else 0.0
         obp = obp_list[i] if i < len(obp_list) else 0.0
         ops = ops_list[i] if i < len(ops_list) else 0.0
 
-        if pa <= 0 and ab <= 0 and obp == 0.0 and ops == 0.0:
-            continue
-
+        # ISO = SLG - AVG = OPS - OBP - AVG
         iso = max(0.0, ops - obp - avg)
 
+        # 完全空だけ捨てる
+        if ab <= 0 and obp == 0.0 and ops == 0.0:
+            continue
+
         result[pos_code] = {
-            "pa": float(pa if pa > 0 else ab),
-            "ab": float(ab),
+            "pa": ab,
+            "ab": ab,
             "obp": round(obp, 3),
             "iso": round(iso, 3),
         }
 
+    print("DEBUG_PRORAN_POSITION_RESULT", result)
     return result
 
 
@@ -697,17 +704,21 @@ def _fetch_text(url: str) -> str:
 @lru_cache(maxsize=1)
 def _discover_proran_player_ids() -> dict[str, str]:
     html = _fetch_text(PRORAN_TEAM_BATTERS_URL)
-
     result: dict[str, str] = {}
 
+    # team_detail_b.php には player_detail.php?id=... のリンクがある
     patterns = [
-        r'href=["\'](?:\./)?player_detail(?:_more)?\.php\?id=(\d+)(?:&[^"\']*)?["\'][^>]*>(.*?)</a>',
-        r'href=["\'][^"\']*player_detail(?:_more)?\.php\?id=(\d+)(?:&[^"\']*)?["\'][^>]*>(.*?)</a>',
+        r'href=["\']\./player_detail\.php\?id=(\d+)(?:&[^"\']*)?["\'][^>]*>(.*?)</a>',
+        r'href=["\']/player_detail\.php\?id=(\d+)(?:&[^"\']*)?["\'][^>]*>(.*?)</a>',
+        r'href=["\']player_detail\.php\?id=(\d+)(?:&[^"\']*)?["\'][^>]*>(.*?)</a>',
+        # 念のため more も拾う
+        r'href=["\']\./player_detail_more\.php\?id=(\d+)(?:&[^"\']*)?["\'][^>]*>(.*?)</a>',
+        r'href=["\']/player_detail_more\.php\?id=(\d+)(?:&[^"\']*)?["\'][^>]*>(.*?)</a>',
+        r'href=["\']player_detail_more\.php\?id=(\d+)(?:&[^"\']*)?["\'][^>]*>(.*?)</a>',
     ]
 
     for pattern in patterns:
-        pairs = re.findall(pattern, html, flags=re.S | re.I)
-        for player_id, raw_name in pairs:
+        for player_id, raw_name in re.findall(pattern, html, flags=re.S | re.I):
             player_name = _clean_text(raw_name)
             if not player_name:
                 continue
@@ -722,7 +733,9 @@ def _discover_proran_player_ids() -> dict[str, str]:
             if canonical:
                 result[_normalize_player_name(canonical)] = player_id
 
+    print("DEBUG_PRORAN_PLAYER_IDS_COUNT", len(result))
     return result
+
 
 
 def _get_proran_player_ids() -> dict[str, str]:
@@ -770,10 +783,10 @@ def _get_season_position_batting() -> dict:
     global SEASON_POSITION_BATTING
 
     cache_entry = CACHE.get("season_position_batting", {})
-if _cache_alive(cache_entry):
-    cached_value = cache_entry.get("value")
-    if isinstance(cached_value, dict):
-        return cached_value
+    if _cache_alive(cache_entry):
+        cached_value = cache_entry.get("value")
+        if isinstance(cached_value, dict):
+            return cached_value
 
     try:
         data = _build_season_position_batting_from_proran()
@@ -783,21 +796,24 @@ if _cache_alive(cache_entry):
         print("DEBUG_SEASON_POSITION_BATTING_ERROR", str(e))
         data = {}
 
+    # 成功時だけ長めにキャッシュ
     if data:
         SEASON_POSITION_BATTING = data
         CACHE["season_position_batting"] = {
             "expires_at": _cache_now() + CACHE_TTL_SEASON_POSITION_BATTING,
             "value": data,
         }
+        print("DEBUG_SEASON_POSITION_BATTING_OK", len(data))
         return data
 
-    # 空なら長く保持しない
-    SEASON_POSITION_BATTING = {}
+    # 失敗時は 6時間キャッシュしない。60秒だけ
+    fallback = SEASON_POSITION_BATTING if isinstance(SEASON_POSITION_BATTING, dict) else {}
     CACHE["season_position_batting"] = {
-        "expires_at": 0,
-        "value": None,
+        "expires_at": _cache_now() + 60,
+        "value": fallback,
     }
-    return {}
+    print("DEBUG_SEASON_POSITION_BATTING_EMPTY")
+    return fallback
 
 
 
@@ -969,7 +985,8 @@ def _position_universe(slot_defs: list[dict]) -> list[str]:
 
 def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
     global SEASON_POSITION_BATTING
-
+    if not isinstance(SEASON_POSITION_BATTING, dict) or not SEASON_POSITION_BATTING:
+        SEASON_POSITION_BATTING = _get_season_position_batting() or {}
     canonical_name = _canonical_player_name(player_name)
     normalized_name = _normalize_player_name(canonical_name)
 
@@ -977,6 +994,8 @@ def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
         season_map = _get_season_position_batting()
         if season_map:
             SEASON_POSITION_BATTING.update(season_map)
+    if stats.get("__empty__"):
+        return {}
 
     player_stats = (
         SEASON_POSITION_BATTING.get(canonical_name)

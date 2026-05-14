@@ -544,8 +544,6 @@ def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]
     debug_obp: dict[str, float] = {}
     debug_ops: dict[str, float] = {}
 
-    # Proran 詳細ページの並び想定:
-    # 守備位置 / 打数 / 打率 / 出塁率 / OPS
     row_size = 5
 
     for i, raw_label in enumerate(raw_labels):
@@ -706,7 +704,6 @@ def _get_season_position_batting() -> dict:
     }
     print("DEBUG_SEASON_POSITION_BATTING_EMPTY")
     return fallback
-
 
 def _calc_def_from_components(fld: dict) -> float:
     value = 0.0
@@ -1171,257 +1168,6 @@ def _get_prediction_candidate_names(now: datetime | None = None) -> list[str]:
 
     return candidates
 
-
-def _build_recent_score_maps(window_games: int, candidate_names: list[str]) -> dict:
-    cache_key = f"recent:{window_games}"
-    bucket = _cache_get_bucket("recent_batting")
-    entry = bucket.get(cache_key)
-
-    if _cache_alive(entry):
-        return entry["value"]
-
-    recent_data = _aggregate_recent_batting_stats(window_games)
-
-    alias_to_full = {}
-    for name in candidate_names:
-        for alias in _name_aliases(name):
-            alias_to_full[_normalize_name(alias)] = name
-
-    recent_players = {}
-    for p in recent_data.get("players", []):
-        raw_name = _clean_text(p.get("player_name", ""))
-        mapped_name = None
-
-        for alias in _name_aliases(raw_name):
-            mapped_name = alias_to_full.get(_normalize_name(alias))
-            if mapped_name:
-                break
-
-        if mapped_name:
-            recent_players[mapped_name] = p
-
-    team_totals = recent_data.get("team_totals", {})
-    team_obp = _safe_float(team_totals.get("on_base_percentage", 0.0)) or 0.0
-    team_iso = _calc_iso_from_stats(team_totals)
-
-    raw_obp_map: dict[str, float] = {}
-    raw_iso_map: dict[str, float] = {}
-    adj_obp_map: dict[str, float] = {}
-    adj_iso_map: dict[str, float] = {}
-    pa_map: dict[str, int] = {}
-    ab_map: dict[str, int] = {}
-    sample_weight_map: dict[str, float] = {}
-
-    for name in candidate_names:
-        player = recent_players.get(name, {})
-
-        raw_obp = _safe_float(player.get("on_base_percentage", 0.0)) or 0.0
-        raw_iso = _calc_iso_from_stats(player)
-        pa = int(player.get("plate_appearances", 0) or 0)
-        ab = int(player.get("at_bats", 0) or 0)
-
-        adj_obp_den = pa + RECENT_OBP_PRIOR_PA
-        adj_iso_den = ab + RECENT_ISO_PRIOR_AB
-
-        adj_obp = (
-            ((pa * raw_obp) + (RECENT_OBP_PRIOR_PA * team_obp)) / adj_obp_den
-            if adj_obp_den > 0
-            else team_obp
-        )
-        adj_iso = (
-            ((ab * raw_iso) + (RECENT_ISO_PRIOR_AB * team_iso)) / adj_iso_den
-            if adj_iso_den > 0
-            else team_iso
-        )
-
-        sample_weight = min(pa / RECENT_FULL_TRUST_PA, 1.0)
-
-        raw_obp_map[name] = raw_obp
-        raw_iso_map[name] = raw_iso
-        adj_obp_map[name] = _round3(adj_obp)
-        adj_iso_map[name] = _round3(adj_iso)
-        pa_map[name] = pa
-        ab_map[name] = ab
-        sample_weight_map[name] = sample_weight
-
-    obp_z = _zscore_map(adj_obp_map)
-    iso_z = _zscore_map(adj_iso_map)
-
-    recent_form_score = {
-        name: sample_weight_map.get(name, 0.0)
-        * (0.55 * obp_z.get(name, 0.0) + 0.45 * iso_z.get(name, 0.0))
-        for name in candidate_names
-    }
-
-    recent_bat_value = {
-        name: sample_weight_map.get(name, 0.0)
-        * (0.60 * obp_z.get(name, 0.0) + 0.40 * iso_z.get(name, 0.0))
-        for name in candidate_names
-    }
-
-    active_first_team = _get_active_first_team_position_players()
-    farm_maps = _build_farm_score_maps(candidate_names)
-    farm_score_map = farm_maps.get("farm_score", {})
-    farm_pa_map = farm_maps.get("farm_pa", {})
-
-    for name in candidate_names:
-        if _is_recently_promoted(name) and name in farm_score_map:
-            recent_form_score[name] = farm_score_map[name]
-            recent_bat_value[name] = farm_score_map[name]
-        elif name not in active_first_team and name in farm_score_map:
-            recent_form_score[name] = farm_score_map[name]
-            recent_bat_value[name] = farm_score_map[name]
-
-    catcher_candidates = [
-        name
-        for name in candidate_names
-        if POS_C in PLAYER_PROFILE.get(name, {}).get("eligible_positions", [])
-    ]
-    catcher_candidates.sort(
-        key=lambda name: recent_bat_value.get(name, -9999.0),
-        reverse=True,
-    )
-    top_catcher_bats = set(catcher_candidates[:2])
-
-    result = {
-        "raw_players": recent_players,
-        "raw_obp_map": raw_obp_map,
-        "raw_iso_map": raw_iso_map,
-        "adj_obp_map": adj_obp_map,
-        "adj_iso_map": adj_iso_map,
-        "pa_map": pa_map,
-        "ab_map": ab_map,
-        "sample_weight": sample_weight_map,
-        "obp_z": obp_z,
-        "iso_z": iso_z,
-        "recent_form_score": recent_form_score,
-        "recent_bat_value": recent_bat_value,
-        "top_catcher_bats": list(top_catcher_bats),
-        "farm_score_map": farm_score_map,
-        "farm_pa_map": farm_pa_map,
-        "active_first_team": list(active_first_team),
-    }
-
-    bucket[cache_key] = {
-        "value": result,
-        "expires_at": _cache_now() + CACHE_TTL_RECENT_BATTING,
-    }
-
-    return result
-
-
-def _build_season_position_score_map(candidate_names: list[str], position: str) -> dict[str, float]:
-    adj_obp_map: dict[str, float] = {}
-    adj_iso_map: dict[str, float] = {}
-
-    for name in candidate_names:
-        adj = _get_adjusted_position_batting(name, position)
-        adj_obp_map[name] = adj["obp"]
-        adj_iso_map[name] = adj["iso"]
-
-    obp_z = _zscore_map(adj_obp_map)
-    iso_z = _zscore_map(adj_iso_map)
-
-    return {
-        name: 0.60 * obp_z.get(name, 0.0) + 0.40 * iso_z.get(name, 0.0)
-        for name in candidate_names
-    }
-
-
-def _slot_score(
-    player_name: str,
-    slot: dict,
-    chosen_position: str,
-    recent_maps: dict,
-    season_pos_score_maps: dict[str, dict[str, float]],
-) -> float:
-    eligible = PLAYER_PROFILE.get(player_name, {}).get("eligible_positions", [])
-    if chosen_position not in eligible:
-        return -1000000.0
-
-    sample_weight = recent_maps["sample_weight"].get(player_name, 0.0)
-    recent_form = recent_maps["recent_form_score"].get(player_name, 0.0)
-    recent_obp_z = recent_maps["obp_z"].get(player_name, 0.0) * sample_weight
-    recent_iso_z = recent_maps["iso_z"].get(player_name, 0.0) * sample_weight
-    defense_map = _get_player_defense()
-    defense_score = _safe_float(
-        defense_map.get(player_name, {}).get(chosen_position, 0.0)
-    ) or 0.0
-    season_pos_score = season_pos_score_maps.get(chosen_position, {}).get(player_name, 0.0)
-    recent_pa = int(recent_maps["pa_map"].get(player_name, 0) or 0)
-    top_catcher_bats = set(recent_maps.get("top_catcher_bats", []))
-
-    weights = slot["weights"]
-
-    score = (
-        recent_form * weights.get("recent", 0.0)
-        + defense_score * weights.get("defense", 0.0)
-        + season_pos_score * weights.get("season_pos", 0.0)
-    )
-
-    role = slot["role"]
-
-    if role == "lead_obp_glove":
-        score += 0.30 * recent_obp_z + 0.15 * defense_score
-    elif role == "two_hole_bat":
-        score += 0.30 * recent_obp_z + 0.30 * recent_iso_z
-    elif role == "three_hole_iso_glove":
-        score += 0.15 * recent_obp_z + 0.30 * recent_iso_z + 0.10 * defense_score
-    elif role == "cleanup_bat":
-        score += 0.15 * recent_obp_z + 0.40 * recent_iso_z
-    elif role == "five_hole_power":
-        score += 0.05 * recent_obp_z + 0.35 * recent_iso_z
-    elif role == "six_hole_balance":
-        score += 0.20 * recent_obp_z + 0.20 * defense_score
-    elif role == "glove_bottom":
-        score += 0.25 * defense_score - 0.05 * recent_obp_z - 0.05 * recent_iso_z
-    elif role == "turnover_obp":
-        score += 0.25 * recent_obp_z + 0.10 * defense_score
-
-    if chosen_position == POS_C and recent_pa < MIN_CATCHER_RECENT_PA:
-        score -= WEAK_CATCHER_PENALTY
-
-    if chosen_position == POS_DH and player_name in top_catcher_bats:
-        score -= TOP_CATCHER_TO_DH_PENALTY
-
-    if chosen_position == POS_C and player_name in top_catcher_bats:
-        score += TOP_CATCHER_AT_C_BONUS
-
-    if sample_weight < 0.5:
-        score -= (0.5 - sample_weight) * 0.8
-
-    if defense_score < slot.get("min_defense", -999):
-        score -= slot.get("low_defense_penalty", 0.0)
-
-    return round(score, 3)
-
-
-def _build_slot_reason(
-    player_name: str,
-    chosen_position: str,
-    slot: dict,
-    recent_maps: dict,
-) -> str:
-    canonical_name = _canonical_player_name(player_name)
-
-    adj = _get_adjusted_position_batting(canonical_name, chosen_position)
-    adjusted_obp = _safe_float(adj.get("obp")) or 0.0
-    adjusted_iso = _safe_float(adj.get("iso")) or 0.0
-    defense_map = _get_player_defense()
-    defense_score = _safe_float(
-        defense_map.get(canonical_name, {}).get(chosen_position, 0.0)
-    ) or 0.0
-    recent_form = recent_maps.get("recent_form_score", {}).get(canonical_name, 0.0)
-
-    parts = [
-        f"直近スコア {recent_form:.3f}",
-        f"今期補正OBP {adjusted_obp:.3f}",
-        f"今期補正ISO {adjusted_iso:.3f}",
-        f"守備スコア {defense_score:.3f}",
-    ]
-    return " / ".join(parts)
-
-
 def _fetch_html(url: str) -> str:
     req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
     return urlopen(req, timeout=20).read().decode("utf-8", errors="ignore")
@@ -1687,4 +1433,230 @@ def _parse_result_rows_to_games(rows: list[list[str]], year: str) -> list[dict]:
             "date_sort": f"{year}-{month:02d}-{day:02d}",
             "opponent": opponent_name,
             "venue": venue,
-            "round
+            "round": round_no,
+            "score": score,
+            "result": result_mark,
+            "box_url": box_url,
+        })
+
+    return games
+
+
+@lru_cache(maxsize=4)
+def _fetch_recent_carp_games(limit: int) -> list[dict]:
+    current_results_url = "https://npb.jp/bis/teams/results_c_index.html"
+    current_html = _fetch_html(current_results_url)
+    year = _extract_year_from_results_page(current_html)
+
+    all_games: list[dict] = []
+
+    current_rows = _extract_result_rows_from_html(current_html)
+    all_games.extend(_parse_result_rows_to_games(current_rows, year))
+
+    previous_url = _extract_previous_results_page_url(current_html)
+    if previous_url:
+        try:
+            previous_html = _fetch_html(previous_url)
+            previous_rows = _extract_result_rows_from_html(previous_html)
+            all_games.extend(_parse_result_rows_to_games(previous_rows, year))
+        except Exception:
+            pass
+
+    dedup: dict[str, dict] = {}
+    for game in all_games:
+        dedup[game["box_url"]] = game
+
+    sorted_games = sorted(dedup.values(), key=lambda x: x["date_sort"])
+    recent_games = sorted_games[-limit:]
+    recent_games.reverse()
+    return recent_games
+
+
+def _is_batting_table(table: list[list[str]]) -> bool:
+    if not table:
+        return False
+    header = table[0]
+    required = {"守備", "選手", "打数", "得点", "安打", "打点", "盗塁"}
+    return required.issubset(set(header))
+
+
+def _analyze_plate_results(result_cells: list[str]) -> dict:
+    stats = {
+        "doubles": 0,
+        "triples": 0,
+        "homeruns": 0,
+        "walks": 0,
+        "hit_by_pitch": 0,
+        "strikeouts": 0,
+        "sacrifice_bunts": 0,
+        "sacrifice_flies": 0,
+    }
+
+    for raw in result_cells:
+        text = _clean_text(raw).replace(" ", "").replace("　", "")
+        if text in ("", "-", "－"):
+            continue
+
+        if "四球" in text:
+            stats["walks"] += 1
+        if "死球" in text:
+            stats["hit_by_pitch"] += 1
+        if "三振" in text:
+            stats["strikeouts"] += 1
+        if "犠飛" in text:
+            stats["sacrifice_flies"] += 1
+        if "犠打" in text:
+            stats["sacrifice_bunts"] += 1
+
+        if "本" in text:
+            stats["homeruns"] += 1
+        elif "３" in text or "三塁打" in text:
+            stats["triples"] += 1
+        elif "２" in text or "二塁打" in text:
+            stats["doubles"] += 1
+
+    return stats
+
+
+@lru_cache(maxsize=32)
+def _parse_carp_batting_rows(box_url: str) -> list[dict]:
+    html = _fetch_html(box_url)
+    tables = _extract_tables(html)
+
+    batting_tables = [table for table in tables if _is_batting_table(table)]
+    if len(batting_tables) < 2:
+        raise ValueError(f"打撃表を見つけられませんでした: {box_url}")
+
+    carp_is_home = bool(re.search(r"/scores/\d{4}/\d{4}/c-[a-z]{1,2}-\d{2}/box\.html", box_url))
+    carp_table = batting_tables[1] if carp_is_home else batting_tables[0]
+
+    header = carp_table[0]
+    index_map = {name: idx for idx, name in enumerate(header)}
+
+    def cell(row: list[str], name: str) -> str:
+        idx = index_map.get(name)
+        if idx is None or idx >= len(row):
+            return ""
+        return row[idx]
+
+    result_start_idx = index_map.get("盗塁", 7) + 1
+
+    rows: list[dict] = []
+
+    for row in carp_table[1:]:
+        if len(row) < 3:
+            continue
+
+        player_name = _normalize_name(cell(row, "選手"))
+        if not player_name or player_name == "チーム計":
+            continue
+
+        ab = _safe_int(cell(row, "打数"))
+        runs = _safe_int(cell(row, "得点"))
+        hits = _safe_int(cell(row, "安打"))
+        rbi = _safe_int(cell(row, "打点"))
+        steals = _safe_int(cell(row, "盗塁"))
+
+        plate_results = row[result_start_idx:] if len(row) > result_start_idx else []
+        extra = _analyze_plate_results(plate_results)
+
+        rows.append({
+            "player_name": player_name,
+            "position": _clean_text(cell(row, "守備")),
+            "at_bats": ab,
+            "runs": runs,
+            "hits": hits,
+            "rbi": rbi,
+            "steals": steals,
+            "doubles": extra["doubles"],
+            "triples": extra["triples"],
+            "homeruns": extra["homeruns"],
+            "walks": extra["walks"],
+            "hit_by_pitch": extra["hit_by_pitch"],
+            "strikeouts": extra["strikeouts"],
+            "sacrifice_bunts": extra["sacrifice_bunts"],
+            "sacrifice_flies": extra["sacrifice_flies"],
+        })
+
+    return rows
+
+def _aggregate_recent_batting_stats(window_games: int) -> dict:
+    games = _fetch_recent_carp_games(window_games)
+
+    player_totals: dict[str, dict] = {}
+    team_totals = {
+        "at_bats": 0,
+        "runs": 0,
+        "hits": 0,
+        "rbi": 0,
+        "steals": 0,
+        "doubles": 0,
+        "triples": 0,
+        "homeruns": 0,
+        "walks": 0,
+        "hit_by_pitch": 0,
+        "strikeouts": 0,
+        "sacrifice_bunts": 0,
+        "sacrifice_flies": 0,
+    }
+
+    def _empty_stat_line(player_name: str) -> dict:
+        return {
+            "player_name": player_name,
+            "games": 0,
+            "at_bats": 0,
+            "runs": 0,
+            "hits": 0,
+            "rbi": 0,
+            "steals": 0,
+            "doubles": 0,
+            "triples": 0,
+            "homeruns": 0,
+            "walks": 0,
+            "hit_by_pitch": 0,
+            "strikeouts": 0,
+            "sacrifice_bunts": 0,
+            "sacrifice_flies": 0,
+        }
+
+    for game in games:
+        try:
+            rows = _parse_carp_batting_rows(game["box_url"])
+        except Exception as e:
+            print("DEBUG_RECENT_GAME_PARSE_ERROR", game.get("box_url"), str(e))
+            continue
+
+        seen_in_game: set[str] = set()
+
+        for row in rows:
+            canonical_name = _canonical_player_name(row.get("player_name", ""))
+            if not canonical_name:
+                continue
+
+            stat_line = player_totals.setdefault(
+                canonical_name,
+                _empty_stat_line(canonical_name),
+            )
+
+            if canonical_name not in seen_in_game:
+                stat_line["games"] += 1
+                seen_in_game.add(canonical_name)
+
+            for key in [
+                "at_bats",
+                "runs",
+                "hits",
+                "rbi",
+                "steals",
+                "doubles",
+                "triples",
+                "homeruns",
+                "walks",
+                "hit_by_pitch",
+                "strikeouts",
+                "sacrifice_bunts",
+                "sacrifice_flies",
+            ]:
+                value = int(row.get(key, 0) or 0)
+                stat_line[key] += value
+                team_totals[key] += value

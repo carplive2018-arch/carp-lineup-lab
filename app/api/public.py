@@ -481,7 +481,6 @@ def _safe_float(value):
     except Exception:
         return None
 
-
 def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]]:
     marker = "守備ポジション別成績"
     start = html_text.find(marker)
@@ -496,16 +495,67 @@ def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]
     end = min(end_candidates) if end_candidates else len(html_text)
 
     block = html_text[start:end]
-    labels = re.findall(r'bg_c_th">([^<]+)</div>', block)
 
-    positions = []
-    for label in labels:
-        label = label.strip()
-        if label in POSITION_LABEL_TO_CODE:
-            positions.append(label)
-
-    if not positions:
+    position_labels = re.findall(
+        r'<div class="player_detail_more_ba border_t bg_c_th">(捕手|一塁手|二塁手|三塁手|遊撃手|左翼手|中堅手|右翼手|指名打者)</div>',
+        block,
+    )
+    if not position_labels:
         return {}
+
+    def extract_row(row_name: str) -> list[str]:
+        pattern = (
+            r'<div class="player_detail_more_th border_t center bg_c_th">'
+            + re.escape(row_name)
+            + r'</div>(.*?)</div><div><div class="player_detail_more_th'
+        )
+        m = re.search(pattern, block, flags=re.S)
+        if not m:
+            pattern_last = (
+                r'<div class="player_detail_more_th border_t center bg_c_th">'
+                + re.escape(row_name)
+                + r'</div>(.*)'
+            )
+            m = re.search(pattern_last, block, flags=re.S)
+            if not m:
+                return []
+
+        row_block = m.group(1)
+        values = re.findall(r'player_detail_more_ba [^"]* right">([^<]+)</div>', row_block)
+        return values[:len(position_labels)]
+
+    ab_values = extract_row("打<br>数")
+    avg_values = extract_row("打<br>率")
+    obp_values = extract_row("出<br>塁<br>率")
+    ops_values = extract_row("Ｏ<br>Ｐ<br>Ｓ")
+
+    result: dict[str, dict[str, float]] = {}
+
+    for i, pos_label in enumerate(position_labels):
+        if i >= len(ab_values) or i >= len(avg_values) or i >= len(obp_values) or i >= len(ops_values):
+            continue
+
+        ab = _to_float_or_none(ab_values[i])
+        avg = _to_float_or_none(avg_values[i])
+        obp = _to_float_or_none(obp_values[i])
+        ops = _to_float_or_none(ops_values[i])
+
+        if ab is None or avg is None or obp is None or ops is None:
+            continue
+
+        iso = max(0.0, ops - obp - avg)
+
+        pos_code = POSITION_LABEL_TO_CODE[pos_label]
+        result[pos_code] = {
+            "pa": int(ab),
+            "ab": int(ab),
+            "obp": round(obp, 3),
+            "iso": round(iso, 3),
+        }
+
+    return result
+
+
 
     def extract_row(row_name: str) -> list[str]:
         row_start = block.find(f">{row_name}<")
@@ -862,6 +912,7 @@ def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
             try:
                 fetched = _fetch_proran_position_batting(canonical_name, player_id)
                 if fetched:
+                    print("DEBUG_PRORAN_FETCH", canonical_name, fetched)
                     SEASON_POSITION_BATTING[normalized_name] = fetched
                     player_stats = fetched
             except Exception:
@@ -2152,6 +2203,8 @@ def _fetch_recent_actual_lineups() -> list[dict]:
 
 PLAYER_DEFENSE = _get_player_defense()
 SEASON_POSITION_BATTING = _get_season_position_batting()
+print("DEBUG_SEASON_POSITION_BATTING", SEASON_POSITION_BATTING.get("小園海斗"), SEASON_POSITION_BATTING.get("小園 海斗"))
+
 print("DEBUG_KOZONO_POSITION", SEASON_POSITION_BATTING.get("小園 海斗"))
 
 @router.get("/api/lineups/recent-actual")

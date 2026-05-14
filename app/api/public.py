@@ -1,3 +1,4 @@
+app = FastAPI(title="carp-lineup-api", version="0.1.0")
 router = APIRouter(tags=["public"])
 from __future__ import annotations
 

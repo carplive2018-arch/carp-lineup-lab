@@ -2193,8 +2193,15 @@ def public_recent_batting(request: Request, window_games: int = 5, view: str | N
 
         return _no_cache_json(data)
     except Exception as e:
-        print("DEBUG_PUBLIC_RECENT_BATTING_ERROR", str(e))
-        raise HTTPException(status_code=500, detail="recent-batting の生成に失敗しました")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "recent-batting failed",
+                "type": type(e).__name__,
+                "message": str(e),
+            },
+        )
+
 
 
 @router.get("/public/predicted-lineup")
@@ -2213,6 +2220,13 @@ def public_predicted_lineup(
 
         return _no_cache_json(data)
     except Exception as e:
-        print("DEBUG_PUBLIC_PREDICTED_LINEUP_ERROR", str(e))
-        raise HTTPException(status_code=500, detail="predicted-lineup の生成に失敗しました")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "predicted-lineup failed",
+                "type": type(e).__name__,
+                "message": str(e),
+            },
+        )
+成に失敗しました")
 

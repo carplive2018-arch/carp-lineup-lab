@@ -2202,8 +2202,6 @@ def public_recent_batting(request: Request, window_games: int = 5, view: str | N
             },
         )
 
-
-
 @router.get("/public/predicted-lineup")
 def public_predicted_lineup(
     request: Request,
@@ -2228,5 +2226,5 @@ def public_predicted_lineup(
                 "message": str(e),
             },
         )
-成に失敗しました")
+
 

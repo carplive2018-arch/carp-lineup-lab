@@ -482,26 +482,67 @@ def _safe_float(value):
         return None
 
 def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]]:
+    result: dict[str, dict[str, float]] = {}
+
     marker = "守備ポジション別成績"
     start = html_text.find(marker)
     if start == -1:
-        return {}
+        return result
 
-    end_candidates = []
-    for stop_word in ["対球団別成績", "球場別成績", "</body>"]:
-        idx = html_text.find(stop_word, start)
-        if idx != -1:
-            end_candidates.append(idx)
-    end = min(end_candidates) if end_candidates else len(html_text)
+    section = html_text[start:start + 40000]
 
-    block = html_text[start:end]
+    row_pattern = re.compile(r"<tr[^>]*>(.*?)</tr>", re.S)
+    cell_pattern = re.compile(r"<t[dh][^>]*>(.*?)</t[dh]>", re.S)
 
-    position_labels = re.findall(
-        r'<div class="player_detail_more_ba border_t bg_c_th">(捕手|一塁手|二塁手|三塁手|遊撃手|左翼手|中堅手|右翼手|指名打者)</div>',
-        block,
-    )
-    if not position_labels:
-        return {}
+    for row_html in row_pattern.findall(section):
+        cells = cell_pattern.findall(row_html)
+        if len(cells) < 10:
+            continue
+
+        texts = []
+        for cell in cells:
+            text = re.sub(r"<[^>]+>", "", cell)
+            text = unescape(text).replace("\u3000", " ").strip()
+            texts.append(text)
+
+        position_label = texts[0].strip()
+        position_code = POSITION_LABEL_TO_CODE.get(position_label)
+        if not position_code:
+            continue
+
+        if all(x in {"", "-", "--", "---", "----"} for x in texts[1:]):
+            continue
+
+        def pick_float(index: int) -> float:
+            if index >= len(texts):
+                return 0.0
+            value = texts[index].strip()
+            if value in {"", "-", "--", "---", "----"}:
+                return 0.0
+            value = value.replace("−", "-")
+            if value.startswith("."):
+                value = "0" + value
+            try:
+                return float(value)
+            except Exception:
+                return 0.0
+
+        pa = pick_float(1)
+        ab = pick_float(2)
+        avg = pick_float(3)
+        obp = pick_float(4)
+        ops = pick_float(5)
+
+        iso = max(0.0, ops - obp - avg)
+
+        result[position_code] = {
+            "pa": pa,
+            "ab": ab,
+            "obp": round(obp, 3),
+            "iso": round(iso, 3),
+        }
+
+    return result
 
     def extract_row(row_name: str) -> list[str]:
         pattern = (
@@ -902,23 +943,32 @@ def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
     canonical_name = _canonical_player_name(player_name)
     normalized_name = _normalize_player_name(canonical_name)
 
-    player_stats = SEASON_POSITION_BATTING.get(normalized_name)
+    player_stats = (
+        SEASON_POSITION_BATTING.get(canonical_name)
+        or SEASON_POSITION_BATTING.get(normalized_name)
+        or {}
+    )
 
     if not player_stats:
         player_ids = _get_proran_player_ids()
-        player_id = player_ids.get(normalized_name)
-
+        player_id = (
+            player_ids.get(canonical_name)
+            or player_ids.get(normalized_name)
+        )
         if player_id:
             try:
                 fetched = _fetch_proran_position_batting(canonical_name, player_id)
+                print("DEBUG_PRORAN_FETCH", canonical_name, fetched)
                 if fetched:
-                    print("DEBUG_PRORAN_FETCH", canonical_name, fetched)
+                    SEASON_POSITION_BATTING[canonical_name] = fetched
                     SEASON_POSITION_BATTING[normalized_name] = fetched
                     player_stats = fetched
-            except Exception:
+            except Exception as e:
+                print("DEBUG_PRORAN_FETCH_ERROR", canonical_name, str(e))
                 player_stats = {}
 
     pos_stats = (player_stats or {}).get(position, {})
+
     return {
         "pa": float(pos_stats.get("pa", 0.0) or 0.0),
         "ab": float(pos_stats.get("ab", 0.0) or 0.0),
@@ -2203,7 +2253,8 @@ def _fetch_recent_actual_lineups() -> list[dict]:
 
 PLAYER_DEFENSE = _get_player_defense()
 SEASON_POSITION_BATTING = _get_season_position_batting()
-print("DEBUG_SEASON_POSITION_BATTING", SEASON_POSITION_BATTING.get("小園海斗"), SEASON_POSITION_BATTING.get("小園 海斗"))
+print("DEBUG_SEASON_POSITION_BATTING", SEASON_POSITION_BATTING.get("小園 海斗"), SEASON_POSITION_BATTING.get("小園海斗"))
+
 
 print("DEBUG_KOZONO_POSITION", SEASON_POSITION_BATTING.get("小園 海斗"))
 

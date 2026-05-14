@@ -14,23 +14,10 @@ from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import JSONResponse
 
 
 router = APIRouter(tags=["public"])
-
-@router.get("/public/recent-batting")
-def public_recent_batting(window_games: int = 5):
-    window_games = max(1, min(window_games, 10))
-    return _build_recent_batting_response(window_games)
-
-
-@router.get("/public/predicted-lineup")
-def public_predicted_lineup(window_games: int = 5, use_dh: bool = True):
-    window_games = max(1, min(window_games, 10))
-    return _build_simple_predicted_lineup(window_games=window_games, use_dh=use_dh)
-
-
 
 
 TEAM_CODE_TO_NAME = {
@@ -65,6 +52,7 @@ TEAM_NAME_TO_CODE = {
 }
 
 HOME_VENUE_KEYWORDS = ["マツダ"]
+
 POSITION_BATTING_PRIOR_PA = 60
 POSITION_BATTING_PRIOR_AB = 80
 RECENT_OBP_PRIOR_PA = 12
@@ -74,10 +62,19 @@ MIN_CATCHER_RECENT_PA = 4
 WEAK_CATCHER_PENALTY = 1.6
 TOP_CATCHER_TO_DH_PENALTY = 1.0
 TOP_CATCHER_AT_C_BONUS = 0.8
+
 JST = ZoneInfo("Asia/Tokyo")
 
 FIRST_TEAM_MEMBERS_URL = "https://www.carp.co.jp/team/members"
 FARM_BATTING_STATS_URL = "https://npb.jp/bis/2026/stats/idb2_c.html"
+CURRENT_RESULTS_URL = "https://npb.jp/bis/teams/results_c_index.html"
+
+CURRENT_SEASON_YEAR = 2026
+PRORAN_TEAM_BATTERS_URL = "https://proran.jp/team_detail_b.php?t=_c"
+PRORAN_PLAYER_DETAIL_MORE_URL = "https://proran.jp/player_detail_more.php?id={player_id}&y={year}"
+
+NPBBASEMENT_FIELDING_URL = "https://npbbasement.com/fielding"
+NPBBASEMENT_BASE_URL = "https://npbbasement.com"
 
 FIRST_TEAM_CONFIRM_HOUR = 17
 FIRST_TEAM_CONFIRM_MINUTE = 30
@@ -85,6 +82,11 @@ FIRST_TEAM_CONFIRM_MINUTE = 30
 FARM_MIN_PA = 50
 FARM_DISCOUNT = 0.90
 PROMOTION_GRACE_DAYS = 7
+
+CACHE_TTL_PLAYER_DEFENSE = 60 * 60 * 12
+CACHE_TTL_SEASON_POSITION_BATTING = 60 * 60 * 6
+CACHE_TTL_RECENT_BATTING = 60 * 5
+CACHE_TTL_PREDICTED_LINEUP = 60 * 3
 
 LAST_FIXED_FIRST_TEAM_POSITION_PLAYERS = {
     "坂倉 将吾",
@@ -134,6 +136,35 @@ POSITION_LABELS = {
     POS_P: "投手",
 }
 
+POSITION_LABEL_TO_CODE = {
+    "捕手": "C",
+    "捕": "C",
+    "C": "C",
+    "一塁": "1B",
+    "一塁手": "1B",
+    "1B": "1B",
+    "二塁": "2B",
+    "二塁手": "2B",
+    "2B": "2B",
+    "三塁": "3B",
+    "三塁手": "3B",
+    "3B": "3B",
+    "遊撃": "SS",
+    "遊撃手": "SS",
+    "SS": "SS",
+    "左翼": "LF",
+    "左翼手": "LF",
+    "LF": "LF",
+    "中堅": "CF",
+    "中堅手": "CF",
+    "CF": "CF",
+    "右翼": "RF",
+    "右翼手": "RF",
+    "RF": "RF",
+    "指名打者": "DH",
+    "DH": "DH",
+}
+
 PLAYER_PROFILE = {
     "坂倉 将吾": {"eligible_positions": [POS_C, POS_1B, POS_3B, POS_DH]},
     "小園 海斗": {"eligible_positions": [POS_SS, POS_3B]},
@@ -166,54 +197,36 @@ PLAYER_PROFILE.update(FARM_PROMOTION_CANDIDATES)
 
 PLAYER_NAME_ALIASES = {
     "小園海斗": "小園 海斗",
+    "小園": "小園 海斗",
     "勝田成": "勝田 成",
+    "勝田": "勝田 成",
     "二俣翔一": "二俣 翔一",
+    "二俣": "二俣 翔一",
     "大盛穂": "大盛 穂",
+    "大盛": "大盛 穂",
     "田村俊介": "田村 俊介",
+    "田村": "田村 俊介",
     "矢野雅哉": "矢野 雅哉",
+    "矢野": "矢野 雅哉",
     "坂倉将吾": "坂倉 将吾",
+    "坂倉": "坂倉 将吾",
     "持丸泰輝": "持丸 泰輝",
     "持丸輝泰": "持丸 泰輝",
-}
-
-CURRENT_SEASON_YEAR = 2026
-PRORAN_TEAM_BATTERS_URL = "https://proran.jp/team_detail_b.php?t=_c"
-PRORAN_PLAYER_DETAIL_MORE_URL = "https://proran.jp/player_detail_more.php?id={player_id}&y={year}"
-NPBBASEMENT_FIELDING_URL = "https://npbbasement.com/fielding"
-NPBBASEMENT_BASE_URL = "https://npbbasement.com"
-
-CACHE_TTL_PLAYER_DEFENSE = 60 * 60 * 12
-CACHE_TTL_SEASON_POSITION_BATTING = 60 * 60 * 6
-CACHE_TTL_RECENT_BATTING = 60 * 5
-CACHE_TTL_PREDICTED_LINEUP = 60 * 3
-
-POSITION_LABEL_TO_CODE = {
-    "捕手": "C",
-    "捕": "C",
-    "C": "C",
-    "一塁": "1B",
-    "一塁手": "1B",
-    "1B": "1B",
-    "二塁": "2B",
-    "二塁手": "2B",
-    "2B": "2B",
-    "三塁": "3B",
-    "三塁手": "3B",
-    "3B": "3B",
-    "遊撃": "SS",
-    "遊撃手": "SS",
-    "SS": "SS",
-    "左翼": "LF",
-    "左翼手": "LF",
-    "LF": "LF",
-    "中堅": "CF",
-    "中堅手": "CF",
-    "CF": "CF",
-    "右翼": "RF",
-    "右翼手": "RF",
-    "RF": "RF",
-    "指名打者": "DH",
-    "DH": "DH",
+    "持丸": "持丸 泰輝",
+    "菊池": "菊池 涼介",
+    "菊池涼介": "菊池 涼介",
+    "野間": "野間 峻祥",
+    "野間峻祥": "野間 峻祥",
+    "秋山": "秋山 翔吾",
+    "秋山翔吾": "秋山 翔吾",
+    "石原": "石原 貴規",
+    "石原貴規": "石原 貴規",
+    "末包": "末包 昇大",
+    "末包昇大": "末包 昇大",
+    "堂林": "堂林 翔太",
+    "堂林翔太": "堂林 翔太",
+    "モンテロ": "モンテロ",
+    "ファビアン": "ファビアン",
 }
 
 CACHE = {
@@ -223,13 +236,16 @@ CACHE = {
     "predicted_lineup": {},
 }
 
-SEASON_POSITION_BATTING = {}
+SEASON_POSITION_BATTING: dict[str, dict] = {}
 
 PLAYER_DEFENSE_FALLBACK = {
     "坂倉 将吾": {"C": 0.30, "1B": 0.20, "3B": -0.20, "DH": 0.00},
     "小園 海斗": {"SS": 0.80, "3B": 0.40},
     "菊池 涼介": {"2B": 1.50},
+    "石原 貴規": {"C": 0.45},
+    "持丸 泰輝": {"C": 0.10},
 }
+
 PLAYER_DEFENSE = dict(PLAYER_DEFENSE_FALLBACK)
 
 SEASON_OVERALL_BATTING = {
@@ -398,8 +414,6 @@ NO_DH_LINEUP_SLOTS = [
         "low_defense_penalty": 1.50,
     },
 ]
-
-
 def _cache_now() -> float:
     return time.time()
 
@@ -410,57 +424,12 @@ def _cache_alive(entry: dict | None) -> bool:
     return float(entry.get("expires_at", 0) or 0) > _cache_now()
 
 
-def _cache_get_bucket(bucket: str):
+def _cache_get_bucket(bucket: str) -> dict:
     return CACHE.setdefault(bucket, {})
 
 
-def _layout(title: str, body: str) -> HTMLResponse:
-    return HTMLResponse(
-        f"""
-        <!doctype html>
-        <html lang="ja">
-        <head>
-          <meta charset="utf-8" />
-          <meta name="viewport" content="width=device-width, initial-scale=1" />
-          <title>{title}</title>
-          <style>
-            body {{ font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif; margin: 0; background: #0b1020; color: #f5f7fb; }}
-            .wrap {{ max-width: 960px; margin: 0 auto; padding: 40px 20px 72px; }}
-            .card {{ background: #121a31; border: 1px solid #26304d; border-radius: 18px; padding: 24px; margin-top: 18px; }}
-            .game-card {{ background: #0f1730; border: 1px solid #26304d; border-radius: 16px; padding: 18px; }}
-            .grid {{ display: grid; gap: 14px; }}
-            a {{ color: #9fc2ff; }}
-            h1, h2, h3 {{ line-height: 1.3; margin-top: 0; }}
-            ul, ol {{ line-height: 1.8; }}
-            .muted {{ color: #a9b5d1; }}
-            .pill {{ display: inline-block; padding: 6px 10px; border-radius: 999px; background: #243154; color: #cfe0ff; font-size: 12px; }}
-            .date {{ font-size: 18px; font-weight: 700; margin-bottom: 8px; }}
-            .small {{ font-size: 12px; color: #a9b5d1; }}
-            code {{ background: #0f1730; padding: 2px 6px; border-radius: 6px; }}
-            .segmented {{ display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 14px; }}
-            .segmented button {{ border: 1px solid #39507d; background: #16203d; color: #eaf1ff; border-radius: 999px; padding: 10px 14px; cursor: pointer; font-weight: 700; }}
-            .segmented button.active {{ background: #ffd54a; color: #182033; border-color: #ffd54a; }}
-            .stats-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-top: 14px; }}
-            .stat-box {{ background: #0f1730; border: 1px solid #26304d; border-radius: 12px; padding: 12px; }}
-            .stat-label {{ font-size: 12px; color: #a9b5d1; margin-bottom: 6px; }}
-            .stat-value {{ font-size: 20px; font-weight: 700; }}
-            .table-wrap {{ margin-top: 16px; overflow-x: auto; }}
-            .stats-table {{ width: 100%; border-collapse: collapse; min-width: 880px; }}
-            .stats-table th, .stats-table td {{ border-bottom: 1px solid #26304d; padding: 10px 8px; text-align: right; }}
-            .stats-table th:first-child, .stats-table td:first-child {{ text-align: left; position: sticky; left: 0; background: #121a31; }}
-            .stats-table th {{ font-size: 12px; color: #a9b5d1; }}
-          </style>
-        </head>
-        <body>
-          <div class="wrap">{body}</div>
-        </body>
-        </html>
-        """
-    )
-
-
 def _clean_text(value: str) -> str:
-    value = unescape(value)
+    value = unescape(value or "")
     value = re.sub(r"<br\s*/?>", " ", value, flags=re.IGNORECASE)
     value = re.sub(r"<[^>]+>", "", value)
     value = value.replace("&nbsp;", " ")
@@ -507,6 +476,11 @@ def _canonical_player_name(name: str) -> str:
     return name
 
 
+def _normalize_name(value: str) -> str:
+    value = _clean_text(value)
+    value = value.replace(" ", "").replace("　", "")
+    return value
+
 
 def _to_float_or_none(value: str | None) -> float | None:
     if value is None:
@@ -534,6 +508,62 @@ def _safe_float(value):
         return float(text)
     except Exception:
         return None
+
+
+def _safe_int(value: str) -> int:
+    value = _clean_text(value).replace(",", "")
+    m = re.search(r"-?\d+", value)
+    if not m:
+        return 0
+    return int(m.group(0))
+
+
+def _round3(value: float) -> float:
+    return round(value, 3)
+
+
+def _calc_iso_from_stats(stats: dict) -> float:
+    at_bats = int(stats.get("at_bats", stats.get("ab", 0)) or 0)
+    if at_bats <= 0:
+        return 0.0
+
+    doubles = int(stats.get("doubles", 0) or 0)
+    triples = int(stats.get("triples", 0) or 0)
+    homeruns = int(stats.get("homeruns", 0) or 0)
+
+    iso = (doubles + 2 * triples + 3 * homeruns) / at_bats
+    return _round3(iso)
+
+
+def _zscore_map(values: dict[str, float]) -> dict[str, float]:
+    if not values:
+        return {}
+
+    nums = list(values.values())
+    mean = sum(nums) / len(nums)
+    variance = sum((x - mean) ** 2 for x in nums) / len(nums)
+    std = variance ** 0.5
+
+    if std == 0:
+        return {k: 0.0 for k in values}
+
+    return {k: (v - mean) / std for k, v in values.items()}
+
+
+def _fetch_text(url: str) -> str:
+    req = Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0",
+            "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+        },
+    )
+    with urlopen(req, timeout=20) as res:
+        return res.read().decode("utf-8", errors="ignore")
+
+
+def _fetch_html(url: str) -> str:
+    return _fetch_text(url)
 
 
 def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]]:
@@ -567,12 +597,7 @@ def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]
     )
 
     raw_labels = [_clean_label(x) for x in th_matches if _clean_label(x)]
-    raw_values = [_clean_label(x) for x in ba_matches if _clean_label(x)]
-
-    print("DEBUG_PRORAN_POSITION_LABELS", raw_labels)
-
-    debug_obp: dict[str, float] = {}
-    debug_ops: dict[str, float] = {}
+    raw_values = [_clean_label(x) for x in ba_matches]
 
     row_size = 5
 
@@ -605,25 +630,9 @@ def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]
             "ops": round(ops, 3),
             "iso": round(iso, 3),
         }
-        debug_obp[position] = round(obp, 3)
-        debug_ops[position] = round(ops, 3)
 
-    print("DEBUG_PRORAN_POSITION_OBP", debug_obp)
-    print("DEBUG_PRORAN_POSITION_OPS", debug_ops)
     print("DEBUG_PRORAN_POSITION_RESULT", result)
     return result
-
-
-def _fetch_text(url: str) -> str:
-    req = Request(
-        url,
-        headers={
-            "User-Agent": "Mozilla/5.0",
-            "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
-        },
-    )
-    with urlopen(req, timeout=20) as res:
-        return res.read().decode("utf-8", errors="ignore")
 
 
 @lru_cache(maxsize=1)
@@ -724,7 +733,6 @@ def _get_season_position_batting() -> dict:
             "expires_at": _cache_now() + CACHE_TTL_SEASON_POSITION_BATTING,
             "value": data,
         }
-        print("DEBUG_SEASON_POSITION_BATTING_OK", len(data))
         return data
 
     fallback = SEASON_POSITION_BATTING if isinstance(SEASON_POSITION_BATTING, dict) else {}
@@ -732,8 +740,8 @@ def _get_season_position_batting() -> dict:
         "expires_at": _cache_now() + 60,
         "value": fallback,
     }
-    print("DEBUG_SEASON_POSITION_BATTING_EMPTY")
     return fallback
+
 
 def _calc_def_from_components(fld: dict) -> float:
     value = 0.0
@@ -844,63 +852,6 @@ def _get_player_defense() -> dict[str, dict[str, float]]:
         "value": data,
     }
     return data
-
-
-def _normalize_name(value: str) -> str:
-    value = _clean_text(value)
-    value = value.replace(" ", "").replace("　", "")
-    return value
-
-
-def _safe_int(value: str) -> int:
-    value = _clean_text(value).replace(",", "")
-    m = re.search(r"-?\d+", value)
-    if not m:
-        return 0
-    return int(m.group(0))
-
-
-def _round3(value: float) -> float:
-    return round(value, 3)
-
-
-def _calc_iso_from_stats(stats: dict) -> float:
-    at_bats = int(stats.get("at_bats", stats.get("ab", 0)) or 0)
-    if at_bats <= 0:
-        return 0.0
-
-    doubles = int(stats.get("doubles", 0) or 0)
-    triples = int(stats.get("triples", 0) or 0)
-    homeruns = int(stats.get("homeruns", 0) or 0)
-
-    iso = (doubles + 2 * triples + 3 * homeruns) / at_bats
-    return _round3(iso)
-
-
-def _zscore_map(values: dict[str, float]) -> dict[str, float]:
-    if not values:
-        return {}
-
-    nums = list(values.values())
-    mean = sum(nums) / len(nums)
-    variance = sum((x - mean) ** 2 for x in nums) / len(nums)
-    std = variance ** 0.5
-
-    if std == 0:
-        return {k: 0.0 for k in values}
-
-    return {k: (v - mean) / std for k, v in values.items()}
-
-
-def _position_universe(slot_defs: list[dict]) -> list[str]:
-    result: list[str] = []
-    for slot in slot_defs:
-        for pos in slot["allowed_positions"]:
-            if pos not in result:
-                result.append(pos)
-    return result
-
-
 def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
     global SEASON_POSITION_BATTING
 
@@ -939,7 +890,6 @@ def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
         if player_id:
             try:
                 fetched = _fetch_proran_position_batting(canonical_name, player_id)
-                print("DEBUG_PRORAN_FETCH", canonical_name, fetched)
 
                 if fetched:
                     SEASON_POSITION_BATTING[canonical_name] = fetched
@@ -1038,6 +988,70 @@ def _name_aliases(name: str) -> set[str]:
     return {a for a in aliases if a}
 
 
+class _TopLevelTableParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.tables: list[list[list[str]]] = []
+        self._table_depth = 0
+        self._current_table: list[list[str]] | None = None
+        self._current_row: list[str] | None = None
+        self._current_cell: list[str] | None = None
+        self._in_cell = False
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag == "table":
+            self._table_depth += 1
+            if self._table_depth == 1:
+                self._current_table = []
+            return
+
+        if self._table_depth != 1:
+            return
+
+        if tag == "tr":
+            self._current_row = []
+        elif tag in ("td", "th"):
+            self._in_cell = True
+            self._current_cell = []
+        elif tag == "br" and self._in_cell and self._current_cell is not None:
+            self._current_cell.append(" ")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "table":
+            if self._table_depth == 1 and self._current_table is not None:
+                self.tables.append(self._current_table)
+                self._current_table = None
+            self._table_depth -= 1
+            return
+
+        if self._table_depth != 1:
+            return
+
+        if tag in ("td", "th"):
+            if self._current_row is not None and self._current_cell is not None:
+                cell_text = _clean_text("".join(self._current_cell))
+                self._current_row.append(cell_text)
+            self._in_cell = False
+            self._current_cell = None
+
+        elif tag == "tr":
+            if self._current_table is not None and self._current_row is not None:
+                if any(cell != "" for cell in self._current_row):
+                    self._current_table.append(self._current_row)
+            self._current_row = None
+
+    def handle_data(self, data: str) -> None:
+        if self._table_depth == 1 and self._in_cell and self._current_cell is not None:
+            self._current_cell.append(data)
+
+
+def _extract_tables(html: str) -> list[list[list[str]]]:
+    parser = _TopLevelTableParser()
+    parser.feed(html)
+    parser.close()
+    return parser.tables
+
+
 def _find_farm_batting_table(tables: list[list[list[str]]]) -> list[list[str]]:
     for table in tables:
         if not table:
@@ -1071,8 +1085,8 @@ def _fetch_current_first_team_position_players() -> set[str]:
 
         if result:
             return result
-    except Exception:
-        pass
+    except Exception as e:
+        print("DEBUG_FIRST_TEAM_MEMBER_ERROR", str(e))
 
     return set(LAST_FIXED_FIRST_TEAM_POSITION_PLAYERS)
 
@@ -1173,100 +1187,12 @@ def _build_farm_score_maps(candidate_names: list[str]) -> dict:
             "farm_pa": pa_map,
         }
 
-    except Exception:
+    except Exception as e:
+        print("DEBUG_FARM_SCORE_ERROR", str(e))
         return {
             "farm_score": {},
             "farm_pa": {},
         }
-
-
-def _get_prediction_candidate_names(now: datetime | None = None) -> list[str]:
-    now = now or _now_jst()
-
-    active_first_team = _get_active_first_team_position_players(now)
-    farm_maps = _build_farm_score_maps(list(FARM_PROMOTION_CANDIDATES.keys()))
-
-    candidates: list[str] = []
-
-    for name in PLAYER_PROFILE.keys():
-        if name in active_first_team and name not in candidates:
-            candidates.append(name)
-
-    for name in FARM_PROMOTION_CANDIDATES.keys():
-        if name in farm_maps["farm_score"] and name not in candidates:
-            candidates.append(name)
-
-    return candidates
-
-def _fetch_html(url: str) -> str:
-    req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    return urlopen(req, timeout=20).read().decode("utf-8", errors="ignore")
-
-
-class _TopLevelTableParser(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__()
-        self.tables: list[list[list[str]]] = []
-        self._table_depth = 0
-        self._current_table: list[list[str]] | None = None
-        self._current_row: list[str] | None = None
-        self._current_cell: list[str] | None = None
-        self._in_cell = False
-
-    def handle_starttag(self, tag: str, attrs) -> None:
-        if tag == "table":
-            self._table_depth += 1
-            if self._table_depth == 1:
-                self._current_table = []
-            return
-
-        if self._table_depth != 1:
-            return
-
-        if tag == "tr":
-            self._current_row = []
-        elif tag in ("td", "th"):
-            self._in_cell = True
-            self._current_cell = []
-        elif tag == "br" and self._in_cell and self._current_cell is not None:
-            self._current_cell.append(" ")
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag == "table":
-            if self._table_depth == 1 and self._current_table is not None:
-                self.tables.append(self._current_table)
-                self._current_table = None
-            self._table_depth -= 1
-            return
-
-        if self._table_depth != 1:
-            return
-
-        if tag in ("td", "th"):
-            if self._current_row is not None and self._current_cell is not None:
-                cell_text = _clean_text("".join(self._current_cell))
-                self._current_row.append(cell_text)
-            self._in_cell = False
-            self._current_cell = None
-
-        elif tag == "tr":
-            if self._current_table is not None and self._current_row is not None:
-                if any(cell != "" for cell in self._current_row):
-                    self._current_table.append(self._current_row)
-            self._current_row = None
-
-    def handle_data(self, data: str) -> None:
-        if self._table_depth == 1 and self._in_cell and self._current_cell is not None:
-            self._current_cell.append(data)
-
-
-def _extract_tables(html: str) -> list[list[list[str]]]:
-    parser = _TopLevelTableParser()
-    parser.feed(html)
-    parser.close()
-    return parser.tables
-
-
 def _normalize_opponent_name(name: str) -> str:
     name = _clean_text(name)
     name = name.replace("　", "").replace(" ", "")
@@ -1280,85 +1206,9 @@ def _is_home_game(venue: str) -> bool:
     return any(keyword in venue for keyword in HOME_VENUE_KEYWORDS)
 
 
-def _parse_date_cell(date_cell: str, current_month: int | None) -> tuple[int, int] | None:
-    value = _clean_text(date_cell).replace(" ", "")
-    if not value:
-        return None
-
-    if "/" in value:
-        parts = value.split("/")
-        if len(parts) != 2:
-            return None
-        month = _safe_int(parts[0])
-        day = _safe_int(parts[1])
-        if month <= 0 or day <= 0:
-            return None
-        return month, day
-
-    if current_month is None:
-        return None
-
-    day = _safe_int(value)
-    if day <= 0:
-        return None
-
-    return current_month, day
-
-
-def _find_results_table(tables: list[list[list[str]]]) -> list[list[str]]:
-    for table in tables:
-        if not table:
-            continue
-        header = [_clean_text(cell) for cell in table[0]]
-        if "月日" in header and "対戦球団" in header and "回戦" in header and "球場" in header:
-            return table
-    return []
-
-
-def _extract_current_scoreboard_game_urls(html: str) -> list[str]:
-    links = re.findall(r'href="(/scores/\d{4}/\d{4}/[a-z]{1,2}-[a-z]{1,2}-\d{2}/)"', html)
-    result: list[str] = []
-    for link in links:
-        if "/c-" in link or "-c-" in link:
-            absolute = f"https://npb.jp{link}box.html"
-            if absolute not in result:
-                result.append(absolute)
-    return result
-
-
-def _build_game_meta_from_box_url(box_url: str) -> dict:
-    m = re.search(r"/scores/(\d{4})/(\d{2})(\d{2})/([a-z]{1,2})-([a-z]{1,2})-(\d{2})/box\.html", box_url)
-    if not m:
-        return {
-            "date": "",
-            "date_sort": "",
-            "opponent": "",
-            "venue": "",
-            "round": 0,
-            "box_url": box_url,
-        }
-
-    year, mm, dd, home_code, away_code, round_no = m.groups()
-    if home_code == "c":
-        opponent_code = away_code
-        venue = "マツダ"
-    else:
-        opponent_code = home_code
-        venue = "ビジター"
-
-    return {
-        "date": f"{int(mm)}月{int(dd)}日",
-        "date_sort": f"{year}-{mm}-{dd}",
-        "opponent": TEAM_CODE_TO_NAME.get(opponent_code, opponent_code),
-        "venue": venue,
-        "round": int(round_no),
-        "box_url": box_url,
-    }
-
-
 def _extract_year_from_results_page(html: str) -> str:
     m = re.search(r"(\d{4})年度", html)
-    return m.group(1) if m else "2026"
+    return m.group(1) if m else str(CURRENT_SEASON_YEAR)
 
 
 def _extract_previous_results_page_url(html: str) -> str | None:
@@ -1474,8 +1324,7 @@ def _parse_result_rows_to_games(rows: list[list[str]], year: str) -> list[dict]:
 
 @lru_cache(maxsize=4)
 def _fetch_recent_carp_games(limit: int) -> list[dict]:
-    current_results_url = "https://npb.jp/bis/teams/results_c_index.html"
-    current_html = _fetch_html(current_results_url)
+    current_html = _fetch_html(CURRENT_RESULTS_URL)
     year = _extract_year_from_results_page(current_html)
 
     all_games: list[dict] = []
@@ -1489,8 +1338,8 @@ def _fetch_recent_carp_games(limit: int) -> list[dict]:
             previous_html = _fetch_html(previous_url)
             previous_rows = _extract_result_rows_from_html(previous_html)
             all_games.extend(_parse_result_rows_to_games(previous_rows, year))
-        except Exception:
-            pass
+        except Exception as e:
+            print("DEBUG_PREVIOUS_RESULTS_ERROR", str(e))
 
     dedup: dict[str, dict] = {}
     for game in all_games:
@@ -1610,7 +1459,17 @@ def _parse_carp_batting_rows(box_url: str) -> list[dict]:
 
     return rows
 
+
 def _aggregate_recent_batting_stats(window_games: int) -> dict:
+    cache_bucket = _cache_get_bucket("recent_batting")
+    cache_key = f"aggregate:{window_games}"
+    cache_entry = cache_bucket.get(cache_key)
+
+    if _cache_alive(cache_entry):
+        cached_value = cache_entry.get("value")
+        if isinstance(cached_value, dict):
+            return cached_value
+
     games = _fetch_recent_carp_games(window_games)
 
     player_totals: dict[str, dict] = {}
@@ -1690,11 +1549,19 @@ def _aggregate_recent_batting_stats(window_games: int) -> dict:
                 value = int(row.get(key, 0) or 0)
                 stat_line[key] += value
                 team_totals[key] += value
-    return {
+
+    result = {
         "games": games,
         "player_totals": player_totals,
         "team_totals": team_totals,
     }
+
+    cache_bucket[cache_key] = {
+        "value": result,
+        "expires_at": _cache_now() + CACHE_TTL_RECENT_BATTING,
+    }
+    return result
+
 
 def _calc_recent_pa(stats: dict) -> int:
     return (
@@ -1720,6 +1587,15 @@ def _calc_recent_obp(stats: dict) -> float:
 
 
 def _build_recent_batting_response(window_games: int) -> dict:
+    cache_bucket = _cache_get_bucket("recent_batting")
+    cache_key = f"response:{window_games}"
+    cache_entry = cache_bucket.get(cache_key)
+
+    if _cache_alive(cache_entry):
+        cached_value = cache_entry.get("value")
+        if isinstance(cached_value, dict):
+            return cached_value
+
     aggregated = _aggregate_recent_batting_stats(window_games)
 
     rows = []
@@ -1761,12 +1637,18 @@ def _build_recent_batting_response(window_games: int) -> dict:
         )
     )
 
-    return {
+    result = {
         "window_games": window_games,
         "games": aggregated.get("games", []),
         "players": rows,
         "team_totals": aggregated.get("team_totals", {}),
     }
+
+    cache_bucket[cache_key] = {
+        "value": result,
+        "expires_at": _cache_now() + CACHE_TTL_RECENT_BATTING,
+    }
+    return result
 
 
 def _recent_snapshot_map(window_games: int) -> dict[str, dict]:
@@ -1787,10 +1669,37 @@ def _recent_snapshot_map(window_games: int) -> dict[str, dict]:
     return result
 
 
+def _get_prediction_candidate_names(now: datetime | None = None) -> list[str]:
+    now = now or _now_jst()
+
+    active_first_team = _get_active_first_team_position_players(now)
+    farm_maps = _build_farm_score_maps(list(FARM_PROMOTION_CANDIDATES.keys()))
+
+    candidates: list[str] = []
+
+    for name in PLAYER_PROFILE.keys():
+        if name in active_first_team and name not in candidates:
+            candidates.append(name)
+
+    for name in FARM_PROMOTION_CANDIDATES.keys():
+        if name in farm_maps["farm_score"] and name not in candidates:
+            candidates.append(name)
+
+    for name in PROMOTED_FROM_FARM.keys():
+        if _is_recently_promoted(name, now) and name not in candidates:
+            candidates.append(name)
+
+    return candidates
+
+
 def _defense_value_for(player_name: str, position: str, defense_map: dict) -> float:
     canonical_name = _canonical_player_name(player_name)
 
-    player_def = defense_map.get(canonical_name) or defense_map.get(_normalize_player_name(canonical_name)) or {}
+    player_def = (
+        defense_map.get(canonical_name)
+        or defense_map.get(_normalize_player_name(canonical_name))
+        or {}
+    )
     if position in player_def:
         return float(player_def.get(position, 0.0) or 0.0)
 
@@ -1819,7 +1728,10 @@ def _slot_score(
     defense = _defense_value_for(canonical_name, position, defense_map)
 
     recent_value = recent["obp"] * 100 + recent["iso"] * 100
-    season_value = float(season_pos.get("obp", 0.0) or 0.0) * 100 + float(season_pos.get("iso", 0.0) or 0.0) * 100
+    season_value = (
+        float(season_pos.get("obp", 0.0) or 0.0) * 100
+        + float(season_pos.get("iso", 0.0) or 0.0) * 100
+    )
     defense_value = defense * 10
 
     weights = slot_def.get("weights", {})
@@ -1838,16 +1750,27 @@ def _slot_score(
 
 
 def _build_simple_predicted_lineup(window_games: int, use_dh: bool) -> dict:
+    cache_bucket = _cache_get_bucket("predicted_lineup")
+    cache_key = f"w{window_games}:dh{int(use_dh)}"
+    cache_entry = cache_bucket.get(cache_key)
+
+    if _cache_alive(cache_entry):
+        cached_value = cache_entry.get("value")
+        if isinstance(cached_value, dict):
+            return cached_value
+
     slot_defs = DH_LINEUP_SLOTS if use_dh else NO_DH_LINEUP_SLOTS
     recent_map = _recent_snapshot_map(window_games)
     defense_map = _get_player_defense()
     candidate_names = _get_prediction_candidate_names()
 
     used_players: set[str] = set()
+    used_positions: set[str] = set()
     lineup: list[dict] = []
 
     for slot_def in slot_defs:
         best_pick = None
+        allowed_positions = slot_def.get("allowed_positions", [])
 
         for player_name in candidate_names:
             canonical_name = _canonical_player_name(player_name)
@@ -1855,9 +1778,10 @@ def _build_simple_predicted_lineup(window_games: int, use_dh: bool) -> dict:
                 continue
 
             eligible_positions = (PLAYER_PROFILE.get(canonical_name) or {}).get("eligible_positions", [])
-            allowed_positions = slot_def.get("allowed_positions", [])
 
             for position in allowed_positions:
+                if position in used_positions:
+                    continue
                 if position not in eligible_positions:
                     continue
 
@@ -1885,6 +1809,7 @@ def _build_simple_predicted_lineup(window_games: int, use_dh: bool) -> dict:
             continue
 
         used_players.add(best_pick["player_name"])
+        used_positions.add(best_pick["position"])
 
         recent = best_pick["recent"]
         season_pos = best_pick["season_pos"]
@@ -1922,10 +1847,48 @@ def _build_simple_predicted_lineup(window_games: int, use_dh: bool) -> dict:
 
     lineup.sort(key=lambda x: x["order"])
 
-    return {
+    result = {
         "use_dh": use_dh,
         "window_games": window_games,
         "generated_at": _now_jst().isoformat(),
         "lineup": lineup,
     }
 
+    cache_bucket[cache_key] = {
+        "value": result,
+        "expires_at": _cache_now() + CACHE_TTL_PREDICTED_LINEUP,
+    }
+    return result
+
+
+def _no_cache_json(data: dict) -> JSONResponse:
+    return JSONResponse(
+        content=data,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
+
+
+@router.get("/public/recent-batting")
+def public_recent_batting(window_games: int = 5):
+    try:
+        window_games = max(1, min(window_games, 10))
+        data = _build_recent_batting_response(window_games)
+        return _no_cache_json(data)
+    except Exception as e:
+        print("DEBUG_PUBLIC_RECENT_BATTING_ERROR", str(e))
+        raise HTTPException(status_code=500, detail="recent-batting の生成に失敗しました")
+
+
+@router.get("/public/predicted-lineup")
+def public_predicted_lineup(window_games: int = 5, use_dh: bool = True):
+    try:
+        window_games = max(1, min(window_games, 10))
+        data = _build_simple_predicted_lineup(window_games=window_games, use_dh=use_dh)
+        return _no_cache_json(data)
+    except Exception as e:
+        print("DEBUG_PUBLIC_PREDICTED_LINEUP_ERROR", str(e))
+        raise HTTPException(status_code=500, detail="predicted-lineup の生成に失敗しました")

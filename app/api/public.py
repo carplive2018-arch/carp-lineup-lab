@@ -1,9 +1,4 @@
-app = FastAPI(title="carp-lineup-api", version="0.1.0")
-router = APIRouter(tags=["public"])
 from __future__ import annotations
-
-from fastapi import FastAPI
-from fastapi.responses import RedirectResponse
 
 from functools import lru_cache
 from datetime import datetime, timedelta
@@ -20,19 +15,9 @@ from urllib.request import Request, urlopen
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
-from app.api import public
 
 
-@app.get("/", include_in_schema=False)
-def root():
-    return {
-        "message": "carp-lineup-api is running",
-        "docs": "/docs",
-        "health": "/health",
-    }
-@app.get("/health")
-def health():
-    return {"status": "ok", "marker": "koidanshi-check-0511"}
+router = APIRouter(tags=["public"])
 
 
 

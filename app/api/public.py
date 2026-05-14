@@ -20,12 +20,16 @@ from fastapi.responses import HTMLResponse, JSONResponse
 router = APIRouter(tags=["public"])
 
 @router.get("/public/recent-batting")
-def public_recent_batting():
-    return {"ok": True, "endpoint": "recent-batting"}
+def public_recent_batting(window_games: int = 5):
+    window_games = max(1, min(window_games, 10))
+    return _build_recent_batting_response(window_games)
+
 
 @router.get("/public/predicted-lineup")
-def public_predicted_lineup():
-    return {"ok": True, "endpoint": "predicted-lineup"}
+def public_predicted_lineup(window_games: int = 5, use_dh: bool = True):
+    window_games = max(1, min(window_games, 10))
+    return _build_simple_predicted_lineup(window_games=window_games, use_dh=use_dh)
+
 
 
 
@@ -1674,3 +1678,237 @@ def _aggregate_recent_batting_stats(window_games: int) -> dict:
         "player_totals": player_totals,
         "team_totals": team_totals,
     }
+
+def _calc_recent_pa(stats: dict) -> int:
+    return (
+        int(stats.get("at_bats", 0) or 0)
+        + int(stats.get("walks", 0) or 0)
+        + int(stats.get("hit_by_pitch", 0) or 0)
+        + int(stats.get("sacrifice_flies", 0) or 0)
+    )
+
+
+def _calc_recent_obp(stats: dict) -> float:
+    hits = int(stats.get("hits", 0) or 0)
+    ab = int(stats.get("at_bats", 0) or 0)
+    walks = int(stats.get("walks", 0) or 0)
+    hit_by_pitch = int(stats.get("hit_by_pitch", 0) or 0)
+    sacrifice_flies = int(stats.get("sacrifice_flies", 0) or 0)
+
+    denominator = ab + walks + hit_by_pitch + sacrifice_flies
+    if denominator <= 0:
+        return 0.0
+
+    return _round3((hits + walks + hit_by_pitch) / denominator)
+
+
+def _build_recent_batting_response(window_games: int) -> dict:
+    aggregated = _aggregate_recent_batting_stats(window_games)
+
+    rows = []
+    for player_name, stats in aggregated.get("player_totals", {}).items():
+        pa = _calc_recent_pa(stats)
+        ab = int(stats.get("at_bats", 0) or 0)
+        hits = int(stats.get("hits", 0) or 0)
+
+        avg = _round3(hits / ab) if ab > 0 else 0.0
+        obp = _calc_recent_obp(stats)
+        iso = _calc_iso_from_stats(stats)
+
+        rows.append({
+            "player_name": player_name,
+            "games": int(stats.get("games", 0) or 0),
+            "pa": pa,
+            "ab": ab,
+            "hits": hits,
+            "runs": int(stats.get("runs", 0) or 0),
+            "rbi": int(stats.get("rbi", 0) or 0),
+            "steals": int(stats.get("steals", 0) or 0),
+            "walks": int(stats.get("walks", 0) or 0),
+            "hit_by_pitch": int(stats.get("hit_by_pitch", 0) or 0),
+            "strikeouts": int(stats.get("strikeouts", 0) or 0),
+            "homeruns": int(stats.get("homeruns", 0) or 0),
+            "doubles": int(stats.get("doubles", 0) or 0),
+            "triples": int(stats.get("triples", 0) or 0),
+            "avg": avg,
+            "obp": obp,
+            "iso": iso,
+        })
+
+    rows.sort(
+        key=lambda x: (
+            -x["pa"],
+            -x["obp"],
+            -x["iso"],
+            x["player_name"],
+        )
+    )
+
+    return {
+        "window_games": window_games,
+        "games": aggregated.get("games", []),
+        "players": rows,
+        "team_totals": aggregated.get("team_totals", {}),
+    }
+
+
+def _recent_snapshot_map(window_games: int) -> dict[str, dict]:
+    aggregated = _aggregate_recent_batting_stats(window_games)
+    result: dict[str, dict] = {}
+
+    for player_name, stats in aggregated.get("player_totals", {}).items():
+        canonical_name = _canonical_player_name(player_name)
+        result[canonical_name] = {
+            "games": int(stats.get("games", 0) or 0),
+            "pa": _calc_recent_pa(stats),
+            "ab": int(stats.get("at_bats", 0) or 0),
+            "obp": _calc_recent_obp(stats),
+            "iso": _calc_iso_from_stats(stats),
+            "raw": stats,
+        }
+
+    return result
+
+
+def _defense_value_for(player_name: str, position: str, defense_map: dict) -> float:
+    canonical_name = _canonical_player_name(player_name)
+
+    player_def = defense_map.get(canonical_name) or defense_map.get(_normalize_player_name(canonical_name)) or {}
+    if position in player_def:
+        return float(player_def.get(position, 0.0) or 0.0)
+
+    fallback = PLAYER_DEFENSE_FALLBACK.get(canonical_name, {})
+    return float(fallback.get(position, 0.0) or 0.0)
+
+
+def _slot_score(
+    player_name: str,
+    position: str,
+    slot_def: dict,
+    recent_map: dict[str, dict],
+    defense_map: dict,
+) -> tuple[float, dict, dict, float]:
+    canonical_name = _canonical_player_name(player_name)
+
+    recent = recent_map.get(canonical_name, {
+        "games": 0,
+        "pa": 0,
+        "ab": 0,
+        "obp": 0.0,
+        "iso": 0.0,
+        "raw": {},
+    })
+    season_pos = _get_adjusted_position_batting(canonical_name, position)
+    defense = _defense_value_for(canonical_name, position, defense_map)
+
+    recent_value = recent["obp"] * 100 + recent["iso"] * 100
+    season_value = float(season_pos.get("obp", 0.0) or 0.0) * 100 + float(season_pos.get("iso", 0.0) or 0.0) * 100
+    defense_value = defense * 10
+
+    weights = slot_def.get("weights", {})
+    score = (
+        float(weights.get("recent", 0.0) or 0.0) * recent_value
+        + float(weights.get("season_pos", 0.0) or 0.0) * season_value
+        + float(weights.get("defense", 0.0) or 0.0) * defense_value
+    )
+
+    min_defense = float(slot_def.get("min_defense", -999.0) or -999.0)
+    penalty = float(slot_def.get("low_defense_penalty", 0.0) or 0.0)
+    if defense < min_defense:
+        score -= penalty
+
+    return score, recent, season_pos, defense
+
+
+def _build_simple_predicted_lineup(window_games: int, use_dh: bool) -> dict:
+    slot_defs = DH_LINEUP_SLOTS if use_dh else NO_DH_LINEUP_SLOTS
+    recent_map = _recent_snapshot_map(window_games)
+    defense_map = _get_player_defense()
+    candidate_names = _get_prediction_candidate_names()
+
+    used_players: set[str] = set()
+    lineup: list[dict] = []
+
+    for slot_def in slot_defs:
+        best_pick = None
+
+        for player_name in candidate_names:
+            canonical_name = _canonical_player_name(player_name)
+            if canonical_name in used_players:
+                continue
+
+            eligible_positions = (PLAYER_PROFILE.get(canonical_name) or {}).get("eligible_positions", [])
+            allowed_positions = slot_def.get("allowed_positions", [])
+
+            for position in allowed_positions:
+                if position not in eligible_positions:
+                    continue
+
+                score, recent, season_pos, defense = _slot_score(
+                    canonical_name,
+                    position,
+                    slot_def,
+                    recent_map,
+                    defense_map,
+                )
+
+                if (best_pick is None) or (score > best_pick["score"]):
+                    best_pick = {
+                        "order": int(slot_def.get("order", 0) or 0),
+                        "position": position,
+                        "player_name": canonical_name,
+                        "score": round(score, 3),
+                        "recent": recent,
+                        "season_pos": season_pos,
+                        "defense": round(defense, 3),
+                        "role": slot_def.get("role", ""),
+                    }
+
+        if best_pick is None:
+            continue
+
+        used_players.add(best_pick["player_name"])
+
+        recent = best_pick["recent"]
+        season_pos = best_pick["season_pos"]
+        position = best_pick["position"]
+
+        reason = (
+            f"直近OBP {recent['obp']:.3f} / ISO {recent['iso']:.3f}、"
+            f"{position}補正OBP {float(season_pos.get('obp', 0.0) or 0.0):.3f} / "
+            f"ISO {float(season_pos.get('iso', 0.0) or 0.0):.3f}、"
+            f"守備補正 {best_pick['defense']:+.3f}"
+        )
+
+        lineup.append({
+            "order": best_pick["order"],
+            "position": position,
+            "player_name": best_pick["player_name"],
+            "score": best_pick["score"],
+            "reason": reason,
+            "recent": {
+                "games": recent["games"],
+                "pa": recent["pa"],
+                "ab": recent["ab"],
+                "obp": recent["obp"],
+                "iso": recent["iso"],
+            },
+            "season_position": {
+                "pa": float(season_pos.get("pa", 0.0) or 0.0),
+                "ab": float(season_pos.get("ab", 0.0) or 0.0),
+                "obp": float(season_pos.get("obp", 0.0) or 0.0),
+                "iso": float(season_pos.get("iso", 0.0) or 0.0),
+            },
+            "defense": best_pick["defense"],
+            "role": best_pick["role"],
+        })
+
+    lineup.sort(key=lambda x: x["order"])
+
+    return {
+        "use_dh": use_dh,
+        "window_games": window_games,
+        "generated_at": _now_jst().isoformat(),
+        "lineup": lineup,
+    }
+

@@ -820,23 +820,31 @@ def _position_universe(slot_defs: list[dict]) -> list[str]:
                 result.append(pos)
     return result
 
-
 def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
-    player_stats = SEASON_POSITION_BATTING.get(_normalize_player_name(player_name), {})
-    pos_stats = player_stats.get(position, {})
+    global SEASON_POSITION_BATTING
+
+    normalized_name = _normalize_player_name(player_name)
+    player_stats = SEASON_POSITION_BATTING.get(normalized_name)
+
+    if not player_stats:
+        player_ids = _get_proran_player_ids()
+        player_id = player_ids.get(normalized_name)
+
+        if player_id:
+            try:
+                fetched = _fetch_proran_position_batting(normalized_name, player_id)
+                if fetched:
+                    SEASON_POSITION_BATTING[normalized_name] = fetched
+                    player_stats = fetched
+            except Exception:
+                player_stats = {}
+
+    pos_stats = (player_stats or {}).get(position, {})
     return {
         "pa": float(pos_stats.get("pa", 0.0) or 0.0),
         "ab": float(pos_stats.get("ab", 0.0) or 0.0),
         "obp": float(pos_stats.get("obp", 0.0) or 0.0),
         "iso": float(pos_stats.get("iso", 0.0) or 0.0),
-    }
-
-
-    return {
-        "pa": 0.0,
-        "ab": 0.0,
-        "obp": 0.0,
-        "iso": 0.0,
     }
 
 
@@ -2115,6 +2123,7 @@ def _fetch_recent_actual_lineups() -> list[dict]:
 
 PLAYER_DEFENSE = _get_player_defense()
 SEASON_POSITION_BATTING = _get_season_position_batting()
+print("DEBUG_KOZONO_POSITION", SEASON_POSITION_BATTING.get("小園 海斗"))
 
 @router.get("/api/lineups/recent-actual")
 def recent_actual_lineups() -> JSONResponse:

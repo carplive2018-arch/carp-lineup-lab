@@ -2063,10 +2063,10 @@ def _render_recent_batting_html(data: dict) -> HTMLResponse:
     body = f"""
     <div class="hero">
       <h1>直近打撃成績</h1>
-      <div class="muted">直近 {int(data.get("window_games", 0) or 0)} 試合の打撃成績です。ブラウザでは見やすく、必要なら JSON にも切り替えできます。</div>
+      <div class="muted">直近 {int(data.get("window_games", 0) or 0)} 試合の打撃成績と守備指標です。</div>
       <div class="links">
         <a href="/public/recent-batting?window_games={int(data.get("window_games", 5) or 5)}&view=json">JSONを見る</a>
-        <a href="/public/predicted-lineup?window_games={int(data.get("window_games", 5) or 5)}&use_dh=true">予想打順を見る</a>
+       
       </div>
     </div>
 

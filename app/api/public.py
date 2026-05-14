@@ -179,6 +179,8 @@ def _canonical_player_name(name: str) -> str:
     return name
 
 CURRENT_SEASON_YEAR = 2026
+PRORAN_TEAM_BATTERS_URL = "https://proran.jp/team_detail_b.php?t=_c"
+PRORAN_PLAYER_DETAIL_MORE_URL = "https://proran.jp/player_detail_more.php?id={player_id}&y={year}"
 
 
 
@@ -187,15 +189,24 @@ NPBBASEMENT_BASE_URL = "https://npbbasement.com"
 
 POSITION_LABEL_TO_CODE = {
     "捕手": "C",
+    "一塁": "1B",
     "一塁手": "1B",
+    "二塁": "2B",
     "二塁手": "2B",
+    "三塁": "3B",
     "三塁手": "3B",
+    "遊撃": "SS",
     "遊撃手": "SS",
+    "左翼": "LF",
     "左翼手": "LF",
+    "中堅": "CF",
     "中堅手": "CF",
+    "右翼": "RF",
     "右翼手": "RF",
     "指名打者": "DH",
+    "DH": "DH",
 }
+
 
 PRORAN_PLAYER_DETAIL_MORE_URL = "https://proran.jp/player_detail_more.php?id={player_id}&y={year}"
 NPBBASEMENT_FIELDING_URL = "https://npbbasement.com/fielding"
@@ -484,34 +495,284 @@ def _safe_float(value):
 def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]]:
     result: dict[str, dict[str, float]] = {}
 
-    marker = "守備ポジション別成績"
-    start = html_text.find(marker)
+    start = html_text.find("守備ポジション別成績")
     if start == -1:
         return result
 
-    section = html_text[start:start + 40000]
+    end = html_text.find("対球団別成績", start)
+    if end == -1:
+        end = html_text.find("球場別成績", start)
+    if end == -1:
+        end = start + 30000
 
-    row_pattern = re.compile(r"<tr[^>]*>(.*?)</tr>", re.S)
-    cell_pattern = re.compile(r"<t[dh][^>]*>(.*?)</t[dh]>", re.S)
+    section = html_text[start:end]
 
-    for row_html in row_pattern.findall(section):
-        cells = cell_pattern.findall(row_html)
-        if len(cells) < 10:
+    def _clean(text: str) -> str:
+        text = re.sub(r"<br\s*/?>", "", text)
+        text = re.sub(r"<[^>]+>", "", text)
+        text = unescape(text)
+        text = text.replace("　", " ").strip()
+        text = text.replace(" ", "")
+        text = text.replace("Ｏ", "O")
+        return text
+
+    def _to_float(text: str) -> float:
+        text = _clean(text)
+        if text in {"", "-", "--", "---", "----"}:
+            return 0.0
+        text = text.replace("−", "-").replace("%", "")
+        if text.startswith("."):
+            text = "0" + text
+        try:
+            return float(text)
+        except Exception:
+            return 0.0
+
+    fixed_match = re.search(
+        r'<div class="flex_box fixed_l bg_c_white border_r_only"><div>(.*?)</div></div>',
+        section,
+        re.S,
+    )
+    if not fixed_match:
+        return result
+
+    fixed_html = fixed_match.group(1)
+
+    position_labels = [
+        _clean(x)
+        for x in re.findall(
+            r'<div class="player_detail_more_ba[^"]*bg_c_th[^"]*">(.*?)</div>',
+            fixed_html,
+            re.S,
+        )
+    ]
+    position_labels = [x for x in position_labels if x not in {"", "-", "－"}]
+
+    metrics: dict[str, list[float]] = {}
+
+    blocks = re.split(r'<div><div class="player_detail_more_th', section)
+    for chunk in blocks[1:]:
+        block = '<div><div class="player_detail_more_th' + chunk
+
+        header_match = re.search(r'">(.*?)</div>', block, re.S)
+        if not header_match:
             continue
 
-        texts = []
-        for cell in cells:
-            text = re.sub(r"<[^>]+>", "", cell)
-            text = unescape(text).replace("\u3000", " ").strip()
-            texts.append(text)
+        header = _clean(header_match.group(1))
+        values = re.findall(
+            r'<div class="player_detail_more_ba[^"]*right">(.*?)</div>',
+            block,
+            re.S,
+        )
+        metrics[header] = [_to_float(v) for v in values[:len(position_labels)]]
 
-        position_label = texts[0].strip()
-        position_code = POSITION_LABEL_TO_CODE.get(position_label)
-        if not position_code:
+    for i, label in enumerate(position_labels):
+        pos_code = POSITION_LABEL_TO_CODE.get(label)
+        if not pos_code:
             continue
 
-        if all(x in {"", "-", "--", "---", "----"} for x in texts[1:]):
+        ab_list = metrics.get("打数", [])
+        avg_list = metrics.get("打率", [])
+        obp_list = metrics.get("出塁率", [])
+        ops_list = metrics.get("OPS", [])
+
+        ab = ab_list[i] if i < len(ab_list) else 0.0
+        avg = avg_list[i] if i < len(avg_list) else 0.0
+        obp = obp_list[i] if i < len(obp_list) else 0.0
+        ops = ops_list[i] if i < len(ops_list) else 0.0
+
+        if ab <= 0 and obp == 0.0 and ops == 0.0:
             continue
+
+        iso = max(0.0, ops - obp - avg)
+
+        result[pos_code] = {
+            "pa": ab,
+            "ab": ab,
+            "obp": round(obp, 3),
+            "iso": round(iso, 3),
+        }
+
+    return result
+
+    
+    def _clean(text: str) -> str:
+        text = re.sub(r"<br\\s*/?>", "", text)
+        text = re.sub(r"<[^>]+>", "", text)
+        text = unescape(text)
+        text = text.replace("　", " ").strip()
+        text = text.replace(" ", "")
+        text = text.replace("Ｏ", "O")
+        return text
+
+    def _to_float(text: str) -> float:
+        text = _clean(text)
+        if text in {"", "-", "--", "---", "----"}:
+            return 0.0
+        text = text.replace("−", "-").replace("%", "")
+        if text.startswith("."):
+            text = "0" + text
+        try:
+            return float(text)
+        except Exception:
+            return 0.0
+
+    fixed_match = re.search(
+        r'<div class="flex_box fixed_l bg_c_white border_r_only"><div>(.*?)</div></div>',
+        section,
+        re.S,
+    )
+    if not fixed_match:
+        return result
+
+    fixed_html = fixed_match.group(1)
+
+    position_labels = [
+        _clean(x)
+        for x in re.findall(
+            r'<div class="player_detail_more_ba[^"]*bg_c_th[^"]*">(.*?)</div>',
+            fixed_html,
+            re.S,
+        )
+    ]
+    position_labels = [x for x in position_labels if x not in {"", "-", "－"}]
+
+    metrics: dict[str, list[float]] = {}
+
+    blocks = re.split(r'<div><div class="player_detail_more_th', section)
+    for chunk in blocks[1:]:
+        block = '<div><div class="player_detail_more_th' + chunk
+
+        header_match = re.search(r'">(.*?)</div>', block, re.S)
+        if not header_match:
+            continue
+
+        header = _clean(header_match.group(1))
+        values = re.findall(
+            r'<div class="player_detail_more_ba[^"]*right">(.*?)</div>',
+            block,
+            re.S,
+        )
+        metrics[header] = [_to_float(v) for v in values[:len(position_labels)]]
+
+    for i, label in enumerate(position_labels):
+        pos_code = POSITION_LABEL_TO_CODE.get(label)
+        if not pos_code:
+            continue
+
+        ab_list = metrics.get("打数", [])
+        avg_list = metrics.get("打率", [])
+        obp_list = metrics.get("出塁率", [])
+        ops_list = metrics.get("OPS", [])
+
+        ab = ab_list[i] if i < len(ab_list) else 0.0
+        avg = avg_list[i] if i < len(avg_list) else 0.0
+        obp = obp_list[i] if i < len(obp_list) else 0.0
+        ops = ops_list[i] if i < len(ops_list) else 0.0
+
+        if ab <= 0 and obp == 0.0 and ops == 0.0:
+            continue
+
+        iso = max(0.0, ops - obp - avg)
+
+        result[pos_code] = {
+            "pa": ab,
+            "ab": ab,
+            "obp": round(obp, 3),
+            "iso": round(iso, 3),
+        }
+
+    return result
+
+
+    def _clean(text: str) -> str:
+        text = re.sub(r"<br\\s*/?>", "", text)
+        text = re.sub(r"<[^>]+>", "", text)
+        text = unescape(text)
+        text = text.replace("　", " ").strip()
+        text = text.replace(" ", "")
+        text = text.replace("Ｏ", "O")
+        return text
+
+    def _to_float(text: str) -> float:
+        text = _clean(text)
+        if text in {"", "-", "--", "---", "----"}:
+            return 0.0
+        text = text.replace("−", "-").replace("%", "")
+        if text.startswith("."):
+            text = "0" + text
+        try:
+            return float(text)
+        except Exception:
+            return 0.0
+
+    fixed_match = re.search(
+        r'<div class="flex_box fixed_l bg_c_white border_r_only"><div>(.*?)</div></div>',
+        section,
+        re.S,
+    )
+    if not fixed_match:
+        return result
+
+    fixed_html = fixed_match.group(1)
+
+    position_labels = [
+        _clean(x)
+        for x in re.findall(
+            r'<div class="player_detail_more_ba[^"]*bg_c_th[^"]*">(.*?)</div>',
+            fixed_html,
+            re.S,
+        )
+    ]
+    position_labels = [x for x in position_labels if x not in {"", "-", "－"}]
+
+    metrics: dict[str, list[float]] = {}
+
+    blocks = re.split(r'<div><div class="player_detail_more_th', section)
+    for chunk in blocks[1:]:
+        block = '<div><div class="player_detail_more_th' + chunk
+
+        header_match = re.search(r'">(.*?)</div>', block, re.S)
+        if not header_match:
+            continue
+
+        header = _clean(header_match.group(1))
+        values = re.findall(
+            r'<div class="player_detail_more_ba[^"]*right">(.*?)</div>',
+            block,
+            re.S,
+        )
+        metrics[header] = [_to_float(v) for v in values[:len(position_labels)]]
+
+    for i, label in enumerate(position_labels):
+        pos_code = POSITION_LABEL_TO_CODE.get(label)
+        if not pos_code:
+            continue
+
+        ab_list = metrics.get("打数", [])
+        avg_list = metrics.get("打率", [])
+        obp_list = metrics.get("出塁率", [])
+        ops_list = metrics.get("OPS", [])
+
+        ab = ab_list[i] if i < len(ab_list) else 0.0
+        avg = avg_list[i] if i < len(avg_list) else 0.0
+        obp = obp_list[i] if i < len(obp_list) else 0.0
+        ops = ops_list[i] if i < len(ops_list) else 0.0
+
+        if ab <= 0 and obp == 0.0 and ops == 0.0:
+            continue
+
+        iso = max(0.0, ops - obp - avg)
+
+        result[pos_code] = {
+            "pa": ab,
+            "ab": ab,
+            "obp": round(obp, 3),
+            "iso": round(iso, 3),
+        }
+
+    return result
+
 
         def pick_float(index: int) -> float:
             if index >= len(texts):
@@ -661,6 +922,79 @@ def _normalize_player_name(name: str) -> str:
     return text
 
 
+def _discover_proran_player_ids() -> dict[str, str]:
+    html = _fetch_text(PRORAN_TEAM_BATTERS_URL)
+    pairs = re.findall(
+        r'href="\./player_detail\.php\?id=(\d+)(?:&y=\d+)?".*?>([^<]+)</a>',
+        html,
+        flags=re.S,
+    )
+    result = {}
+    for player_id, player_name in pairs:
+        result[_normalize_player_name(player_name)] = player_id
+    return result
+
+
+def _get_proran_player_ids() -> dict[str, str]:
+    try:
+        return _discover_proran_player_ids()
+    except Exception as e:
+        print("DEBUG_PRORAN_ID_ERROR", str(e))
+        return {}
+
+
+def _fetch_proran_position_batting(player_name: str, player_id: str) -> dict:
+    url = PRORAN_PLAYER_DETAIL_MORE_URL.format(
+        player_id=player_id,
+        year=CURRENT_SEASON_YEAR,
+    )
+    html_text = _fetch_text(url)
+    data = _extract_proran_position_table(html_text)
+    print("DEBUG_PRORAN_PARSED", player_name, data)
+    return data
+
+
+def _build_season_position_batting_from_proran() -> dict:
+    result = {}
+    player_ids = _get_proran_player_ids()
+
+    for player_name in PLAYER_PROFILE.keys():
+        normalized_name = _normalize_player_name(player_name)
+        player_id = player_ids.get(normalized_name)
+        if not player_id:
+            continue
+
+        try:
+            position_stats = _fetch_proran_position_batting(player_name, player_id)
+            if position_stats:
+                result[normalized_name] = position_stats
+                result[player_name] = position_stats
+        except Exception as e:
+            print("DEBUG_PRORAN_BUILD_ERROR", player_name, str(e))
+            continue
+
+    return result
+
+
+def _get_season_position_batting() -> dict:
+    try:
+        data = _build_season_position_batting_from_proran()
+        if data:
+            return data
+    except Exception as e:
+        print("DEBUG_PRORAN_SEASON_ERROR", str(e))
+    return {}
+
+
+def _normalize_player_name(name: str) -> str:
+    if not name:
+        return ""
+    text = unescape(str(name)).strip()
+    text = text.replace("　", "").replace(" ", "")
+    text = re.sub(r"\s+", "", text)
+    return text
+
+
 
 def _discover_proran_player_ids() -> dict[str, str]:
     html = _fetch_text(PRORAN_TEAM_BATTERS_URL)
@@ -731,8 +1065,10 @@ def _fetch_proran_position_batting(player_name: str, player_id: str) -> dict:
     html = _fetch_text(url)
     return _extract_proran_position_table(html)
 
-
+    data = _extract_proran_position_table(html_text)
+    print("DEBUG_PRORAN_PARSED", player_name, data)
     return data
+
 
 
 
@@ -866,34 +1202,7 @@ def _safe_int(value: str) -> int:
         return 0
     return int(m.group(0))
 
-def _fetch_text(url: str) -> str:
-    req = Request(
-        url,
-        headers={
-            "User-Agent": "Mozilla/5.0",
-            "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
-        },
-    )
-    with urlopen(req, timeout=20) as res:
-        return res.read().decode("utf-8", errors="ignore")
-def _normalize_player_name(name: str) -> str:
-    if not name:
-        return ""
-    text = unescape(str(name)).strip()
-    text = re.sub(r"\s+", " ", text)
-    return text
 
-def _discover_proran_player_ids() -> dict[str, str]:
-    html = _fetch_text(PRORAN_TEAM_BATTERS_URL)
-    pairs = re.findall(
-        r'href="\./player_detail\.php\?id=(\d+)(?:&y=\d+)?".*?>([^<]+)</a>',
-        html,
-        flags=re.S,
-    )
-    result = {}
-    for player_id, player_name in pairs:
-        result[_normalize_player_name(player_name)] = player_id
-    return result
 
 def _round3(value: float) -> float:
     return round(value, 3)
@@ -1933,7 +2242,6 @@ def build_predicted_lineup(
         best_line = tuple()
 
         for player_idx, player_name in enumerate(candidate_names):
-            canonical_name = _canonical_player_name(player_name)
             canonical_name = _canonical_player_name(player_name)
             if used_player_mask & (1 << player_idx):
                 continue

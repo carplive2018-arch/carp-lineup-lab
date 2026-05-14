@@ -9,16 +9,14 @@ from zoneinfo import ZoneInfo
 import json
 import re
 
-
 from html import unescape
-from urllib.parse import urljoin
-from urllib.request import Request, urlopen
-
 from html.parser import HTMLParser
+from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
+
 
 router = APIRouter(tags=["public"])
 
@@ -158,8 +156,7 @@ FARM_PROMOTION_CANDIDATES = {
 PLAYER_PROFILE.update(FARM_PROMOTION_CANDIDATES)
 CURRENT_SEASON_YEAR = 2026
 
-PRORAN_TEAM_BATTERS_URL = "https://proran.jp/team_detail_b.php?t=_c"
-PRORAN_PLAYER_DETAIL_MORE_URL = "https://proran.jp/player_detail_more.php?id={player_id}&y={year}"
+
 
 NPBBASEMENT_FIELDING_URL = "https://npbbasement.com/fielding"
 NPBBASEMENT_BASE_URL = "https://npbbasement.com"
@@ -528,22 +525,86 @@ def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]
     return result
 
 
+def _fetch_text(url: str) -> str:
+    req = Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0",
+            "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+        },
+    )
+    with urlopen(req, timeout=20) as res:
+        return res.read().decode("utf-8", errors="ignore")
+
+
+def _normalize_player_name(name: str) -> str:
+    if not name:
+        return ""
+    text = unescape(str(name)).strip()
+    text = re.sub(r"\s+", " ", text)
+    return text
+
+
+def _discover_proran_player_ids() -> dict[str, str]:
+    html = _fetch_text(PRORAN_TEAM_BATTERS_URL)
+    pairs = re.findall(
+        r'href="\./player_detail\.php\?id=(\d+)(?:&y=\d+)?".*?>([^<]+)</a>',
+        html,
+        flags=re.S,
+    )
+    result = {}
+    for player_id, player_name in pairs:
+        result[_normalize_player_name(player_name)] = player_id
+    return result
+
+
 def _get_proran_player_ids() -> dict[str, str]:
     try:
         return _discover_proran_player_ids()
     except Exception:
         return {}
 
-    if year is None:
-        year = datetime.now(JST).year
 
-    url = PRORAN_PLAYER_DETAIL_MORE_URL.format(player_id=player_id, year=year)
-    html_text = _fetch_html(url)
-    return _extract_proran_position_table(html_text)
+def _fetch_proran_position_batting(player_name: str, player_id: str) -> dict:
+    url = PRORAN_PLAYER_DETAIL_MORE_URL.format(
+        player_id=player_id,
+        year=CURRENT_SEASON_YEAR,
+    )
+    html = _fetch_text(url)
+    return _extract_proran_position_table(html)
 
 
-def _build_season_position_batting_from_proran() -> dict[str, dict[str, dict[str, float]]]:
-    data: dict[str, dict[str, dict[str, float]]] = {}
+def _build_season_position_batting_from_proran() -> dict:
+    result = {}
+    player_ids = _get_proran_player_ids()
+
+    for player_name in PLAYER_PROFILE.keys():
+        normalized_name = _normalize_player_name(player_name)
+        player_id = player_ids.get(normalized_name)
+        if not player_id:
+            continue
+
+        try:
+            position_stats = _fetch_proran_position_batting(normalized_name, player_id)
+            if position_stats:
+                result[normalized_name] = position_stats
+        except Exception:
+            continue
+
+    return result
+
+
+def _get_season_position_batting() -> dict:
+    try:
+        data = _build_season_position_batting_from_proran()
+        if data:
+            return data
+    except Exception:
+        pass
+    return {}
+
+
+
 
 def _fetch_proran_position_batting(player_name: str, player_id: str) -> dict:
     url = PRORAN_PLAYER_DETAIL_MORE_URL.format(
@@ -555,66 +616,7 @@ def _fetch_proran_position_batting(player_name: str, player_id: str) -> dict:
 
 
     return data
-def _normalize_player_name_for_fielding(name: str) -> str:
-    return str(name).strip().replace("　", " ")
 
-
-def _extract_npbbasement_fielding_rows(html_text: str) -> list[dict[str, str]]:
-    text = unescape(html_text)
-    text = re.sub(r"(?is)<script.*?>.*?</script>", " ", text)
-    text = re.sub(r"(?is)<style.*?>.*?</style>", " ", text)
-    text = re.sub(r"<[^>]+>", "\n", text)
-
-    lines = [re.sub(r"\s+", " ", line).strip() for line in text.splitlines()]
-    lines = [line for line in lines if line]
-
-    rows: list[dict[str, str]] = []
-    team_codes = {"C", "T", "G", "D", "S", "DB", "B", "H", "F", "M", "L", "E"}
-    pos_codes = {"C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "DH"}
-
-    i = 0
-    while i < len(lines) - 5:
-        team = lines[i]
-        name = lines[i + 1]
-        pos1 = lines[i + 2]
-        pos2 = lines[i + 3]
-
-        if team in team_codes and pos1 in pos_codes and pos2 in pos_codes:
-            nums = []
-            j = i + 4
-            while j < len(lines):
-                token = lines[j]
-                if token in team_codes and j + 3 < len(lines):
-                    break
-                nums.append(token)
-                j += 1
-
-            row = {
-                "TEAM": team,
-                "PLAYER": name,
-                "POS": pos1,
-            }
-
-            candidate_keys = [
-                "INN", "RngR", "DPR", "ARM", "ErrR", "POS_VALUE",
-                "FRM", "BLK", "DEF"
-            ]
-
-            numeric_values = []
-            for token in nums:
-                if re.fullmatch(r"-?\d+(?:\.\d+)?", token):
-                    numeric_values.append(token)
-
-            for key, value in zip(candidate_keys, numeric_values):
-                row[key] = value
-
-            rows.append(row)
-            i = j
-            continue
-
-        i += 1
-
-    return rows
 
 
 def _calc_def_from_components(fld: dict) -> float:
@@ -1193,20 +1195,57 @@ def _slot_score(
     recent_form = recent_maps["recent_form_score"].get(player_name, 0.0)
     recent_obp_z = recent_maps["obp_z"].get(player_name, 0.0) * sample_weight
     recent_iso_z = recent_maps["iso_z"].get(player_name, 0.0) * sample_weight
-    defense_score = _safe_float(PLAYER_DEFENSE.get(player_name, {}).get(chosen_position, 0.0))
+    defense_score = _safe_float(
+        PLAYER_DEFENSE.get(player_name, {}).get(chosen_position, 0.0)
+    ) or 0.0
     season_pos_score = season_pos_score_maps.get(chosen_position, {}).get(player_name, 0.0)
     recent_pa = int(recent_maps["pa_map"].get(player_name, 0) or 0)
     top_catcher_bats = set(recent_maps.get("top_catcher_bats", []))
 
     weights = slot["weights"]
 
-score = (
-    recent_score
-    + adjusted_obp * 100 * OBP_WEIGHT
-    + adjusted_iso * 100 * ISO_WEIGHT
-    + defense_score * DEFENSE_WEIGHT
-)
+    score = (
+        recent_form * weights.get("recent", 0.0)
+        + defense_score * weights.get("defense", 0.0)
+        + season_pos_score * weights.get("season_pos", 0.0)
     )
+
+    role = slot["role"]
+
+    if role == "lead_obp_glove":
+        score += 0.30 * recent_obp_z + 0.15 * defense_score
+    elif role == "two_hole_bat":
+        score += 0.30 * recent_obp_z + 0.30 * recent_iso_z
+    elif role == "three_hole_iso_glove":
+        score += 0.15 * recent_obp_z + 0.30 * recent_iso_z + 0.10 * defense_score
+    elif role == "cleanup_bat":
+        score += 0.15 * recent_obp_z + 0.40 * recent_iso_z
+    elif role == "five_hole_power":
+        score += 0.05 * recent_obp_z + 0.35 * recent_iso_z
+    elif role == "six_hole_balance":
+        score += 0.20 * recent_obp_z + 0.20 * defense_score
+    elif role == "glove_bottom":
+        score += 0.25 * defense_score - 0.05 * recent_obp_z - 0.05 * recent_iso_z
+    elif role == "turnover_obp":
+        score += 0.25 * recent_obp_z + 0.10 * defense_score
+
+    if chosen_position == POS_C and recent_pa < MIN_CATCHER_RECENT_PA:
+        score -= WEAK_CATCHER_PENALTY
+
+    if chosen_position == POS_DH and player_name in top_catcher_bats:
+        score -= TOP_CATCHER_TO_DH_PENALTY
+
+    if chosen_position == POS_C and player_name in top_catcher_bats:
+        score += TOP_CATCHER_AT_C_BONUS
+
+    if sample_weight < 0.5:
+        score -= (0.5 - sample_weight) * 0.8
+
+    if defense_score < slot.get("min_defense", -999):
+        score -= slot.get("low_defense_penalty", 0.0)
+
+    return round(score, 3)
+
 
     role = slot["role"]
 
@@ -1295,46 +1334,29 @@ score = (
 
     return score
 
-
 def _build_slot_reason(
-    _player_name = (
-        locals().get("player_name")
-        or locals().get("name")
-        or locals().get("player")
-        or ""
-    )
-    _chosen_position = (
-        locals().get("chosen_position")
-        or locals().get("position")
-        or locals().get("pos")
-        or ""
-    )
-    _recent_score = (
-        locals().get("recent_score")
-        if "recent_score" in locals()
-        else locals().get("score", locals().get("recent"))
-    )
-
-    adj = _get_adjusted_position_batting(_player_name, _chosen_position)
+    player_name: str,
+    chosen_position: str,
+    slot: dict,
+    recent_maps: dict,
+) -> str:
+    adj = _get_adjusted_position_batting(player_name, chosen_position)
     adjusted_obp = _safe_float(adj.get("obp")) or 0.0
     adjusted_iso = _safe_float(adj.get("iso")) or 0.0
     defense_score = _safe_float(
-        PLAYER_DEFENSE.get(_player_name, {}).get(_chosen_position, 0.0)
+        PLAYER_DEFENSE.get(player_name, {}).get(chosen_position, 0.0)
     ) or 0.0
+    recent_form = recent_maps.get("recent_form_score", {}).get(player_name, 0.0)
 
-    parts = []
-
-    if _recent_score is not None:
-        try:
-            parts.append(f"直近スコア {_recent_score:.3f}")
-        except Exception:
-            pass
-
-    parts.append(f"今期補正OBP {adjusted_obp:.3f}")
-    parts.append(f"今期補正ISO {adjusted_iso:.3f}")
-    parts.append(f"守備スコア {defense_score:.3f}")
-
+    parts = [
+        f"直近スコア {recent_form:.3f}",
+        f"今期補正OBP {adjusted_obp:.3f}",
+        f"今期補正ISO {adjusted_iso:.3f}",
+        f"守備スコア {defense_score:.3f}",
+    ]
     return " / ".join(parts)
+
+
 
 def _fetch_html(url: str) -> str:
     req = Request(url, headers={"User-Agent": "Mozilla/5.0"})

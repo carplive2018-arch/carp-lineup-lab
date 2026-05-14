@@ -8,13 +8,13 @@ import json
 import re
 import time
 
-from html import unescape
+from html import escape, unescape
 from html.parser import HTMLParser
 from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 
 
 router = APIRouter(tags=["public"])
@@ -1860,6 +1860,316 @@ def _build_simple_predicted_lineup(window_games: int, use_dh: bool) -> dict:
     }
     return result
 
+def _wants_html(request: Request, view: str | None) -> bool:
+    if view == "json":
+        return False
+    if view == "html":
+        return True
+
+    accept = (request.headers.get("accept") or "").lower()
+    return "text/html" in accept
+
+
+def _html_page(title: str, body: str) -> HTMLResponse:
+    return HTMLResponse(
+        f"""<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{escape(title)}</title>
+  <style>
+    body {{
+      margin: 0;
+      background: #0b1020;
+      color: #f5f7fb;
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
+    }}
+    .wrap {{
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 24px 16px 64px;
+    }}
+    .hero {{
+      background: linear-gradient(135deg, #121a31 0%, #172449 100%);
+      border: 1px solid #26304d;
+      border-radius: 20px;
+      padding: 20px;
+      margin-bottom: 18px;
+    }}
+    .hero h1 {{
+      margin: 0 0 8px;
+      font-size: 28px;
+      line-height: 1.3;
+    }}
+    .muted {{
+      color: #a9b5d1;
+      font-size: 13px;
+    }}
+    .links {{
+      margin-top: 12px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }}
+    .links a {{
+      display: inline-block;
+      text-decoration: none;
+      color: #0b1020;
+      background: #ffd54a;
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-weight: 700;
+      font-size: 13px;
+    }}
+    .card {{
+      background: #121a31;
+      border: 1px solid #26304d;
+      border-radius: 18px;
+      padding: 18px;
+      margin-top: 14px;
+    }}
+    .lineup-grid {{
+      display: grid;
+      gap: 14px;
+    }}
+    .slot-head {{
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: baseline;
+      margin-bottom: 10px;
+    }}
+    .order {{
+      font-size: 24px;
+      font-weight: 800;
+      color: #ffd54a;
+    }}
+    .name {{
+      font-size: 22px;
+      font-weight: 800;
+    }}
+    .pos {{
+      display: inline-block;
+      margin-left: 8px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #243154;
+      color: #d8e5ff;
+      font-size: 12px;
+      font-weight: 700;
+    }}
+    .reason {{
+      margin-top: 10px;
+      font-size: 15px;
+      line-height: 1.8;
+      color: #f5f7fb;
+    }}
+    .stats {{
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+    }}
+    .stat {{
+      background: #0f1730;
+      border: 1px solid #26304d;
+      border-radius: 14px;
+      padding: 12px;
+    }}
+    .stat .label {{
+      font-size: 12px;
+      color: #a9b5d1;
+      margin-bottom: 6px;
+    }}
+    .stat .value {{
+      font-size: 20px;
+      font-weight: 800;
+    }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      min-width: 880px;
+    }}
+    .table-wrap {{
+      overflow-x: auto;
+    }}
+    th, td {{
+      border-bottom: 1px solid #26304d;
+      padding: 10px 8px;
+      text-align: right;
+      white-space: nowrap;
+    }}
+    th:first-child, td:first-child {{
+      text-align: left;
+      position: sticky;
+      left: 0;
+      background: #121a31;
+    }}
+    th {{
+      color: #a9b5d1;
+      font-size: 12px;
+    }}
+    .empty {{
+      color: #a9b5d1;
+      padding: 18px;
+    }}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    {body}
+  </div>
+</body>
+</html>"""
+    )
+
+
+def _render_recent_batting_html(data: dict) -> HTMLResponse:
+    rows_html = []
+
+    for row in data.get("players", []):
+        rows_html.append(
+            f"""
+            <tr>
+              <td>{escape(str(row.get("player_name", "")))}</td>
+              <td>{int(row.get("games", 0) or 0)}</td>
+              <td>{int(row.get("pa", 0) or 0)}</td>
+              <td>{int(row.get("ab", 0) or 0)}</td>
+              <td>{int(row.get("hits", 0) or 0)}</td>
+              <td>{float(row.get("avg", 0.0) or 0.0):.3f}</td>
+              <td>{float(row.get("obp", 0.0) or 0.0):.3f}</td>
+              <td>{float(row.get("iso", 0.0) or 0.0):.3f}</td>
+              <td>{int(row.get("homeruns", 0) or 0)}</td>
+              <td>{int(row.get("walks", 0) or 0)}</td>
+              <td>{int(row.get("strikeouts", 0) or 0)}</td>
+            </tr>
+            """
+        )
+
+    games_html = []
+    for game in data.get("games", []):
+        games_html.append(
+            f"""
+            <div class="card">
+              <div><strong>{escape(str(game.get("date", "")))}</strong> / {escape(str(game.get("opponent", "")))}</div>
+              <div class="muted">{escape(str(game.get("venue", "")))} ・ {escape(str(game.get("score", "")))} {escape(str(game.get("result", "")))}</div>
+            </div>
+            """
+        )
+
+    body = f"""
+    <div class="hero">
+      <h1>直近打撃成績</h1>
+      <div class="muted">直近 {int(data.get("window_games", 0) or 0)} 試合の打撃成績です。ブラウザでは見やすく、必要なら JSON にも切り替えできます。</div>
+      <div class="links">
+        <a href="/public/recent-batting?window_games={int(data.get("window_games", 5) or 5)}&view=json">JSONを見る</a>
+        <a href="/public/predicted-lineup?window_games={int(data.get("window_games", 5) or 5)}&use_dh=true">予想打順を見る</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>最近の試合</h2>
+      {''.join(games_html) if games_html else '<div class="empty">試合データがありません</div>'}
+    </div>
+
+    <div class="card">
+      <h2>選手別の直近打撃</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>選手</th>
+              <th>試合</th>
+              <th>PA</th>
+              <th>AB</th>
+              <th>H</th>
+              <th>AVG</th>
+              <th>OBP</th>
+              <th>ISO</th>
+              <th>HR</th>
+              <th>BB</th>
+              <th>K</th>
+            </tr>
+          </thead>
+          <tbody>
+            {''.join(rows_html) if rows_html else '<tr><td colspan="11" class="empty">データがありません</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    """
+    return _html_page("直近打撃成績", body)
+
+
+def _render_predicted_lineup_html(data: dict) -> HTMLResponse:
+    lineup_html = []
+
+    for item in data.get("lineup", []):
+        recent = item.get("recent", {}) or {}
+        season = item.get("season_position", {}) or {}
+
+        lineup_html.append(
+            f"""
+            <div class="card">
+              <div class="slot-head">
+                <div>
+                  <span class="order">{int(item.get("order", 0) or 0)}番</span>
+                  <span class="name">{escape(str(item.get("player_name", "")))}</span>
+                  <span class="pos">{escape(str(item.get("position", "")))}</span>
+                </div>
+                <div class="muted">score {float(item.get("score", 0.0) or 0.0):.3f}</div>
+              </div>
+
+              <div class="reason">{escape(str(item.get("reason", "")))}</div>
+
+              <div class="stats">
+                <div class="stat">
+                  <div class="label">直近 OBP</div>
+                  <div class="value">{float(recent.get("obp", 0.0) or 0.0):.3f}</div>
+                </div>
+                <div class="stat">
+                  <div class="label">直近 ISO</div>
+                  <div class="value">{float(recent.get("iso", 0.0) or 0.0):.3f}</div>
+                </div>
+                <div class="stat">
+                  <div class="label">ポジション補正 OBP</div>
+                  <div class="value">{float(season.get("obp", 0.0) or 0.0):.3f}</div>
+                </div>
+                <div class="stat">
+                  <div class="label">ポジション補正 ISO</div>
+                  <div class="value">{float(season.get("iso", 0.0) or 0.0):.3f}</div>
+                </div>
+                <div class="stat">
+                  <div class="label">守備補正</div>
+                  <div class="value">{float(item.get("defense", 0.0) or 0.0):+.3f}</div>
+                </div>
+              </div>
+            </div>
+            """
+        )
+
+    body = f"""
+    <div class="hero">
+      <h1>予想打順</h1>
+      <div class="muted">
+        DH {('あり' if bool(data.get('use_dh', True)) else 'なし')} /
+        直近 {int(data.get("window_games", 0) or 0)} 試合ベース /
+        生成時刻 {escape(str(data.get("generated_at", "")))}
+      </div>
+      <div class="links">
+        <a href="/public/predicted-lineup?window_games={int(data.get("window_games", 5) or 5)}&use_dh={'true' if bool(data.get('use_dh', True)) else 'false'}&view=json">JSONを見る</a>
+        <a href="/public/recent-batting?window_games={int(data.get("window_games", 5) or 5)}">直近打撃を見る</a>
+      </div>
+    </div>
+
+    <div class="lineup-grid">
+      {''.join(lineup_html) if lineup_html else '<div class="card empty">打順データがありません</div>'}
+    </div>
+    """
+    return _html_page("予想打順", body)
 
 def _no_cache_json(data: dict) -> JSONResponse:
     return JSONResponse(
@@ -1873,10 +2183,14 @@ def _no_cache_json(data: dict) -> JSONResponse:
 
 
 @router.get("/public/recent-batting")
-def public_recent_batting(window_games: int = 5):
+def public_recent_batting(request: Request, window_games: int = 5, view: str | None = None):
     try:
         window_games = max(1, min(window_games, 10))
         data = _build_recent_batting_response(window_games)
+
+        if _wants_html(request, view):
+            return _render_recent_batting_html(data)
+
         return _no_cache_json(data)
     except Exception as e:
         print("DEBUG_PUBLIC_RECENT_BATTING_ERROR", str(e))
@@ -1884,11 +2198,21 @@ def public_recent_batting(window_games: int = 5):
 
 
 @router.get("/public/predicted-lineup")
-def public_predicted_lineup(window_games: int = 5, use_dh: bool = True):
+def public_predicted_lineup(
+    request: Request,
+    window_games: int = 5,
+    use_dh: bool = True,
+    view: str | None = None,
+):
     try:
         window_games = max(1, min(window_games, 10))
         data = _build_simple_predicted_lineup(window_games=window_games, use_dh=use_dh)
+
+        if _wants_html(request, view):
+            return _render_predicted_lineup_html(data)
+
         return _no_cache_json(data)
     except Exception as e:
         print("DEBUG_PUBLIC_PREDICTED_LINEUP_ERROR", str(e))
         raise HTTPException(status_code=500, detail="predicted-lineup の生成に失敗しました")
+

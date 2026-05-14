@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import json
+import time
+
 import re
 
 from html import unescape
@@ -181,6 +183,27 @@ def _canonical_player_name(name: str) -> str:
 CURRENT_SEASON_YEAR = 2026
 PRORAN_TEAM_BATTERS_URL = "https://proran.jp/team_detail_b.php?t=_c"
 PRORAN_PLAYER_DETAIL_MORE_URL = "https://proran.jp/player_detail_more.php?id={player_id}&y={year}"
+CACHE_TTL_PLAYER_DEFENSE = 60 * 60 * 12
+CACHE_TTL_SEASON_POSITION_BATTING = 60 * 60 * 6
+CACHE_TTL_RECENT_BATTING = 60 * 5
+CACHE_TTL_PREDICTED_LINEUP = 60 * 3
+
+CACHE = {
+    "player_defense": {"value": None, "expires_at": 0},
+    "season_position_batting": {"value": None, "expires_at": 0},
+    "recent_batting": {},
+    "predicted_lineup": {},
+}
+
+
+def _cache_now() -> float:
+    return time.time()
+
+
+def _cache_alive(entry: dict | None) -> bool:
+    if not entry:
+        return False
+    return float(entry.get("expires_at", 0) or 0) > _cache_now()
 
 
 
@@ -672,12 +695,25 @@ def _build_season_position_batting_from_proran() -> dict:
 
 
 def _get_season_position_batting() -> dict:
+    entry = CACHE.get("season_position_batting", {})
+    if _cache_alive(entry):
+        return entry["value"]
+
     try:
         data = _build_season_position_batting_from_proran()
         if data:
+            CACHE["season_position_batting"] = {
+                "value": data,
+                "expires_at": _cache_now() + CACHE_TTL_SEASON_POSITION_BATTING,
+            }
             return data
     except Exception as e:
         print("DEBUG_PRORAN_SEASON_ERROR", str(e))
+
+    CACHE["season_position_batting"] = {
+        "value": {},
+        "expires_at": _cache_now() + 300,
+    }
     return {}
 
 
@@ -771,13 +807,28 @@ def _build_player_defense_from_npbbasement() -> dict:
 
 
 def _get_player_defense() -> dict:
+    entry = CACHE.get("player_defense", {})
+    if _cache_alive(entry):
+        return entry["value"]
+
     try:
         data = _build_player_defense_from_npbbasement()
         if data:
+            CACHE["player_defense"] = {
+                "value": data,
+                "expires_at": _cache_now() + CACHE_TTL_PLAYER_DEFENSE,
+            }
             return data
     except Exception:
         pass
-    return PLAYER_DEFENSE_FALLBACK
+
+    fallback = dict(PLAYER_DEFENSE_FALLBACK)
+    CACHE["player_defense"] = {
+        "value": fallback,
+        "expires_at": _cache_now() + 600,
+    }
+    return fallback
+
 
 
 def _normalize_name(value: str) -> str:
@@ -842,6 +893,11 @@ def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
 
     canonical_name = _canonical_player_name(player_name)
     normalized_name = _normalize_player_name(canonical_name)
+    if not SEASON_POSITION_BATTING:
+        try:
+            SEASON_POSITION_BATTING.update(_get_season_position_batting())
+        except Exception:
+            pass
 
     player_stats = (
         SEASON_POSITION_BATTING.get(canonical_name)
@@ -863,6 +919,10 @@ def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
                     SEASON_POSITION_BATTING[canonical_name] = fetched
                     SEASON_POSITION_BATTING[normalized_name] = fetched
                     player_stats = fetched
+                    CACHE["season_position_batting"] = {
+                        "value": dict(SEASON_POSITION_BATTING),
+                        "expires_at": _cache_now() + CACHE_TTL_SEASON_POSITION_BATTING,
+                    }
             except Exception as e:
                 print("DEBUG_PRORAN_FETCH_ERROR", canonical_name, str(e))
                 player_stats = {}
@@ -1072,7 +1132,18 @@ def _get_prediction_candidate_names(now: datetime | None = None) -> list[str]:
 
 
 def _build_recent_score_maps(window_games: int, candidate_names: list[str]) -> dict:
-    recent_data = _aggregate_recent_batting_stats(window_games)
+    recent_cache_key = f"recent:{window_games}"
+    recent_entry = CACHE["recent_batting"].get(recent_cache_key)
+
+    if _cache_alive(recent_entry):
+        recent_data = recent_entry["value"]
+    else:
+        recent_data = _aggregate_recent_batting_stats(window_games)
+        CACHE["recent_batting"][recent_cache_key] = {
+            "value": recent_data,
+            "expires_at": _cache_now() + CACHE_TTL_RECENT_BATTING,
+        }
+
 
     alias_to_full = {}
     for name in candidate_names:
@@ -1722,6 +1793,11 @@ def build_predicted_lineup(
     predicted_pitcher_name: str = "先発投手",
 ) -> dict:
     if window_games not in (5, 10):
+    cache_key = f"{'dh' if dh else 'no_dh'}:{window_games}:{predicted_pitcher_name}"
+    cached = CACHE["predicted_lineup"].get(cache_key)
+    if _cache_alive(cached):
+        return cached["value"]
+
         raise HTTPException(status_code=400, detail="window_games は 5 または 10 にしてください。")
 
     slot_defs = DH_LINEUP_SLOTS if dh else NO_DH_LINEUP_SLOTS
@@ -1822,7 +1898,7 @@ def build_predicted_lineup(
 
     lineup.sort(key=lambda x: x["order"])
 
-    return {
+    payload = {
         "status": "ok",
         "mode": "dh" if dh else "no_dh",
         "window_games": window_games,
@@ -1834,6 +1910,14 @@ def build_predicted_lineup(
         "total_score": _round3(total_score),
         "lineup": lineup,
     }
+
+    CACHE["predicted_lineup"][cache_key] = {
+        "value": payload,
+        "expires_at": _cache_now() + CACHE_TTL_PREDICTED_LINEUP,
+    }
+
+    return payload
+
 @lru_cache(maxsize=2)
 def _aggregate_recent_batting_stats(games: int) -> dict:
     
@@ -2063,11 +2147,10 @@ def _fetch_recent_actual_lineups() -> list[dict]:
     return recent_games
 
 PLAYER_DEFENSE = _get_player_defense()
-SEASON_POSITION_BATTING = _get_season_position_batting()
-print("DEBUG_SEASON_POSITION_BATTING", SEASON_POSITION_BATTING.get("小園 海斗"), SEASON_POSITION_BATTING.get("小園海斗"))
+PLAYER_DEFENSE = dict(PLAYER_DEFENSE_FALLBACK)
+SEASON_POSITION_BATTING = {}
 
 
-print("DEBUG_KOZONO_POSITION", SEASON_POSITION_BATTING.get("小園 海斗"))
 
 @router.get("/api/lineups/recent-actual")
 def recent_actual_lineups() -> JSONResponse:

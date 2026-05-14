@@ -507,18 +507,18 @@ def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]
     if end == -1:
         end = html_text.find("球場別成績", start)
     if end == -1:
-        end = start + 30000
+        end = start + 40000
 
     section = html_text[start:end]
 
     def _clean(text: str) -> str:
-        text = re.sub(r"<br\s*/?>", "", text)
+        text = re.sub(r"<br\s*/?>", "", text, flags=re.I)
         text = re.sub(r"<[^>]+>", "", text)
         text = unescape(text)
-        text = text.replace("　", " ").strip()
-        text = text.replace(" ", "")
+        text = text.replace("　", " ")
+        text = re.sub(r"\s+", "", text)
         text = text.replace("Ｏ", "O")
-        return text
+        return text.strip()
 
     def _to_float(text: str) -> float:
         text = _clean(text)
@@ -533,9 +533,9 @@ def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]
             return 0.0
 
     fixed_match = re.search(
-        r'<div class="flex_box fixed_l bg_c_white border_r_only"><div>(.*?)</div></div>',
+        r'flex_box\s+fixed_l.*?border_r_only.*?<div>(.*?)</div>\s*</div>',
         section,
-        re.S,
+        flags=re.S | re.I,
     )
     if not fixed_match:
         return result
@@ -547,43 +547,42 @@ def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]
         for x in re.findall(
             r'<div class="player_detail_more_ba[^"]*bg_c_th[^"]*">(.*?)</div>',
             fixed_html,
-            re.S,
+            flags=re.S | re.I,
         )
     ]
     position_labels = [x for x in position_labels if x not in {"", "-", "－"}]
+    if not position_labels:
+        return result
 
     metrics: dict[str, list[float]] = {}
 
-    blocks = re.split(r'<div><div class="player_detail_more_th', section)
-    for chunk in blocks[1:]:
-        block = '<div><div class="player_detail_more_th' + chunk
-
-        header_match = re.search(r'">(.*?)</div>', block, re.S)
-        if not header_match:
+    for metric_name in ["打数", "打率", "出塁率", "OPS"]:
+        metric_match = re.search(
+            rf'player_detail_more_th[^>]*>\s*{metric_name}\s*</div>(.*?)(?=player_detail_more_th[^>]*>|$)',
+            section,
+            flags=re.S | re.I,
+        )
+        if not metric_match:
+            metrics[metric_name] = []
             continue
 
-        header = _clean(header_match.group(1))
+        metric_block = metric_match.group(1)
         values = re.findall(
-            r'<div class="player_detail_more_ba[^"]*right">(.*?)</div>',
-            block,
-            re.S,
+            r'player_detail_more_ba[^"]*right[^"]*">(.*?)</div>',
+            metric_block,
+            flags=re.S | re.I,
         )
-        metrics[header] = [_to_float(v) for v in values[: len(position_labels)]]
+        metrics[metric_name] = [_to_float(v) for v in values[: len(position_labels)]]
 
     for i, label in enumerate(position_labels):
         pos_code = POSITION_LABEL_TO_CODE.get(label)
         if not pos_code:
             continue
 
-        ab_list = metrics.get("打数", [])
-        avg_list = metrics.get("打率", [])
-        obp_list = metrics.get("出塁率", [])
-        ops_list = metrics.get("OPS", [])
-
-        ab = ab_list[i] if i < len(ab_list) else 0.0
-        avg = avg_list[i] if i < len(avg_list) else 0.0
-        obp = obp_list[i] if i < len(obp_list) else 0.0
-        ops = ops_list[i] if i < len(ops_list) else 0.0
+        ab = metrics.get("打数", [])[i] if i < len(metrics.get("打数", [])) else 0.0
+        avg = metrics.get("打率", [])[i] if i < len(metrics.get("打率", [])) else 0.0
+        obp = metrics.get("出塁率", [])[i] if i < len(metrics.get("出塁率", [])) else 0.0
+        ops = metrics.get("OPS", [])[i] if i < len(metrics.get("OPS", [])) else 0.0
 
         if ab <= 0 and obp == 0.0 and ops == 0.0:
             continue
@@ -615,14 +614,31 @@ def _fetch_text(url: str) -> str:
 @lru_cache(maxsize=1)
 def _discover_proran_player_ids() -> dict[str, str]:
     html = _fetch_text(PRORAN_TEAM_BATTERS_URL)
-    pairs = re.findall(
-        r'href="\./player_detail\.php\?id=(\d+)(?:&y=\d+)?".*?>([^<]+)</a>',
-        html,
-        flags=re.S,
-    )
-    result = {}
-    for player_id, player_name in pairs:
-        result[_normalize_player_name(player_name)] = player_id
+
+    result: dict[str, str] = {}
+
+    patterns = [
+        r'href=["\'](?:\./)?player_detail(?:_more)?\.php\?id=(\d+)(?:&[^"\']*)?["\'][^>]*>(.*?)</a>',
+        r'href=["\'][^"\']*player_detail(?:_more)?\.php\?id=(\d+)(?:&[^"\']*)?["\'][^>]*>(.*?)</a>',
+    ]
+
+    for pattern in patterns:
+        pairs = re.findall(pattern, html, flags=re.S | re.I)
+        for player_id, raw_name in pairs:
+            player_name = _clean_text(raw_name)
+            if not player_name:
+                continue
+
+            normalized = _normalize_player_name(player_name)
+            if not normalized:
+                continue
+
+            result[normalized] = player_id
+
+            canonical = PLAYER_NAME_ALIASES.get(normalized)
+            if canonical:
+                result[_normalize_player_name(canonical)] = player_id
+
     return result
 
 
@@ -671,22 +687,35 @@ def _get_season_position_batting() -> dict:
     global SEASON_POSITION_BATTING
 
     cache_entry = CACHE.get("season_position_batting", {})
-    if _cache_alive(cache_entry) and cache_entry.get("value") is not None:
-        return cache_entry["value"]
+    if _cache_alive(cache_entry):
+        cached_value = cache_entry.get("value")
+        if isinstance(cached_value, dict):
+            return cached_value
 
     try:
         data = _build_season_position_batting_from_proran()
         if not isinstance(data, dict):
             data = {}
-    except Exception:
+    except Exception as e:
+        print("DEBUG_SEASON_POSITION_BATTING_ERROR", str(e))
         data = {}
 
-    SEASON_POSITION_BATTING = data
+    if data:
+        SEASON_POSITION_BATTING = data
+        CACHE["season_position_batting"] = {
+            "expires_at": _cache_now() + CACHE_TTL_SEASON_POSITION_BATTING,
+            "value": data,
+        }
+        return data
+
+    fallback_value = SEASON_POSITION_BATTING if isinstance(SEASON_POSITION_BATTING, dict) else {}
+
     CACHE["season_position_batting"] = {
-        "expires_at": _cache_now() + CACHE_TTL_SEASON_POSITION_BATTING,
-        "value": data,
+        "expires_at": _cache_now() + 60,
+        "value": fallback_value,
     }
-    return data
+
+    return fallback_value
 
 
 def _calc_def_from_components(fld: dict) -> float:

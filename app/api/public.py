@@ -152,31 +152,41 @@ FARM_PROMOTION_CANDIDATES = {
 }
 
 PLAYER_PROFILE.update(FARM_PROMOTION_CANDIDATES)
+PRORAN_PLAYER_DETAIL_MORE_URL = "https://proran.jp/player_detail_more.php?id={player_id}&y={year}"
+NPBBASEMENT_FIELDING_URL = "https://npbbasement.com/fielding"
+
+PRORAN_PLAYER_IDS = {
+    "小園 海斗": "1800072",
+    # ここから下を順番に追加
+    # "坂倉 将吾": "xxxxxxx",
+    # "秋山 翔吾": "xxxxxxx",
+    # "大盛 穂": "xxxxxxx",
+    # "佐々木 泰": "xxxxxxx",
+    # "勝田 成": "xxxxxxx",
+    # "ファビアン": "xxxxxxx",
+    # "二俣 翔一": "xxxxxxx",
+}
+
+POSITION_LABEL_TO_CODE = {
+    "捕手": "C",
+    "一塁手": "1B",
+    "二塁手": "2B",
+    "三塁手": "3B",
+    "遊撃手": "SS",
+    "左翼手": "LF",
+    "中堅手": "CF",
+    "右翼手": "RF",
+    "指名打者": "DH",
+}
+
 # 守備スコア（守備スコア欄に直接出る値）
-PLAYER_DEFENSE = {
+PLAYER_DEFENSE_FALLBACK = {
     "坂倉 将吾": {"C": 0.30, "1B": 0.20, "3B": -0.20, "DH": 0.00},
     "小園 海斗": {"SS": 0.80, "3B": 0.40},
     "菊池 涼介": {"2B": 1.50},
-    "モンテロ":   {"1B": -0.20, "DH": 0.00},
-    "持丸 泰輝": {"C": 0.20, "DH": 0.00},
-    "石原 貴規": {"C": 0.80},
-    "矢野 雅哉": {"SS": 1.30},
-    "二俣 翔一": {"1B": 0.20, "3B": 0.30, "SS": 0.30, "2B": 0.30, "LF": 0.20, "CF": 0.20, "RF": 0.20},
-    "秋山 翔吾": {"LF": 0.40, "CF": 0.30, "RF": 0.40},
-    "大盛 穂":   {"LF": 0.30, "CF": 0.80, "RF": 0.40},
-    "野間 峻祥": {"LF": 0.40, "CF": 0.60, "RF": 0.50},
-    "平川 蓮":   {"LF": 0.20, "CF": 0.30, "RF": 0.20},
-    "ファビアン":{"LF": -0.10, "RF": 0.10, "DH": 0.00},
-    "佐々木 泰": {"1B": 0.10, "3B": 0.20, "DH": 0.00},
-    "勝田 成":   {"2B": 0.40, "SS": 0.20},
-    "堂林 翔太": {"1B": 0.10, "3B": -0.20},
-    "末包 昇大": {"LF": -0.10, "RF": 0.00, "DH": 0.00},
-    "田村 俊介": {"LF": 0.20, "CF": 0.10, "RF": 0.20},
-    "中村 貴浩": {"LF": 0.10, "RF": 0.10},
-    "名原 典彦": {"LF": 0.10, "CF": 0.10, "RF": 0.10},
-    "岸本 大希": {"2B": 0.20, "SS": 0.10},
-    "内田 湘大": {"1B": 0.10, "3B": 0.00},
 }
+PLAYER_DEFENSE = _get_player_defense()
+
 
 # 今季通算の打撃（今期補正OBP / 今期補正ISO の土台）
 SEASON_OVERALL_BATTING = {
@@ -219,109 +229,8 @@ SEASON_POSITION_BATTING = {
 }
 
 # 守備位置ごとの今季打撃（守備地位の補正OBP / ISO の素材）
-SEASON_POSITION_BATTING = {
-    "坂倉 将吾": {
-        "C":  {"pa": 80, "ab": 70, "obp": 0.330, "iso": 0.130},
-        "1B": {"pa": 30, "ab": 28, "obp": 0.340, "iso": 0.140},
-        "3B": {"pa": 10, "ab": 9,  "obp": 0.300, "iso": 0.100},
-        "DH": {"pa": 10, "ab": 9,  "obp": 0.330, "iso": 0.130},
-    },
-    "小園 海斗": {
-        "SS": {"pa": 90, "ab": 80, "obp": 0.310, "iso": 0.110},
-        "3B": {"pa": 10, "ab": 9,  "obp": 0.300, "iso": 0.090},
-    },
-    "菊池 涼介": {
-        "2B": {"pa": 100, "ab": 90, "obp": 0.290, "iso": 0.080},
-    },
-    "モンテロ": {
-        "1B": {"pa": 80, "ab": 70, "obp": 0.320, "iso": 0.180},
-        "DH": {"pa": 30, "ab": 28, "obp": 0.320, "iso": 0.180},
-    },
-    "持丸 泰輝": {
-        "C":  {"pa": 60, "ab": 52, "obp": 0.310, "iso": 0.150},
-        "DH": {"pa": 20, "ab": 18, "obp": 0.300, "iso": 0.140},
-    },
-    "石原 貴規": {
-        "C":  {"pa": 40, "ab": 35, "obp": 0.280, "iso": 0.070},
-    },
-    "矢野 雅哉": {
-        "SS": {"pa": 60, "ab": 54, "obp": 0.290, "iso": 0.050},
-    },
-    "二俣 翔一": {
-        "1B": {"pa": 10, "ab": 9,  "obp": 0.290, "iso": 0.080},
-        "3B": {"pa": 20, "ab": 18, "obp": 0.300, "iso": 0.090},
-        "SS": {"pa": 10, "ab": 9,  "obp": 0.290, "iso": 0.080},
-        "2B": {"pa": 10, "ab": 9,  "obp": 0.290, "iso": 0.080},
-        "LF": {"pa": 10, "ab": 9,  "obp": 0.300, "iso": 0.090},
-        "CF": {"pa": 10, "ab": 9,  "obp": 0.300, "iso": 0.090},
-        "RF": {"pa": 10, "ab": 9,  "obp": 0.300, "iso": 0.090},
-    },
-    "秋山 翔吾": {
-        "LF": {"pa": 40, "ab": 36, "obp": 0.330, "iso": 0.100},
-        "CF": {"pa": 30, "ab": 27, "obp": 0.320, "iso": 0.100},
-        "RF": {"pa": 30, "ab": 27, "obp": 0.330, "iso": 0.100},
-    },
-    "大盛 穂": {
-        "LF": {"pa": 30, "ab": 27, "obp": 0.300, "iso": 0.080},
-        "CF": {"pa": 40, "ab": 36, "obp": 0.300, "iso": 0.080},
-        "RF": {"pa": 30, "ab": 27, "obp": 0.300, "iso": 0.080},
-    },
-    "野間 峻祥": {
-        "LF": {"pa": 40, "ab": 36, "obp": 0.310, "iso": 0.070},
-        "CF": {"pa": 30, "ab": 27, "obp": 0.310, "iso": 0.070},
-        "RF": {"pa": 30, "ab": 27, "obp": 0.310, "iso": 0.070},
-    },
-    "平川 蓮": {
-        "LF": {"pa": 20, "ab": 18, "obp": 0.290, "iso": 0.080},
-        "CF": {"pa": 30, "ab": 27, "obp": 0.290, "iso": 0.080},
-        "RF": {"pa": 20, "ab": 18, "obp": 0.290, "iso": 0.080},
-    },
-    "ファビアン": {
-        "LF": {"pa": 40, "ab": 36, "obp": 0.320, "iso": 0.180},
-        "RF": {"pa": 40, "ab": 36, "obp": 0.320, "iso": 0.180},
-        "DH": {"pa": 20, "ab": 18, "obp": 0.320, "iso": 0.180},
-    },
-    "佐々木 泰": {
-        "1B": {"pa": 10, "ab": 9,  "obp": 0.300, "iso": 0.110},
-        "3B": {"pa": 20, "ab": 18, "obp": 0.300, "iso": 0.110},
-        "DH": {"pa": 10, "ab": 9,  "obp": 0.300, "iso": 0.110},
-    },
-    "勝田 成": {
-        "2B": {"pa": 30, "ab": 27, "obp": 0.290, "iso": 0.070},
-        "SS": {"pa": 20, "ab": 18, "obp": 0.290, "iso": 0.070},
-    },
-    "堂林 翔太": {
-        "1B": {"pa": 30, "ab": 27, "obp": 0.310, "iso": 0.150},
-        "3B": {"pa": 30, "ab": 27, "obp": 0.310, "iso": 0.150},
-    },
-    "末包 昇大": {
-        "LF": {"pa": 30, "ab": 27, "obp": 0.310, "iso": 0.180},
-        "RF": {"pa": 30, "ab": 27, "obp": 0.310, "iso": 0.180},
-        "DH": {"pa": 20, "ab": 18, "obp": 0.310, "iso": 0.180},
-    },
-    "田村 俊介": {
-        "LF": {"pa": 30, "ab": 27, "obp": 0.320, "iso": 0.120},
-        "CF": {"pa": 20, "ab": 18, "obp": 0.320, "iso": 0.120},
-        "RF": {"pa": 30, "ab": 27, "obp": 0.320, "iso": 0.120},
-    },
-    "中村 貴浩": {
-        "LF": {"pa": 20, "ab": 18, "obp": 0.300, "iso": 0.140},
-        "RF": {"pa": 20, "ab": 18, "obp": 0.300, "iso": 0.140},
-    },
-    "名原 典彦": {
-        "LF": {"pa": 20, "ab": 18, "obp": 0.290, "iso": 0.090},
-        "CF": {"pa": 20, "ab": 18, "obp": 0.290, "iso": 0.090},
-        "RF": {"pa": 20, "ab": 18, "obp": 0.290, "iso": 0.090},
-    },
-    "岸本 大希": {
-        "2B": {"pa": 20, "ab": 18, "obp": 0.290, "iso": 0.080},
-        "SS": {"pa": 20, "ab": 18, "obp": 0.290, "iso": 0.080},
-    },
-    "内田 湘大": {
-        "1B": {"pa": 20, "ab": 18, "obp": 0.290, "iso": 0.110},
-        "3B": {"pa": 20, "ab": 18, "obp": 0.290, "iso": 0.110},
-    },
-}
+SEASON_POSITION_BATTING = _build_season_position_batting_from_proran()
+
 
 
 # DHあり版
@@ -517,6 +426,255 @@ def _layout(title: str, body: str) -> HTMLResponse:
 
 
 def _clean_text(value: str) -> str:
+    def _to_float_or_none(value: str | None) -> float | None:
+    if value is None:
+        return None
+    s = str(value).strip()
+    if s in {"", "-", "---", "—"}:
+        return None
+    if s.startswith("."):
+        s = "0" + s
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _safe_float(value: str | float | int | None) -> float | None:
+    if value is None:
+        return None
+    s = str(value).strip()
+    if s in {"", "-", "---", "—", "None", "null"}:
+        return None
+    if s.startswith("."):
+        s = "0" + s
+    try:
+        return float(s)
+    except ValueError:
+        return None
+def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]]:
+    marker = "守備ポジション別成績"
+    start = html_text.find(marker)
+    if start == -1:
+        return {}
+
+    end_candidates = []
+    for stop_word in ["対球団別成績", "球場別成績", "</body>"]:
+        idx = html_text.find(stop_word, start)
+        if idx != -1:
+            end_candidates.append(idx)
+    end = min(end_candidates) if end_candidates else len(html_text)
+
+    block = html_text[start:end]
+    labels = re.findall(r'bg_c_th">([^<]+)</div>', block)
+
+    positions = []
+    for label in labels:
+        label = label.strip()
+        if label in POSITION_LABEL_TO_CODE:
+            positions.append(label)
+
+    if not positions:
+        return {}
+
+    def extract_row(row_name: str) -> list[str]:
+        row_start = block.find(f">{row_name}<")
+        if row_start == -1:
+            return []
+        next_row = block.find('player_detail_more_th', row_start + 1)
+        row_block = block[row_start: next_row if next_row != -1 else len(block)]
+        return re.findall(r'right">([^<]+)</div>', row_block)
+
+    ab_values = extract_row("打<br>数")
+    avg_values = extract_row("打<br>率")
+    obp_values = extract_row("出<br>塁<br>率")
+    ops_values = extract_row("Ｏ<br>Ｐ<br>Ｓ")
+
+    result: dict[str, dict[str, float]] = {}
+
+    for i, pos_label in enumerate(positions):
+        if i >= len(ab_values) or i >= len(avg_values) or i >= len(obp_values) or i >= len(ops_values):
+            continue
+
+        ab = _to_float_or_none(ab_values[i])
+        avg = _to_float_or_none(avg_values[i])
+        obp = _to_float_or_none(obp_values[i])
+        ops = _to_float_or_none(ops_values[i])
+
+        if ab is None or avg is None or obp is None or ops is None:
+            continue
+
+        iso = ops - obp - avg
+        if iso < 0:
+            iso = 0.0
+
+        pos_code = POSITION_LABEL_TO_CODE[pos_label]
+        result[pos_code] = {
+            "pa": int(ab),
+            "ab": int(ab),
+            "obp": round(obp, 3),
+            "iso": round(iso, 3),
+        }
+
+    return result
+
+
+def _fetch_proran_position_batting(player_name: str, year: int | None = None) -> dict[str, dict[str, float]]:
+    player_id = PRORAN_PLAYER_IDS.get(player_name)
+    if not player_id:
+        return {}
+
+    if year is None:
+        year = datetime.now(JST).year
+
+    url = PRORAN_PLAYER_DETAIL_MORE_URL.format(player_id=player_id, year=year)
+    html_text = _fetch_html(url)
+    return _extract_proran_position_table(html_text)
+
+
+def _build_season_position_batting_from_proran() -> dict[str, dict[str, dict[str, float]]]:
+    data: dict[str, dict[str, dict[str, float]]] = {}
+
+    for player_name in PLAYER_PROFILE.keys():
+        pos_stats = _fetch_proran_position_batting(player_name)
+        if pos_stats:
+            data[player_name] = pos_stats
+
+    return data
+def _normalize_player_name_for_fielding(name: str) -> str:
+    return str(name).strip().replace("　", " ")
+
+
+def _extract_npbbasement_fielding_rows(html_text: str) -> list[dict[str, str]]:
+    text = html.unescape(html_text)
+    text = re.sub(r"(?is)<script.*?>.*?</script>", " ", text)
+    text = re.sub(r"(?is)<style.*?>.*?</style>", " ", text)
+    text = re.sub(r"<[^>]+>", "\n", text)
+
+    lines = [re.sub(r"\s+", " ", line).strip() for line in text.splitlines()]
+    lines = [line for line in lines if line]
+
+    rows: list[dict[str, str]] = []
+    team_codes = {"C", "T", "G", "D", "S", "DB", "B", "H", "F", "M", "L", "E"}
+    pos_codes = {"C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "DH"}
+
+    i = 0
+    while i < len(lines) - 5:
+        team = lines[i]
+        name = lines[i + 1]
+        pos1 = lines[i + 2]
+        pos2 = lines[i + 3]
+
+        if team in team_codes and pos1 in pos_codes and pos2 in pos_codes:
+            nums = []
+            j = i + 4
+            while j < len(lines):
+                token = lines[j]
+                if token in team_codes and j + 3 < len(lines):
+                    break
+                nums.append(token)
+                j += 1
+
+            row = {
+                "TEAM": team,
+                "PLAYER": name,
+                "POS": pos1,
+            }
+
+            candidate_keys = [
+                "INN", "RngR", "DPR", "ARM", "ErrR", "POS_VALUE",
+                "FRM", "BLK", "DEF"
+            ]
+
+            numeric_values = []
+            for token in nums:
+                if re.fullmatch(r"-?\d+(?:\.\d+)?", token):
+                    numeric_values.append(token)
+
+            for key, value in zip(candidate_keys, numeric_values):
+                row[key] = value
+
+            rows.append(row)
+            i = j
+            continue
+
+        i += 1
+
+    return rows
+
+
+def _calc_def_from_components(row: dict[str, str], position: str) -> float | None:
+    direct_def = _safe_float(row.get("DEF"))
+    if direct_def is not None:
+        return round(direct_def, 3)
+
+    rngr = _safe_float(row.get("RngR")) or 0.0
+    dpr  = _safe_float(row.get("DPR")) or 0.0
+    arm  = _safe_float(row.get("ARM")) or 0.0
+    errr = _safe_float(row.get("ErrR")) or 0.0
+    posv = _safe_float(row.get("POS_VALUE")) or 0.0
+
+    total = rngr + dpr + arm + errr + posv
+
+    if position == "C":
+        frm = _safe_float(row.get("FRM")) or 0.0
+        blk = _safe_float(row.get("BLK")) or 0.0
+        total += frm + blk
+
+    return round(total, 3)
+
+
+def _build_player_defense_from_npbbasement() -> dict[str, dict[str, float]]:
+    html_text = _fetch_html(NPBBASEMENT_FIELDING_URL)
+    rows = _extract_npbbasement_fielding_rows(html_text)
+
+    result: dict[str, dict[str, float]] = {}
+
+    for row in rows:
+        if row.get("TEAM") != "C":
+            continue
+
+        player_name = _normalize_player_name_for_fielding(row.get("PLAYER", ""))
+        position = row.get("POS", "")
+
+        if not player_name or position not in {"C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "DH"}:
+            continue
+
+        matched_name = None
+        for profile_name in PLAYER_PROFILE.keys():
+            if _normalize_player_name_for_fielding(profile_name) == player_name:
+                matched_name = profile_name
+                break
+
+        if matched_name is None:
+            for profile_name in PLAYER_PROFILE.keys():
+                if player_name in profile_name or profile_name in player_name:
+                    matched_name = profile_name
+                    break
+
+        if matched_name is None:
+            continue
+
+        defense_value = _calc_def_from_components(row, position)
+        if defense_value is None:
+            continue
+
+        result.setdefault(matched_name, {})
+        result[matched_name][position] = defense_value
+
+    return result
+
+
+def _get_player_defense() -> dict[str, dict[str, float]]:
+    try:
+        data = _build_player_defense_from_npbbasement()
+        if data:
+            return data
+    except Exception as e:
+        print(f"WARNING: NPB BASEMENT の守備データ取得に失敗: {e}")
+
+    return PLAYER_DEFENSE_FALLBACK
+
     value = unescape(value)
     value = re.sub(r"<br\s*/?>", " ", value, flags=re.IGNORECASE)
     value = re.sub(r"<[^>]+>", "", value)
@@ -588,37 +746,25 @@ def _position_universe(slot_defs: list[dict]) -> list[str]:
     return result
 
 
-def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
-    overall = SEASON_OVERALL_BATTING.get(player_name, {})
-    split = SEASON_POSITION_BATTING.get(player_name, {}).get(position, {})
+def _get_adjusted_position_batting(player_name: str, position: str) -> dict[str, float]:
+    player_stats = SEASON_POSITION_BATTING.get(player_name, {})
+    pos_stats = player_stats.get(position)
 
-    overall_obp = _safe_float(overall.get("obp", 0.0))
-    overall_iso = _safe_float(overall.get("iso", 0.0))
-
-    pos_pa = int(split.get("pa", 0) or 0)
-    pos_ab = int(split.get("ab", 0) or 0)
-    pos_obp = _safe_float(split.get("obp", overall_obp))
-    pos_iso = _safe_float(split.get("iso", overall_iso))
-
-    adj_obp_den = pos_pa + POSITION_BATTING_PRIOR_PA
-    adj_iso_den = pos_ab + POSITION_BATTING_PRIOR_AB
-
-    adj_obp = (
-        ((pos_pa * pos_obp) + (POSITION_BATTING_PRIOR_PA * overall_obp)) / adj_obp_den
-        if adj_obp_den > 0 else overall_obp
-    )
-
-    adj_iso = (
-        ((pos_ab * pos_iso) + (POSITION_BATTING_PRIOR_AB * overall_iso)) / adj_iso_den
-        if adj_iso_den > 0 else overall_iso
-    )
+    if pos_stats:
+        return {
+            "pa": float(pos_stats.get("pa", 0)),
+            "ab": float(pos_stats.get("ab", 0)),
+            "obp": float(pos_stats.get("obp", 0.0)),
+            "iso": float(pos_stats.get("iso", 0.0)),
+        }
 
     return {
-        "pa": pos_pa,
-        "ab": pos_ab,
-        "adj_obp": _round3(adj_obp),
-        "adj_iso": _round3(adj_iso),
+        "pa": 0.0,
+        "ab": 0.0,
+        "obp": 0.0,
+        "iso": 0.0,
     }
+
 
 def _now_jst() -> datetime:
     return datetime.now(JST)
@@ -984,11 +1130,13 @@ def _slot_score(
 
     weights = slot["weights"]
 
-    score = (
-        weights["recent"] * recent_form
-        + weights["defense"] * defense_score
-        + weights["season_pos"] * season_pos_score
-    )
+score = (
+    recent_score
+    + adjusted_obp * 100 * OBP_WEIGHT
+    + adjusted_iso * 100 * ISO_WEIGHT
+    + defense_score * DEFENSE_WEIGHT
+)
+
 
     role = slot["role"]
 
@@ -1062,6 +1210,7 @@ def _build_slot_reason(
         return (
             f"昇格7日特例 / 二軍{farm_pa}打席の比較値(0.9倍) {farm_score:+.3f} / "
             f"{position_label}時の今季補正OBP {season_adj['adj_obp']:.3f} / "
+            f"今期補正OBP {adjusted_obp:.3f}",
             f"今季補正ISO {season_adj['adj_iso']:.3f} / "
             f"守備スコア {defense_score:+.2f} を評価して "
             f"{slot['order']}番 {position_label}"

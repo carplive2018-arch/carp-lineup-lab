@@ -154,6 +154,30 @@ FARM_PROMOTION_CANDIDATES = {
 }
 
 PLAYER_PROFILE.update(FARM_PROMOTION_CANDIDATES)
+PLAYER_NAME_ALIASES = {
+    "小園海斗": "小園 海斗",
+    "勝田成": "勝田 成",
+    "二俣翔一": "二俣 翔一",
+    "大盛穂": "大盛 穂",
+    "田村俊介": "田村 俊介",
+    "矢野雅哉": "矢野 雅哉",
+    "坂倉将吾": "坂倉 将吾",
+    "持丸泰輝": "持丸 泰輝",
+    "持丸輝泰": "持丸 泰輝",
+}
+
+def _canonical_player_name(name: str) -> str:
+    normalized = _normalize_player_name(name)
+
+    if normalized in PLAYER_NAME_ALIASES:
+        return PLAYER_NAME_ALIASES[normalized]
+
+    for full_name in PLAYER_PROFILE.keys():
+        if _normalize_player_name(full_name) == normalized:
+            return full_name
+
+    return name
+
 CURRENT_SEASON_YEAR = 2026
 
 
@@ -541,8 +565,10 @@ def _normalize_player_name(name: str) -> str:
     if not name:
         return ""
     text = unescape(str(name)).strip()
-    text = re.sub(r"\s+", " ", text)
+    text = text.replace("　", "").replace(" ", "")
+    text = re.sub(r"\s+", "", text)
     return text
+
 
 
 def _discover_proran_player_ids() -> dict[str, str]:
@@ -823,7 +849,9 @@ def _position_universe(slot_defs: list[dict]) -> list[str]:
 def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
     global SEASON_POSITION_BATTING
 
-    normalized_name = _normalize_player_name(player_name)
+    canonical_name = _canonical_player_name(player_name)
+    normalized_name = _normalize_player_name(canonical_name)
+
     player_stats = SEASON_POSITION_BATTING.get(normalized_name)
 
     if not player_stats:
@@ -832,7 +860,7 @@ def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
 
         if player_id:
             try:
-                fetched = _fetch_proran_position_batting(normalized_name, player_id)
+                fetched = _fetch_proran_position_batting(canonical_name, player_id)
                 if fetched:
                     SEASON_POSITION_BATTING[normalized_name] = fetched
                     player_stats = fetched
@@ -846,7 +874,6 @@ def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
         "obp": float(pos_stats.get("obp", 0.0) or 0.0),
         "iso": float(pos_stats.get("iso", 0.0) or 0.0),
     }
-
 
 def _now_jst() -> datetime:
     return datetime.now(JST)
@@ -1348,13 +1375,15 @@ def _build_slot_reason(
     slot: dict,
     recent_maps: dict,
 ) -> str:
-    adj = _get_adjusted_position_batting(player_name, chosen_position)
+    canonical_name = _canonical_player_name(player_name)
+
+    adj = _get_adjusted_position_batting(canonical_name, chosen_position)
     adjusted_obp = _safe_float(adj.get("obp")) or 0.0
     adjusted_iso = _safe_float(adj.get("iso")) or 0.0
     defense_score = _safe_float(
-        PLAYER_DEFENSE.get(player_name, {}).get(chosen_position, 0.0)
+        PLAYER_DEFENSE.get(canonical_name, {}).get(chosen_position, 0.0)
     ) or 0.0
-    recent_form = recent_maps.get("recent_form_score", {}).get(player_name, 0.0)
+    recent_form = recent_maps.get("recent_form_score", {}).get(canonical_name, 0.0)
 
     parts = [
         f"直近スコア {recent_form:.3f}",
@@ -1363,8 +1392,6 @@ def _build_slot_reason(
         f"守備スコア {defense_score:.3f}",
     ]
     return " / ".join(parts)
-
-
 
 def _fetch_html(url: str) -> str:
     req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -1805,6 +1832,8 @@ def build_predicted_lineup(
         best_line = tuple()
 
         for player_idx, player_name in enumerate(candidate_names):
+            canonical_name = _canonical_player_name(player_name)
+            canonical_name = _canonical_player_name(player_name)
             if used_player_mask & (1 << player_idx):
                 continue
 
@@ -1814,7 +1843,7 @@ def build_predicted_lineup(
                     continue
 
                 score = _slot_score(
-                    player_name=player_name,
+                    player_name=canonical_name,
                     slot=slot,
                     chosen_position=pos,
                     recent_maps=recent_maps,
@@ -1841,10 +1870,10 @@ def build_predicted_lineup(
                             "order": slot["order"],
                             "position": pos,
                             "position_label": POSITION_LABELS.get(pos, pos),
-                            "player_name": player_name,
+                            "player_name": canonical_name,
                             "score": _round3(score),
                             "reason": _build_slot_reason(
-                                player_name=player_name,
+                                player_name=canonical_name,
                                 chosen_position=pos,
                                 slot=slot,
                                 recent_maps=recent_maps,

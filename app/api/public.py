@@ -1,5 +1,3 @@
-# trigger new deploy
-
 from __future__ import annotations
 
 from functools import lru_cache
@@ -7,9 +5,8 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import json
-import time
-
 import re
+import time
 
 from html import unescape
 from html.parser import HTMLParser
@@ -100,7 +97,6 @@ PROMOTED_FROM_FARM = {
     # "末包 昇大": "2026-05-12",
 }
 
-# 守備位置コード
 POS_C = "C"
 POS_1B = "1B"
 POS_2B = "2B"
@@ -125,8 +121,6 @@ POSITION_LABELS = {
     POS_P: "投手",
 }
 
-# まずは「器」だけ置く。数値はあとで埋めればOK。
-# eligible_positions は「その選手に守らせてもよい位置」
 PLAYER_PROFILE = {
     "坂倉 将吾": {"eligible_positions": [POS_C, POS_1B, POS_3B, POS_DH]},
     "小園 海斗": {"eligible_positions": [POS_SS, POS_3B]},
@@ -156,6 +150,7 @@ FARM_PROMOTION_CANDIDATES = {
 }
 
 PLAYER_PROFILE.update(FARM_PROMOTION_CANDIDATES)
+
 PLAYER_NAME_ALIASES = {
     "小園海斗": "小園 海斗",
     "勝田成": "勝田 成",
@@ -168,47 +163,16 @@ PLAYER_NAME_ALIASES = {
     "持丸輝泰": "持丸 泰輝",
 }
 
-def _canonical_player_name(name: str) -> str:
-    normalized = _normalize_player_name(name)
-
-    if normalized in PLAYER_NAME_ALIASES:
-        return PLAYER_NAME_ALIASES[normalized]
-
-    for full_name in PLAYER_PROFILE.keys():
-        if _normalize_player_name(full_name) == normalized:
-            return full_name
-
-    return name
-
 CURRENT_SEASON_YEAR = 2026
 PRORAN_TEAM_BATTERS_URL = "https://proran.jp/team_detail_b.php?t=_c"
 PRORAN_PLAYER_DETAIL_MORE_URL = "https://proran.jp/player_detail_more.php?id={player_id}&y={year}"
+NPBBASEMENT_FIELDING_URL = "https://npbbasement.com/fielding"
+NPBBASEMENT_BASE_URL = "https://npbbasement.com"
+
 CACHE_TTL_PLAYER_DEFENSE = 60 * 60 * 12
 CACHE_TTL_SEASON_POSITION_BATTING = 60 * 60 * 6
 CACHE_TTL_RECENT_BATTING = 60 * 5
 CACHE_TTL_PREDICTED_LINEUP = 60 * 3
-
-CACHE = {
-    "player_defense": {"value": None, "expires_at": 0},
-    "season_position_batting": {"value": None, "expires_at": 0},
-    "recent_batting": {},
-    "predicted_lineup": {},
-}
-
-
-def _cache_now() -> float:
-    return time.time()
-
-
-def _cache_alive(entry: dict | None) -> bool:
-    if not entry:
-        return False
-    return float(entry.get("expires_at", 0) or 0) > _cache_now()
-
-
-
-NPBBASEMENT_FIELDING_URL = "https://npbbasement.com/fielding"
-NPBBASEMENT_BASE_URL = "https://npbbasement.com"
 
 POSITION_LABEL_TO_CODE = {
     "捕手": "C",
@@ -230,38 +194,36 @@ POSITION_LABEL_TO_CODE = {
     "DH": "DH",
 }
 
+CACHE = {
+    "player_defense": {"value": None, "expires_at": 0},
+    "season_position_batting": {"value": None, "expires_at": 0},
+    "recent_batting": {},
+    "predicted_lineup": {},
+}
 
-PRORAN_PLAYER_DETAIL_MORE_URL = "https://proran.jp/player_detail_more.php?id={player_id}&y={year}"
-NPBBASEMENT_FIELDING_URL = "https://npbbasement.com/fielding"
 
-
-
-# 守備スコア（守備スコア欄に直接出る値）
 PLAYER_DEFENSE_FALLBACK = {
     "坂倉 将吾": {"C": 0.30, "1B": 0.20, "3B": -0.20, "DH": 0.00},
     "小園 海斗": {"SS": 0.80, "3B": 0.40},
     "菊池 涼介": {"2B": 1.50},
 }
 
-
-
-# 今季通算の打撃（今期補正OBP / 今期補正ISO の土台）
 SEASON_OVERALL_BATTING = {
     "坂倉 将吾": {"obp": 0.330, "iso": 0.130},
     "小園 海斗": {"obp": 0.310, "iso": 0.110},
     "菊池 涼介": {"obp": 0.290, "iso": 0.080},
-    "モンテロ":   {"obp": 0.320, "iso": 0.180},
+    "モンテロ": {"obp": 0.320, "iso": 0.180},
     "持丸 泰輝": {"obp": 0.310, "iso": 0.150},
     "石原 貴規": {"obp": 0.280, "iso": 0.070},
     "矢野 雅哉": {"obp": 0.290, "iso": 0.050},
     "二俣 翔一": {"obp": 0.300, "iso": 0.090},
     "秋山 翔吾": {"obp": 0.330, "iso": 0.100},
-    "大盛 穂":   {"obp": 0.300, "iso": 0.080},
+    "大盛 穂": {"obp": 0.300, "iso": 0.080},
     "野間 峻祥": {"obp": 0.310, "iso": 0.070},
-    "平川 蓮":   {"obp": 0.290, "iso": 0.080},
-    "ファビアン":{"obp": 0.320, "iso": 0.180},
+    "平川 蓮": {"obp": 0.290, "iso": 0.080},
+    "ファビアン": {"obp": 0.320, "iso": 0.180},
     "佐々木 泰": {"obp": 0.300, "iso": 0.110},
-    "勝田 成":   {"obp": 0.290, "iso": 0.070},
+    "勝田 成": {"obp": 0.290, "iso": 0.070},
     "堂林 翔太": {"obp": 0.310, "iso": 0.150},
     "末包 昇大": {"obp": 0.310, "iso": 0.180},
     "田村 俊介": {"obp": 0.320, "iso": 0.120},
@@ -272,21 +234,6 @@ SEASON_OVERALL_BATTING = {
 }
 
 
-
-# 今季「その守備位置に入った時」の打撃。
-# これが今回の追加要素。
-# 書式:
-# SEASON_POSITION_BATTING["坂倉 将吾"] = {
-#     "C": {"pa": 0, "ab": 0, "obp": 0.000, "iso": 0.000},
-#     "1B": {"pa": 0, "ab": 0, "obp": 0.000, "iso": 0.000},
-# }
-
-# 守備位置ごとの今季打撃（守備地位の補正OBP / ISO の素材）
-
-
-
-
-# DHあり版
 DH_LINEUP_SLOTS = [
     {
         "order": 1,
@@ -362,8 +309,6 @@ DH_LINEUP_SLOTS = [
     },
 ]
 
-# DHなし版
-# 9番は投手固定なので、ここでは 1～8番だけ最適化する
 NO_DH_LINEUP_SLOTS = [
     {
         "order": 1,
@@ -432,6 +377,33 @@ NO_DH_LINEUP_SLOTS = [
 ]
 
 
+def _cache_now() -> float:
+    return time.time()
+
+
+def _cache_alive(entry: dict | None) -> bool:
+    if not entry:
+        return False
+    return float(entry.get("expires_at", 0) or 0) > _cache_now()
+
+
+def _cache_get_bucket(bucket: str):
+    return CACHE.setdefault(bucket, {})
+
+
+def _canonical_player_name(name: str) -> str:
+    normalized = _normalize_player_name(name)
+
+    if normalized in PLAYER_NAME_ALIASES:
+        return PLAYER_NAME_ALIASES[normalized]
+
+    for full_name in PLAYER_PROFILE.keys():
+        if _normalize_player_name(full_name) == normalized:
+            return full_name
+
+    return name
+
+
 def _layout(title: str, body: str) -> HTMLResponse:
     return HTMLResponse(
         f"""
@@ -467,8 +439,7 @@ def _layout(title: str, body: str) -> HTMLResponse:
             .stats-table th, .stats-table td {{ border-bottom: 1px solid #26304d; padding: 10px 8px; text-align: right; }}
             .stats-table th:first-child, .stats-table td:first-child {{ text-align: left; position: sticky; left: 0; background: #121a31; }}
             .stats-table th {{ font-size: 12px; color: #a9b5d1; }}
-
-        </style>
+          </style>
         </head>
         <body>
           <div class="wrap">{body}</div>
@@ -486,6 +457,15 @@ def _clean_text(value: str) -> str:
     value = value.replace("\u3000", " ")
     value = re.sub(r"\s+", " ", value).strip()
     return value
+
+
+def _normalize_player_name(name: str) -> str:
+    if not name:
+        return ""
+    text = unescape(str(name)).strip()
+    text = text.replace("　", "").replace(" ", "")
+    text = re.sub(r"\s+", "", text)
+    return text
 
 
 def _to_float_or_none(value: str | None) -> float | None:
@@ -514,6 +494,7 @@ def _safe_float(value):
         return float(text)
     except Exception:
         return None
+
 
 def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]]:
     result: dict[str, dict[str, float]] = {}
@@ -587,7 +568,7 @@ def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]
             block,
             re.S,
         )
-        metrics[header] = [_to_float(v) for v in values[:len(position_labels)]]
+        metrics[header] = [_to_float(v) for v in values[: len(position_labels)]]
 
     for i, label in enumerate(position_labels):
         pos_code = POSITION_LABEL_TO_CODE.get(label)
@@ -631,15 +612,7 @@ def _fetch_text(url: str) -> str:
         return res.read().decode("utf-8", errors="ignore")
 
 
-def _normalize_player_name(name: str) -> str:
-    if not name:
-        return ""
-    text = unescape(str(name)).strip()
-    text = text.replace("　", "").replace(" ", "")
-    text = re.sub(r"\s+", "", text)
-    return text
-
-
+@lru_cache(maxsize=1)
 def _discover_proran_player_ids() -> dict[str, str]:
     html = _fetch_text(PRORAN_TEAM_BATTERS_URL)
     pairs = re.findall(
@@ -695,26 +668,25 @@ def _build_season_position_batting_from_proran() -> dict:
 
 
 def _get_season_position_batting() -> dict:
-    entry = CACHE.get("season_position_batting", {})
-    if _cache_alive(entry):
-        return entry["value"]
+    global SEASON_POSITION_BATTING
+
+    cache_entry = CACHE.get("season_position_batting", {})
+    if _cache_alive(cache_entry) and cache_entry.get("value") is not None:
+        return cache_entry["value"]
 
     try:
         data = _build_season_position_batting_from_proran()
-        if data:
-            CACHE["season_position_batting"] = {
-                "value": data,
-                "expires_at": _cache_now() + CACHE_TTL_SEASON_POSITION_BATTING,
-            }
-            return data
-    except Exception as e:
-        print("DEBUG_PRORAN_SEASON_ERROR", str(e))
+        if not isinstance(data, dict):
+            data = {}
+    except Exception:
+        data = {}
 
+    SEASON_POSITION_BATTING = data
     CACHE["season_position_batting"] = {
-        "value": {},
-        "expires_at": _cache_now() + 300,
+        "expires_at": _cache_now() + CACHE_TTL_SEASON_POSITION_BATTING,
+        "value": data,
     }
-    return {}
+    return data
 
 
 def _calc_def_from_components(fld: dict) -> float:
@@ -761,7 +733,7 @@ def _load_npbbasement_players() -> list[dict]:
         return []
 
     js = _fetch_text(chunk_url)
-    match = re.search(r'JSON\.parse\(`(.*)`\)', js, flags=re.S)
+    match = re.search(r"JSON\.parse\(`(.*)`\)", js, flags=re.S)
     if not match:
         return []
 
@@ -806,29 +778,26 @@ def _build_player_defense_from_npbbasement() -> dict:
     return result
 
 
-def _get_player_defense() -> dict:
-    entry = CACHE.get("player_defense", {})
-    if _cache_alive(entry):
-        return entry["value"]
+def _get_player_defense() -> dict[str, dict[str, float]]:
+    global PLAYER_DEFENSE
+
+    cache_entry = CACHE.get("player_defense", {})
+    if _cache_alive(cache_entry) and cache_entry.get("value"):
+        return cache_entry["value"]
 
     try:
         data = _build_player_defense_from_npbbasement()
-        if data:
-            CACHE["player_defense"] = {
-                "value": data,
-                "expires_at": _cache_now() + CACHE_TTL_PLAYER_DEFENSE,
-            }
-            return data
+        if not data:
+            data = dict(PLAYER_DEFENSE_FALLBACK)
     except Exception:
-        pass
+        data = dict(PLAYER_DEFENSE_FALLBACK)
 
-    fallback = dict(PLAYER_DEFENSE_FALLBACK)
+    PLAYER_DEFENSE = data
     CACHE["player_defense"] = {
-        "value": fallback,
-        "expires_at": _cache_now() + 600,
+        "expires_at": _cache_now() + CACHE_TTL_PLAYER_DEFENSE,
+        "value": data,
     }
-    return fallback
-
+    return data
 
 
 def _normalize_name(value: str) -> str:
@@ -845,11 +814,8 @@ def _safe_int(value: str) -> int:
     return int(m.group(0))
 
 
-
 def _round3(value: float) -> float:
     return round(value, 3)
-
-
 
 
 def _calc_iso_from_stats(stats: dict) -> float:
@@ -888,11 +854,13 @@ def _position_universe(slot_defs: list[dict]) -> list[str]:
                 result.append(pos)
     return result
 
+
 def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
     global SEASON_POSITION_BATTING
 
     canonical_name = _canonical_player_name(player_name)
     normalized_name = _normalize_player_name(canonical_name)
+
     if not SEASON_POSITION_BATTING:
         try:
             SEASON_POSITION_BATTING.update(_get_season_position_batting())
@@ -907,10 +875,7 @@ def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
 
     if not player_stats:
         player_ids = _get_proran_player_ids()
-        player_id = (
-            player_ids.get(canonical_name)
-            or player_ids.get(normalized_name)
-        )
+        player_id = player_ids.get(normalized_name)
         if player_id:
             try:
                 fetched = _fetch_proran_position_batting(canonical_name, player_id)
@@ -935,6 +900,7 @@ def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
         "obp": float(pos_stats.get("obp", 0.0) or 0.0),
         "iso": float(pos_stats.get("iso", 0.0) or 0.0),
     }
+
 
 def _now_jst() -> datetime:
     return datetime.now(JST)
@@ -1081,9 +1047,9 @@ def _build_farm_score_maps(candidate_names: list[str]) -> dict:
             if pa < FARM_MIN_PA:
                 continue
 
-            ba = _safe_float(cell(row, "打率"))
-            obp = _safe_float(cell(row, "出塁率"))
-            slg = _safe_float(cell(row, "長打率"))
+            ba = _safe_float(cell(row, "打率")) or 0.0
+            obp = _safe_float(cell(row, "出塁率")) or 0.0
+            slg = _safe_float(cell(row, "長打率")) or 0.0
             iso = max(0.0, slg - ba)
 
             pa_map[mapped_name] = pa
@@ -1132,18 +1098,14 @@ def _get_prediction_candidate_names(now: datetime | None = None) -> list[str]:
 
 
 def _build_recent_score_maps(window_games: int, candidate_names: list[str]) -> dict:
-    recent_cache_key = f"recent:{window_games}"
-    recent_entry = CACHE["recent_batting"].get(recent_cache_key)
+    cache_key = f"recent:{window_games}"
+    bucket = _cache_get_bucket("recent_batting")
+    entry = bucket.get(cache_key)
 
-    if _cache_alive(recent_entry):
-        recent_data = recent_entry["value"]
-    else:
-        recent_data = _aggregate_recent_batting_stats(window_games)
-        CACHE["recent_batting"][recent_cache_key] = {
-            "value": recent_data,
-            "expires_at": _cache_now() + CACHE_TTL_RECENT_BATTING,
-        }
+    if _cache_alive(entry):
+        return entry["value"]
 
+    recent_data = _aggregate_recent_batting_stats(window_games)
 
     alias_to_full = {}
     for name in candidate_names:
@@ -1164,7 +1126,7 @@ def _build_recent_score_maps(window_games: int, candidate_names: list[str]) -> d
             recent_players[mapped_name] = p
 
     team_totals = recent_data.get("team_totals", {})
-    team_obp = _safe_float(team_totals.get("on_base_percentage", 0.0))
+    team_obp = _safe_float(team_totals.get("on_base_percentage", 0.0)) or 0.0
     team_iso = _calc_iso_from_stats(team_totals)
 
     raw_obp_map: dict[str, float] = {}
@@ -1178,7 +1140,7 @@ def _build_recent_score_maps(window_games: int, candidate_names: list[str]) -> d
     for name in candidate_names:
         player = recent_players.get(name, {})
 
-        raw_obp = _safe_float(player.get("on_base_percentage", 0.0))
+        raw_obp = _safe_float(player.get("on_base_percentage", 0.0)) or 0.0
         raw_iso = _calc_iso_from_stats(player)
         pa = int(player.get("plate_appearances", 0) or 0)
         ab = int(player.get("at_bats", 0) or 0)
@@ -1188,11 +1150,13 @@ def _build_recent_score_maps(window_games: int, candidate_names: list[str]) -> d
 
         adj_obp = (
             ((pa * raw_obp) + (RECENT_OBP_PRIOR_PA * team_obp)) / adj_obp_den
-            if adj_obp_den > 0 else team_obp
+            if adj_obp_den > 0
+            else team_obp
         )
         adj_iso = (
             ((ab * raw_iso) + (RECENT_ISO_PRIOR_AB * team_iso)) / adj_iso_den
-            if adj_iso_den > 0 else team_iso
+            if adj_iso_den > 0
+            else team_iso
         )
 
         sample_weight = min(pa / RECENT_FULL_TRUST_PA, 1.0)
@@ -1209,16 +1173,14 @@ def _build_recent_score_maps(window_games: int, candidate_names: list[str]) -> d
     iso_z = _zscore_map(adj_iso_map)
 
     recent_form_score = {
-        name: sample_weight_map.get(name, 0.0) * (
-            0.55 * obp_z.get(name, 0.0) + 0.45 * iso_z.get(name, 0.0)
-        )
+        name: sample_weight_map.get(name, 0.0)
+        * (0.55 * obp_z.get(name, 0.0) + 0.45 * iso_z.get(name, 0.0))
         for name in candidate_names
     }
 
     recent_bat_value = {
-        name: sample_weight_map.get(name, 0.0) * (
-            0.60 * obp_z.get(name, 0.0) + 0.40 * iso_z.get(name, 0.0)
-        )
+        name: sample_weight_map.get(name, 0.0)
+        * (0.60 * obp_z.get(name, 0.0) + 0.40 * iso_z.get(name, 0.0))
         for name in candidate_names
     }
 
@@ -1246,7 +1208,7 @@ def _build_recent_score_maps(window_games: int, candidate_names: list[str]) -> d
     )
     top_catcher_bats = set(catcher_candidates[:2])
 
-    return {
+    result = {
         "raw_players": recent_players,
         "raw_obp_map": raw_obp_map,
         "raw_iso_map": raw_iso_map,
@@ -1265,8 +1227,12 @@ def _build_recent_score_maps(window_games: int, candidate_names: list[str]) -> d
         "active_first_team": list(active_first_team),
     }
 
+    bucket[cache_key] = {
+        "value": result,
+        "expires_at": _cache_now() + CACHE_TTL_RECENT_BATTING,
+    }
 
-
+    return result
 
 
 def _build_season_position_score_map(candidate_names: list[str], position: str) -> dict[str, float]:
@@ -1302,8 +1268,9 @@ def _slot_score(
     recent_form = recent_maps["recent_form_score"].get(player_name, 0.0)
     recent_obp_z = recent_maps["obp_z"].get(player_name, 0.0) * sample_weight
     recent_iso_z = recent_maps["iso_z"].get(player_name, 0.0) * sample_weight
+    defense_map = _get_player_defense()
     defense_score = _safe_float(
-        PLAYER_DEFENSE.get(player_name, {}).get(chosen_position, 0.0)
+        defense_map.get(player_name, {}).get(chosen_position, 0.0)
     ) or 0.0
     season_pos_score = season_pos_score_maps.get(chosen_position, {}).get(player_name, 0.0)
     recent_pa = int(recent_maps["pa_map"].get(player_name, 0) or 0)
@@ -1353,6 +1320,7 @@ def _slot_score(
 
     return round(score, 3)
 
+
 def _build_slot_reason(
     player_name: str,
     chosen_position: str,
@@ -1364,8 +1332,9 @@ def _build_slot_reason(
     adj = _get_adjusted_position_batting(canonical_name, chosen_position)
     adjusted_obp = _safe_float(adj.get("obp")) or 0.0
     adjusted_iso = _safe_float(adj.get("iso")) or 0.0
+    defense_map = _get_player_defense()
     defense_score = _safe_float(
-        PLAYER_DEFENSE.get(canonical_name, {}).get(chosen_position, 0.0)
+        defense_map.get(canonical_name, {}).get(chosen_position, 0.0)
     ) or 0.0
     recent_form = recent_maps.get("recent_form_score", {}).get(canonical_name, 0.0)
 
@@ -1376,6 +1345,7 @@ def _build_slot_reason(
         f"守備スコア {defense_score:.3f}",
     ]
     return " / ".join(parts)
+
 
 def _fetch_html(url: str) -> str:
     req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -1533,7 +1503,8 @@ def _build_game_meta_from_box_url(box_url: str) -> dict:
         "round": int(round_no),
         "box_url": box_url,
     }
-    
+
+
 def _extract_year_from_results_page(html: str) -> str:
     m = re.search(r"(\d{4})年度", html)
     return m.group(1) if m else "2026"
@@ -1548,6 +1519,7 @@ def _extract_previous_results_page_url(html: str) -> str | None:
             return link
         return f"https://npb.jp/bis/teams/{link.lstrip('/')}"
     return None
+
 
 def _extract_result_rows_from_html(html: str) -> list[list[str]]:
     rows: list[list[str]] = []
@@ -1585,8 +1557,6 @@ def _extract_result_rows_from_html(html: str) -> list[list[str]]:
         rows.append(cleaned)
 
     return rows
-
-
 
 
 def _parse_result_rows_to_games(rows: list[list[str]], year: str) -> list[dict]:
@@ -1649,6 +1619,8 @@ def _parse_result_rows_to_games(rows: list[list[str]], year: str) -> list[dict]:
         })
 
     return games
+
+
 @lru_cache(maxsize=4)
 def _fetch_recent_carp_games(limit: int) -> list[dict]:
     current_results_url = "https://npb.jp/bis/teams/results_c_index.html"
@@ -1677,8 +1649,6 @@ def _fetch_recent_carp_games(limit: int) -> list[dict]:
     recent_games = sorted_games[-limit:]
     recent_games.reverse()
     return recent_games
-
-
 
 
 def _is_batting_table(table: list[list[str]]) -> bool:
@@ -1725,6 +1695,7 @@ def _analyze_plate_results(result_cells: list[str]) -> dict:
             stats["doubles"] += 1
 
     return stats
+
 
 @lru_cache(maxsize=32)
 def _parse_carp_batting_rows(box_url: str) -> list[dict]:
@@ -1781,900 +1752,4 @@ def _parse_carp_batting_rows(box_url: str) -> list[dict]:
             "homeruns": extra["homeruns"],
             "walks": extra["walks"],
             "hit_by_pitch": extra["hit_by_pitch"],
-            "strikeouts": extra["strikeouts"],
-            "sacrifice_bunts": extra["sacrifice_bunts"],
-            "sacrifice_flies": extra["sacrifice_flies"],
-        })
-
-    return rows
-def build_predicted_lineup(
-    dh: bool,
-    window_games: int = 5,
-    predicted_pitcher_name: str = "先発投手",
-) -> dict:
-    if window_games not in (5, 10):
-    cache_key = f"{'dh' if dh else 'no_dh'}:{window_games}:{predicted_pitcher_name}"
-    cached = CACHE["predicted_lineup"].get(cache_key)
-    if _cache_alive(cached):
-        return cached["value"]
-
-        raise HTTPException(status_code=400, detail="window_games は 5 または 10 にしてください。")
-
-    slot_defs = DH_LINEUP_SLOTS if dh else NO_DH_LINEUP_SLOTS
-    candidate_names = _get_prediction_candidate_names()
-    position_list = _position_universe(slot_defs)
-    position_to_bit = {pos: idx for idx, pos in enumerate(position_list)}
-
-    recent_maps = _build_recent_score_maps(window_games, candidate_names)
-    season_pos_score_maps = {
-        pos: _build_season_position_score_map(candidate_names, pos)
-        for pos in position_list
-    }
-
-    @lru_cache(maxsize=None)
-    def dp(slot_idx: int, used_player_mask: int, used_position_mask: int):
-        if slot_idx >= len(slot_defs):
-            return 0.0, tuple()
-
-        slot = slot_defs[slot_idx]
-        best_score = -1000000.0
-        best_line = tuple()
-
-        for player_idx, player_name in enumerate(candidate_names):
-            canonical_name = _canonical_player_name(player_name)
-            if used_player_mask & (1 << player_idx):
-                continue
-
-            for pos in slot["allowed_positions"]:
-                pos_bit = 1 << position_to_bit[pos]
-                if used_position_mask & pos_bit:
-                    continue
-
-                score = _slot_score(
-                    player_name=canonical_name,
-                    slot=slot,
-                    chosen_position=pos,
-                    recent_maps=recent_maps,
-                    season_pos_score_maps=season_pos_score_maps,
-                )
-
-                if score <= -999999:
-                    continue
-
-                tail_score, tail_line = dp(
-                    slot_idx + 1,
-                    used_player_mask | (1 << player_idx),
-                    used_position_mask | pos_bit,
-                )
-                if tail_score <= -999999:
-                    continue
-
-                total_score = score + tail_score
-
-                if total_score > best_score:
-                    best_score = total_score
-                    best_line = (
-                        {
-                            "order": slot["order"],
-                            "position": pos,
-                            "position_label": POSITION_LABELS.get(pos, pos),
-                            "player_name": canonical_name,
-                            "score": _round3(score),
-                            "reason": _build_slot_reason(
-                                player_name=canonical_name,
-                                chosen_position=pos,
-                                slot=slot,
-                                recent_maps=recent_maps,
-                            ),
-                        },
-                    ) + tail_line
-
-        return best_score, best_line
-
-    total_score, lineup_tuple = dp(0, 0, 0)
-
-    if len(lineup_tuple) != len(slot_defs):
-        return {
-            "status": "error",
-            "message": "候補選手や守備位置の設定が足りず、スタメンを組めませんでした。",
-            "mode": "dh" if dh else "no_dh",
-            "window_games": window_games,
-            "lineup": [],
-        }
-
-    lineup = list(lineup_tuple)
-
-    if not dh:
-        lineup.append(
-            {
-                "order": 9,
-                "position": POS_P,
-                "position_label": POSITION_LABELS[POS_P],
-                "player_name": predicted_pitcher_name,
-                "score": 0.0,
-                "reason": "DHなし版のため 9番投手固定",
-            }
-        )
-
-    lineup.sort(key=lambda x: x["order"])
-
-    payload = {
-        "status": "ok",
-        "mode": "dh" if dh else "no_dh",
-        "window_games": window_games,
-        "model_notes": {
-            "recent_weight_source": "recent-5 / recent-10 API",
-            "season_position_weight_source": "SEASON_POSITION_BATTING",
-            "defense_weight_source": "PLAYER_DEFENSE",
-        },
-        "total_score": _round3(total_score),
-        "lineup": lineup,
-    }
-
-    CACHE["predicted_lineup"][cache_key] = {
-        "value": payload,
-        "expires_at": _cache_now() + CACHE_TTL_PREDICTED_LINEUP,
-    }
-
-    return payload
-
-@lru_cache(maxsize=2)
-def _aggregate_recent_batting_stats(games: int) -> dict:
-    
-    if games not in (5, 10):
-        raise HTTPException(status_code=400, detail="games は 5 または 10 にしてください。")
-
-    recent_games = _fetch_recent_carp_games(games)
-
-    aggregated: dict[str, dict] = {}
-    used_games: list[dict] = []
-    skipped_games: list[dict] = []
-
-    for game in recent_games:
-        box_url = game["box_url"]
-        try:
-            batting_rows = _parse_carp_batting_rows(box_url)
-        except Exception as e:
-            skipped_games.append({
-                "date": game["date"],
-                "box_url": box_url,
-                "reason": str(e),
-            })
-            continue
-
-        used_games.append({
-            "date": game["date"],
-            "opponent": game["opponent"],
-            "venue": game["venue"],
-            "round": game["round"],
-            "score": game.get("score", ""),
-            "result": game.get("result", ""),
-            "box_url": box_url,
-        })
-
-        seen_names_in_this_game = set()
-
-        for row in batting_rows:
-            name = row["player_name"]
-
-            if name not in aggregated:
-                aggregated[name] = {
-                    "player_name": name,
-                    "games": 0,
-                    "at_bats": 0,
-                    "runs": 0,
-                    "hits": 0,
-                    "rbi": 0,
-                    "steals": 0,
-                    "doubles": 0,
-                    "triples": 0,
-                    "homeruns": 0,
-                    "walks": 0,
-                    "hit_by_pitch": 0,
-                    "strikeouts": 0,
-                    "sacrifice_bunts": 0,
-                    "sacrifice_flies": 0,
-                }
-
-            if name not in seen_names_in_this_game:
-                aggregated[name]["games"] += 1
-                seen_names_in_this_game.add(name)
-
-            for key in (
-                "at_bats",
-                "runs",
-                "hits",
-                "rbi",
-                "steals",
-                "doubles",
-                "triples",
-                "homeruns",
-                "walks",
-                "hit_by_pitch",
-                "strikeouts",
-                "sacrifice_bunts",
-                "sacrifice_flies",
-            ):
-                aggregated[name][key] += row[key]
-
-    players = list(aggregated.values())
-    
-    for player in players:
-        pa = (
-            player["at_bats"]
-            + player["walks"]
-            + player["hit_by_pitch"]
-            + player["sacrifice_bunts"]
-            + player["sacrifice_flies"]
-        )
-        obp_den = (
-            player["at_bats"]
-            + player["walks"]
-            + player["hit_by_pitch"]
-            + player["sacrifice_flies"]
-        )
-
-        player["plate_appearances"] = pa
-        player["batting_average"] = _round3(player["hits"] / player["at_bats"]) if player["at_bats"] > 0 else 0.0
-        
-        player["on_base_percentage"] = _round3(
-            (player["hits"] + player["walks"] + player["hit_by_pitch"]) / obp_den
-        ) if obp_den > 0 else 0.0
-    
-
-    players = [
-        player for player in players
-        if player["at_bats"] > 0 or player["plate_appearances"] > 0
-    ]
-
-    
-    players.sort(
-        key=lambda x: (
-            -x["hits"],
-            -x["homeruns"],
-            -x["rbi"],
-            -x["walks"],
-            -x["plate_appearances"],
-            x["player_name"],
-        )
-    )
-
-    team_totals = {
-        "games": len(used_games),
-        "at_bats": sum(p["at_bats"] for p in players),
-        "runs": sum(p["runs"] for p in players),
-        "hits": sum(p["hits"] for p in players),
-        "rbi": sum(p["rbi"] for p in players),
-        "steals": sum(p["steals"] for p in players),
-        "doubles": sum(p["doubles"] for p in players),
-        "triples": sum(p["triples"] for p in players),
-        "homeruns": sum(p["homeruns"] for p in players),
-        "walks": sum(p["walks"] for p in players),
-        "hit_by_pitch": sum(p["hit_by_pitch"] for p in players),
-        "strikeouts": sum(p["strikeouts"] for p in players),
-        "sacrifice_bunts": sum(p["sacrifice_bunts"] for p in players),
-        "sacrifice_flies": sum(p["sacrifice_flies"] for p in players),
-    }
-
-    team_totals["plate_appearances"] = (
-        team_totals["at_bats"]
-        + team_totals["walks"]
-        + team_totals["hit_by_pitch"]
-        + team_totals["sacrifice_bunts"]
-        + team_totals["sacrifice_flies"]
-    )
-
-    if team_totals["at_bats"] > 0:
-        team_totals["batting_average"] = _round3(team_totals["hits"] / team_totals["at_bats"])
-    else:
-        team_totals["batting_average"] = 0.0
-
-    obp_den = (
-        team_totals["at_bats"]
-        + team_totals["walks"]
-        + team_totals["hit_by_pitch"]
-        + team_totals["sacrifice_flies"]
-    )
-
-    if obp_den > 0:
-        team_totals["on_base_percentage"] = _round3(
-            (team_totals["hits"] + team_totals["walks"] + team_totals["hit_by_pitch"]) / obp_den
-        )
-    else:
-        team_totals["on_base_percentage"] = 0.0
-
-    return {
-        "status": "ok",
-        "team": "広島東洋カープ",
-        "window_games": games,
-        "games_found": len(recent_games),
-        "games_used": len(used_games),
-        "games_skipped": len(skipped_games),
-
-        "source": "NPB公式",
-        "source_urls": [
-            "https://npb.jp/bis/teams/results_c_index.html",
-            "https://npb.jp/scores/",
-        ],
-        "recent_games": used_games,
-        "skipped_games": skipped_games,
-        "team_totals": team_totals,
-        "players_count": len(players),
-        "players": players,
-    }
-
-
-def _fetch_recent_actual_lineups() -> list[dict]:
-    url = "https://baseball-data.com/lineup/c.html"
-    html = _fetch_html(url)
-
-    table_match = re.search(r'<table class="lineup".*?</table>', html, re.DOTALL)
-    if not table_match:
-        return []
-
-    table_html = table_match.group(0)
-    row_matches = re.findall(r"<tr.*?</tr>", table_html, re.DOTALL)
-
-    games = []
-
-    for row_html in row_matches:
-        cells = re.findall(r"<td[^>]*>(.*?)</td>", row_html, re.DOTALL)
-        if len(cells) != 10:
-            continue
-
-        date = _clean_text(cells[0])
-        if "月" not in date:
-            continue
-
-        players = [_clean_text(cell) for cell in cells[1:10]]
-        if not all(players):
-            continue
-
-        lineup = []
-        for i, name in enumerate(players, start=1):
-            lineup.append({
-                "batting_order": i,
-                "player_name": name
-            })
-
-        games.append({
-            "date": date,
-            "lineup": lineup
-        })
-
-    recent_games = games[-5:]
-    recent_games.reverse()
-    return recent_games
-
-PLAYER_DEFENSE = _get_player_defense()
-PLAYER_DEFENSE = dict(PLAYER_DEFENSE_FALLBACK)
-SEASON_POSITION_BATTING = {}
-
-
-
-@router.get("/api/lineups/recent-actual")
-def recent_actual_lineups() -> JSONResponse:
-    try:
-        games = _fetch_recent_actual_lineups()
-        return JSONResponse({
-            "status": "ok",
-            "source": "baseball-data.com",
-            "count": len(games),
-            "source_url": "https://baseball-data.com/lineup/c.html",
-            "games": games
-        })
-    except Exception as e:
-        return JSONResponse({
-            "status": "error",
-            "message": str(e),
-            "games": []
-        }, status_code=500)
-
-@router.get("/api/stats/batting/recent-5")
-def recent_5_batting_stats():
-    try:
-        result = _aggregate_recent_batting_stats(5)
-        return result
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={
-                "status": "error",
-                "message": str(e),
-                "recent_games": [],
-                "players": [],
-            },
-        )
-
-
-@router.get("/api/stats/batting/recent-10")
-def recent_10_batting_stats():
-    try:
-        result = _aggregate_recent_batting_stats(10)
-        return result
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={
-                "status": "error",
-                "message": str(e),
-                "recent_games": [],
-                "players": [],
-            },
-        )
-
-
-
-
-@router.get("/api/stats/batting/recent/{games}")
-def recent_batting_stats(games: int) -> JSONResponse:
-    try:
-        data = _aggregate_recent_batting_stats(games)
-        return JSONResponse(data)
-    except HTTPException:
-        raise
-    except Exception as e:
-        return JSONResponse({
-            "status": "error",
-            "message": str(e),
-            "players": [],
-            "recent_games": [],
-        }, status_code=500)
-
-@router.get("/api/lineups/predicted/dh-yes")
-def predicted_lineup_dh_yes(window: int = 5) -> JSONResponse:
-    try:
-        data = build_predicted_lineup(dh=True, window_games=window)
-        return JSONResponse(content=data)
-    except HTTPException:
-        raise
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={
-                "status": "error",
-                "mode": "dh",
-                "window_games": window,
-                "message": str(e),
-                "lineup": [],
-            },
-        )
-
-
-@router.get("/api/lineups/predicted/dh-no")
-def predicted_lineup_dh_no(window: int = 5) -> JSONResponse:
-    try:
-        data = build_predicted_lineup(dh=False, window_games=window)
-        return JSONResponse(content=data)
-    except HTTPException:
-        raise
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={
-                "status": "error",
-                "mode": "no_dh",
-                "window_games": window,
-                "message": str(e),
-                "lineup": [],
-            },
-        )
-
-
-@router.get("/api/lineups/today")
-def today_lineup() -> JSONResponse:
-    try:
-        data = build_predicted_lineup(dh=False, window_games=5)
-
-        lineup = [
-            {
-                "batting_order": row["order"],
-                "position": row["position_label"],
-                "player_name": row["player_name"],
-                "recent_score": row["score"],
-                "reason": row["reason"],
-            }
-            for row in data["lineup"]
-        ]
-
-        return JSONResponse(
-            content={
-                "status": "ok",
-                "source": "predicted lineup model",
-                "count": len(lineup),
-                "lineup": lineup,
-            }
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={
-                "status": "error",
-                "message": str(e),
-                "lineup": [],
-            },
-        )
-
-@router.get("/", response_class=HTMLResponse)
-def index() -> HTMLResponse:
-    return _layout(
-        "Carp Lineup Lab",
-        """
-        <span class="pill">β版 / 非公式</span>
-        <h1>Carp Lineup Lab</h1>
-        <p class="muted">上に直近5試合の実際のスタメン、下に直近5試合 / 10試合 × DHあり / なし の予想スタメンを表示します。</p>
-
-        <div class="card">
-          <h2>直近5試合の実際のスタメン</h2>
-          <p id="actual-status" class="muted">読み込み中...</p>
-          <div id="actual-games" class="grid"></div>
-        </div>
-
-<div class="card">
-  <h2>予想スタメン（DHあり / DHなし）</h2>
-  <p class="muted">直近5試合 / 10試合 と、DHあり / なし を切り替えて予想スタメンを表示します。</p>
-
-  <div class="segmented">
-    <button id="predicted-window-5" class="active" type="button" onclick="setPredictedWindow(5)">直近5試合</button>
-    <button id="predicted-window-10" type="button" onclick="setPredictedWindow(10)">直近10試合</button>
-  </div>
-
-  <div class="segmented">
-    <button id="predicted-mode-dh-yes" class="active" type="button" onclick="setPredictedMode('dh-yes')">DHあり</button>
-    <button id="predicted-mode-dh-no" type="button" onclick="setPredictedMode('dh-no')">DHなし</button>
-  </div>
-
-  <p id="predicted-status" class="muted">読み込み中...</p>
-  <div id="predicted-lineup" class="grid"></div>
-</div>
-
-
-        <div class="card">
-          <h2>直近打撃成績</h2>
-          <p class="muted">直近5試合と10試合を切り替えて、試合一覧・チーム合計・選手成績を見られます。</p>
-
-          <div class="segmented">
-            <button id="batting-btn-5" class="active" type="button" onclick="loadBattingStats(5)">直近5試合</button>
-            <button id="batting-btn-10" type="button" onclick="loadBattingStats(10)">直近10試合</button>
-          </div>
-
-          <p id="batting-status" class="muted">読み込み中...</p>
-
-          <div id="batting-games" class="grid"></div>
-
-          <div id="batting-team" class="stats-grid"></div>
-
-          <div class="table-wrap">
-            <table class="stats-table">
-              <thead>
-                <tr>
-                  <th>選手</th>
-                  <th>試合</th>
-                  <th>打数</th>
-                  <th>安打</th>
-                  <th>本塁打</th>
-                  <th>打点</th>
-                  <th>四球</th>
-                  <th>打率</th>
-                  <th>出塁率</th>
-                </tr>
-              </thead>
-              <tbody id="batting-players"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="card">
-          <h2>新しい打撃成績API</h2>
-          <p class="muted">画面の切り替えで使っているAPIです。直接開いて内容確認もできます。</p>
-          <ul>
-            <li><a href="/api/stats/batting/recent-5">直近5試合の打撃成績</a></li>
-            <li><a href="/api/stats/batting/recent-10">直近10試合の打撃成績</a></li>
-            <li><a href="/api/stats/batting/recent/5">可変API（5）</a></li>
-            <li><a href="/api/stats/batting/recent/10">可変API（10）</a></li>
-          </ul>
-        </div>
-
-        <div class="card">
-          <h2>主なリンク</h2>
-          <ul>
-            <li><a href="/api/lineups/recent-actual">直近スタメンAPI</a></li>
-<li><a href="/api/lineups/predicted/dh-yes?window=5">予想スタメンAPI（直近5試合 / DHあり）</a></li>
-<li><a href="/api/lineups/predicted/dh-no?window=5">予想スタメンAPI（直近5試合 / DHなし）</a></li>
-<li><a href="/api/lineups/predicted/dh-yes?window=10">予想スタメンAPI（直近10試合 / DHあり）</a></li>
-<li><a href="/api/lineups/predicted/dh-no?window=10">予想スタメンAPI（直近10試合 / DHなし）</a></li>
-
-            <li><a href="/docs">APIドキュメント</a></li>
-            <li><a href="/data-policy">データ表示ポリシー</a></li>
-            <li><a href="/disclaimer">免責</a></li>
-            <li><a href="/sources">出典</a></li>
-          </ul>
-        </div>
-
-        <script>
-
-          async function loadActualLineups() {
-            const statusEl = document.getElementById("actual-status");
-            const gamesEl = document.getElementById("actual-games");
-
-            try {
-              const res = await fetch("/api/lineups/recent-actual");
-              const data = await res.json();
-
-              if (!data.games || !Array.isArray(data.games) || data.games.length === 0) {
-                statusEl.textContent = "直近スタメンを取得できませんでした。";
-                return;
-              }
-
-              statusEl.innerHTML =
-                '取得元: <a href="' + data.source_url + '" target="_blank" rel="noopener noreferrer">' +
-                data.source +
-                '</a> / 表示試合数: <strong>' + data.count + '</strong>';
-
-              gamesEl.innerHTML = data.games.map(game => `
-                <div class="game-card">
-                  <div class="date">${game.date}</div>
-                  <ol>
-                    ${game.lineup.map(player => `<li>${player.player_name}</li>`).join("")}
-                  </ol>
-                </div>
-              `).join("");
-            } catch (e) {
-              statusEl.textContent = "直近スタメンを表示できませんでした。";
-            }
-          }
-
-          function formatDecimal(value) {
-            if (value === null || value === undefined) return "-";
-            const num = Number(value);
-            if (Number.isNaN(num)) return "-";
-            return num.toFixed(3).replace(/^0(?=\.)/, "");
-          }
-
-          function setBattingTab(activeGames) {
-            document.getElementById("batting-btn-5")?.classList.toggle("active", activeGames === 5);
-            document.getElementById("batting-btn-10")?.classList.toggle("active", activeGames === 10);
-          }
-
-          function renderBattingGames(games) {
-            const gamesEl = document.getElementById("batting-games");
-
-            if (!games || games.length === 0) {
-              gamesEl.innerHTML = '<p class="muted">試合データがありません。</p>';
-              return;
-            }
-
-            gamesEl.innerHTML = games.map(game => `
-              <div class="game-card">
-                <div class="date">${game.date}</div>
-                <div>${game.opponent} / ${game.venue} / ${game.round}回戦</div>
-                <div style="margin-top: 6px; font-weight: 700;">${game.score} ${game.result}</div>
-                <div class="small" style="margin-top: 6px;">
-                  <a href="${game.box_url}" target="_blank" rel="noopener noreferrer">ボックススコア</a>
-                </div>
-              </div>
-            `).join("");
-          }
-
-          function renderBattingTeamTotals(team) {
-            const teamEl = document.getElementById("batting-team");
-
-            teamEl.innerHTML = `
-              <div class="stat-box"><div class="stat-label">試合</div><div class="stat-value">${team.games ?? "-"}</div></div>
-              <div class="stat-box"><div class="stat-label">打数</div><div class="stat-value">${team.at_bats ?? "-"}</div></div>
-              <div class="stat-box"><div class="stat-label">安打</div><div class="stat-value">${team.hits ?? "-"}</div></div>
-              <div class="stat-box"><div class="stat-label">本塁打</div><div class="stat-value">${team.homeruns ?? "-"}</div></div>
-              <div class="stat-box"><div class="stat-label">打率</div><div class="stat-value">${formatDecimal(team.batting_average)}</div></div>
-              <div class="stat-box"><div class="stat-label">出塁率</div><div class="stat-value">${formatDecimal(team.on_base_percentage)}</div></div>
-            `;
-          }
-
-          function renderBattingPlayers(players) {
-            const playersEl = document.getElementById("batting-players");
-
-            if (!players || players.length === 0) {
-              playersEl.innerHTML = '<tr><td colspan="9" class="muted">選手データがありません。</td></tr>';
-              return;
-            }
-
-            playersEl.innerHTML = players.map(player => `
-              <tr>
-                <td>${player.player_name}</td>
-                <td>${player.games}</td>
-                <td>${player.at_bats}</td>
-                <td>${player.hits}</td>
-                <td>${player.homeruns}</td>
-                <td>${player.rbi}</td>
-                <td>${player.walks}</td>
-                <td>${formatDecimal(player.batting_average)}</td>
-                <td>${formatDecimal(player.on_base_percentage)}</td>
-              </tr>
-            `).join("");
-          }
-
-          async function loadBattingStats(windowGames) {
-            const statusEl = document.getElementById("batting-status");
-            const gamesEl = document.getElementById("batting-games");
-            const teamEl = document.getElementById("batting-team");
-            const playersEl = document.getElementById("batting-players");
-
-            setBattingTab(windowGames);
-            statusEl.textContent = "打撃成績を読み込み中...";
-            gamesEl.innerHTML = "";
-            teamEl.innerHTML = "";
-            playersEl.innerHTML = "";
-
-            try {
-              const res = await fetch(`/api/stats/batting/recent-${windowGames}`);
-              const data = await res.json();
-
-              if (!data || data.status !== "ok") {
-                throw new Error(data?.message || "API取得に失敗しました。");
-              }
-
-              const resultsUrl = data.source_urls?.[0] || "https://npb.jp/bis/teams/results_c_index.html";
-              const scoresUrl = data.source_urls?.[1] || "https://npb.jp/scores/";
-
-              statusEl.innerHTML =
-                `取得元: <a href="${resultsUrl}" target="_blank" rel="noopener noreferrer">試合結果</a> / ` +
-                `<a href="${scoresUrl}" target="_blank" rel="noopener noreferrer">スコア速報</a> / ` +
-                `表示試合数: <strong>${data.games_used}</strong> / ` +
-                `選手数: <strong>${data.players_count}</strong>`;
-
-              renderBattingGames(data.recent_games || []);
-              renderBattingTeamTotals(data.team_totals || {});
-              renderBattingPlayers(data.players || []);
-            } catch (e) {
-              statusEl.textContent = "打撃成績を表示できませんでした。";
-              gamesEl.innerHTML = "";
-              teamEl.innerHTML = "";
-              playersEl.innerHTML = '<tr><td colspan="9" class="muted">読み込み失敗</td></tr>';
-            }
-          }
-let predictedWindow = 5;
-let predictedMode = "dh-yes";
-
-function syncPredictedButtons() {
-  document.getElementById("predicted-window-5")?.classList.toggle("active", predictedWindow === 5);
-  document.getElementById("predicted-window-10")?.classList.toggle("active", predictedWindow === 10);
-
-  document.getElementById("predicted-mode-dh-yes")?.classList.toggle("active", predictedMode === "dh-yes");
-  document.getElementById("predicted-mode-dh-no")?.classList.toggle("active", predictedMode === "dh-no");
-}
-
-function setPredictedWindow(windowGames) {
-  predictedWindow = windowGames;
-  syncPredictedButtons();
-  loadPredictedLineup();
-}
-
-function setPredictedMode(mode) {
-  predictedMode = mode;
-  syncPredictedButtons();
-  loadPredictedLineup();
-}
-
-function renderPredictedLineup(lineup) {
-  const lineupEl = document.getElementById("predicted-lineup");
-
-  if (!lineup || !Array.isArray(lineup) || lineup.length === 0) {
-    lineupEl.innerHTML = '<p class="muted">予想スタメンを表示できませんでした。</p>';
-    return;
-  }
-
-  lineupEl.innerHTML = lineup.map(player => `
-    <div class="game-card">
-      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
-        <div>
-          <div class="small">${player.order}番 / ${player.position_label}</div>
-          <div class="date" style="margin-bottom:4px;">${player.player_name}</div>
-        </div>
-        <div style="text-align:right;">
-          <div class="small">model score</div>
-          <div style="font-size:20px; font-weight:700;">${player.score ?? "-"}</div>
-        </div>
-      </div>
-      <div class="muted">${player.reason || ""}</div>
-    </div>
-  `).join("");
-}
-
-async function loadPredictedLineup() {
-  const statusEl = document.getElementById("predicted-status");
-  const lineupEl = document.getElementById("predicted-lineup");
-
-  syncPredictedButtons();
-  statusEl.textContent = "予想スタメンを読み込み中...";
-  lineupEl.innerHTML = "";
-
-  try {
-    const res = await fetch(`/api/lineups/predicted/${predictedMode}?window=${predictedWindow}`);
-    const data = await res.json();
-
-    if (!data || data.status !== "ok") {
-      throw new Error(data?.message || "予想スタメンAPIの取得に失敗しました。");
-    }
-
-    const modeLabel = predictedMode === "dh-yes" ? "DHあり" : "DHなし";
-
-    statusEl.innerHTML =
-      `モード: <strong>${modeLabel}</strong> / ` +
-      `対象: <strong>直近${predictedWindow}試合</strong> / ` +
-      `合計スコア: <strong>${data.total_score ?? "-"}</strong>`;
-
-    renderPredictedLineup(data.lineup || []);
-  } catch (e) {
-    statusEl.textContent = "予想スタメンを表示できませんでした。";
-    lineupEl.innerHTML = '<p class="muted">読み込み失敗</p>';
-  }
-}
-
-document.addEventListener("DOMContentLoaded", () => {
-loadActualLineups();
-loadPredictedLineup();
-loadBattingStats(5);
-});
-
-        </script>
-        """,
-    )
-
-
-@router.get("/data-policy", response_class=HTMLResponse)
-def data_policy() -> HTMLResponse:
-    return _layout(
-        "データ表示ポリシー",
-        """
-        <span class="pill">数値と自作UIのみ</span>
-        <h1>データ表示ポリシー</h1>
-        <div class="card">
-          <ul>
-            <li>本サイトは非公式の分析サイトです。</li>
-            <li>公式画像、ロゴ、動画、選手写真、スクリーンショットは使用しません。</li>
-            <li>公開情報をもとに、独自集計した数値・指標・説明文を表示します。</li>
-            <li>出典元へのリンクを表示します。</li>
-            <li>権利者から修正または削除要請を受けた場合は、速やかに対応します。</li>
-          </ul>
-        </div>
-        """,
-    )
-
-
-@router.get("/disclaimer", response_class=HTMLResponse)
-def disclaimer() -> HTMLResponse:
-    return _layout(
-        "免責",
-        """
-        <span class="pill">予想は予想</span>
-        <h1>免責</h1>
-        <div class="card">
-          <ul>
-            <li>本サイトの予想スタメンは独自モデルによる推定であり、実際の起用を保証するものではありません。</li>
-            <li>データ更新の遅れ、取得失敗、計算誤差が発生する場合があります。</li>
-            <li>本サイトの内容によって生じた損害について、運営者は責任を負いません。</li>
-          </ul>
-        </div>
-        """,
-    )
-
-
-@router.get("/sources", response_class=HTMLResponse)
-def sources() -> HTMLResponse:
-    return _layout(
-        "出典",
-        """
-        <span class="pill">公開情報ベース</span>
-        <h1>主な出典</h1>
-        <div class="card">
-          <ul>
-            <li><a href="https://baseball-data.com/lineup/c.html">広島東洋カープ スタメン一覧（打順）</a></li>
-            <li><a href="https://npb.jp/bis/teams/results_c_index.html">NPB公式 試合結果</a></li>
-            <li><a href="https://npb.jp/scores/">NPB公式 スコア速報</a></li>
-            <li><a href="https://npb.jp/bis/2026/stats/idb1_c.html">NPB公式 1軍打撃成績</a></li>
-            <li><a href="https://npb.jp/bis/teams/rst_c.html">NPB公式 選手登録一覧</a></li>
-          </ul>
-        </div>
-        """,
-    )
+            "strikeouts": extra

@@ -200,6 +200,8 @@ CACHE = {
     "recent_batting": {},
     "predicted_lineup": {},
 }
+PLAYER_DEFENSE = dict(PLAYER_DEFENSE_FALLBACK)
+SEASON_POSITION_BATTING = {}
 
 
 PLAYER_DEFENSE_FALLBACK = {
@@ -509,7 +511,6 @@ def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]
 
     tail = html_text[start:]
 
-    # 次の見出しまでで切る
     end_match = re.search(r'<h1 class="header1[^"]*">', tail[1:], flags=re.I)
     section = tail[: end_match.start() + 1] if end_match else tail[:50000]
 
@@ -532,6 +533,89 @@ def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]
             return float(text)
         except Exception:
             return 0.0
+
+    pos_match = re.search(
+        r'fixed_l.*?<div><div class="player_detail_more_th[^>]*>.*?</div>(.*?)</div></div>\s*<div><div class="player_detail_more_th',
+        section,
+        flags=re.S | re.I,
+    )
+    if not pos_match:
+        print("DEBUG_PRORAN_POSITION_LABELS_NOT_FOUND")
+        return result
+
+    pos_html = pos_match.group(1)
+    raw_positions = re.findall(
+        r'player_detail_more_ba[^"]*bg_c_th[^"]*">(.*?)</div>',
+        pos_html,
+        flags=re.S | re.I,
+    )
+    position_labels = [_clean_label(x) for x in raw_positions]
+    position_labels = [x for x in position_labels if x]
+
+    print("DEBUG_PRORAN_POSITION_LABELS", position_labels)
+
+    if not position_labels:
+        return result
+
+    def _extract_metric_values(label_pattern: str) -> list[float]:
+        metric_match = re.search(
+            rf'player_detail_more_th[^>]*>\s*{label_pattern}\s*</div>(.*?)(?=<div><div class="player_detail_more_th|</div></div>)',
+            section,
+            flags=re.S | re.I,
+        )
+        if not metric_match:
+            return []
+
+        values = re.findall(
+            r'player_detail_more_ba[^"]*right[^"]*">(.*?)</div>',
+            metric_match.group(1),
+            flags=re.S | re.I,
+        )
+        return [_to_float(v) for v in values[:len(position_labels)]]
+
+    ab_list = _extract_metric_values(r"打\s*<br>\s*数")
+    avg_list = _extract_metric_values(r"打\s*<br>\s*率")
+    obp_list = _extract_metric_values(r"出\s*<br>\s*塁\s*<br>\s*率")
+    ops_list = _extract_metric_values(r"(?:Ｏ|O)\s*<br>\s*(?:Ｐ|P)\s*<br>\s*(?:Ｓ|S)")
+
+    print("DEBUG_PRORAN_POSITION_AB", ab_list)
+    print("DEBUG_PRORAN_POSITION_OBP", obp_list)
+    print("DEBUG_PRORAN_POSITION_OPS", ops_list)
+
+    for i, label in enumerate(position_labels):
+        pos_code = POSITION_LABEL_TO_CODE.get(label)
+        if not pos_code:
+            continue
+
+        ab = ab_list[i] if i < len(ab_list) else 0.0
+        avg = avg_list[i] if i < len(avg_list) else 0.0
+        obp = obp_list[i] if i < len(obp_list) else 0.0
+        ops = ops_list[i] if i < len(ops_list) else 0.0
+
+        iso = max(0.0, ops - obp - avg)
+
+        if ab <= 0 and obp == 0.0 and ops == 0.0:
+            continue
+
+        result[pos_code] = {
+            "pa": ab,
+            "ab": ab,
+            "obp": round(obp, 3),
+            "iso": round(iso, 3),
+        }
+
+    print("DEBUG_PRORAN_POSITION_RESULT", result)
+    return result
+
+
+    def _clean_label(text: str) -> str:
+        text = re.sub(r"<br\s*/?>", "", text, flags=re.I)
+        text = re.sub(r"<[^>]+>", "", text)
+        text = unescape(text)
+        text = text.replace("　", "").replace(" ", "")
+        text = text.replace("Ｏ", "O").replace("Ｐ", "P").replace("Ｓ", "S")
+        return text.strip()
+
 
     # 左端の固定列からポジション名を取る
     pos_match = re.search(
@@ -985,23 +1069,26 @@ def _position_universe(slot_defs: list[dict]) -> list[str]:
 
 def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
     global SEASON_POSITION_BATTING
+
     if not isinstance(SEASON_POSITION_BATTING, dict) or not SEASON_POSITION_BATTING:
         SEASON_POSITION_BATTING = _get_season_position_batting() or {}
+
     canonical_name = _canonical_player_name(player_name)
     normalized_name = _normalize_player_name(canonical_name)
-
-    if not SEASON_POSITION_BATTING:
-        season_map = _get_season_position_batting()
-        if season_map:
-            SEASON_POSITION_BATTING.update(season_map)
-    if stats.get("__empty__"):
-        return {}
 
     player_stats = (
         SEASON_POSITION_BATTING.get(canonical_name)
         or SEASON_POSITION_BATTING.get(normalized_name)
         or {}
     )
+
+    if player_stats.get("__empty__"):
+        return {
+            "pa": 0.0,
+            "ab": 0.0,
+            "obp": 0.0,
+            "iso": 0.0,
+        }
 
     if not player_stats:
         player_ids = _get_proran_player_ids()
@@ -1016,18 +1103,28 @@ def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
                     SEASON_POSITION_BATTING[canonical_name] = fetched
                     SEASON_POSITION_BATTING[normalized_name] = fetched
                     player_stats = fetched
-
-                    CACHE["season_position_batting"] = {
-                        "value": dict(SEASON_POSITION_BATTING),
-                        "expires_at": _cache_now() + CACHE_TTL_SEASON_POSITION_BATTING,
-                    }
                 else:
-                    # 空取得の連打防止
-                    SEASON_POSITION_BATTING[canonical_name] = {}
-                    SEASON_POSITION_BATTING[normalized_name] = {}
+                    empty_marker = {"__empty__": True}
+                    SEASON_POSITION_BATTING[canonical_name] = empty_marker
+                    SEASON_POSITION_BATTING[normalized_name] = empty_marker
+                    player_stats = empty_marker
+
+                CACHE["season_position_batting"] = {
+                    "value": dict(SEASON_POSITION_BATTING),
+                    "expires_at": _cache_now() + 60,
+                }
+
             except Exception as e:
                 print("DEBUG_PRORAN_FETCH_ERROR", canonical_name, str(e))
                 player_stats = {}
+
+    if player_stats.get("__empty__"):
+        return {
+            "pa": 0.0,
+            "ab": 0.0,
+            "obp": 0.0,
+            "iso": 0.0,
+        }
 
     pos_stats = (player_stats or {}).get(position, {})
 
@@ -1037,7 +1134,6 @@ def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
         "obp": float(pos_stats.get("obp", 0.0) or 0.0),
         "iso": float(pos_stats.get("iso", 0.0) or 0.0),
     }
-
 
 
 def _now_jst() -> datetime:

@@ -516,9 +516,92 @@ def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]
         text = re.sub(r"<[^>]+>", "", text)
         text = unescape(text)
         text = text.replace("　", " ")
+        text = text.replace("&nbsp;", " ")
         text = re.sub(r"\s+", "", text)
         text = text.replace("Ｏ", "O")
         return text.strip()
+
+    def _to_float(text: str) -> float:
+        text = _clean(text)
+        if text in {"", "-", "--", "---", "----"}:
+            return 0.0
+        text = text.replace("−", "-").replace("%", "")
+        if text.startswith("."):
+            text = "0" + text
+        try:
+            return float(text)
+        except Exception:
+            return 0.0
+
+    # 位置ラベルは section 全体から拾う
+    raw_labels = re.findall(
+        r'<div class="player_detail_more_ba[^"]*bg_c_th[^"]*">(.*?)</div>',
+        section,
+        flags=re.S | re.I,
+    )
+
+    position_labels: list[str] = []
+    for raw in raw_labels:
+        label = _clean(raw)
+        if label in POSITION_LABEL_TO_CODE and label not in position_labels:
+            position_labels.append(label)
+
+    if not position_labels:
+        return result
+
+    metrics: dict[str, list[float]] = {}
+
+    # 行ごとに分解して指標名と数値列を拾う
+    blocks = re.split(r'(?is)<div>\s*<div class="player_detail_more_th', section)
+    for chunk in blocks[1:]:
+        block = '<div><div class="player_detail_more_th' + chunk
+
+        header_match = re.search(
+            r'(?is)<div class="player_detail_more_th[^"]*">(.*?)</div>',
+            block,
+        )
+        if not header_match:
+            continue
+
+        header = _clean(header_match.group(1))
+        values = re.findall(
+            r'(?is)<div class="player_detail_more_ba[^"]*right[^"]*">(.*?)</div>',
+            block,
+        )
+
+        metrics[header] = [_to_float(v) for v in values[:len(position_labels)]]
+
+    pa_list = metrics.get("打席", [])
+    ab_list = metrics.get("打数", [])
+    avg_list = metrics.get("打率", [])
+    obp_list = metrics.get("出塁率", [])
+    ops_list = metrics.get("OPS", [])
+
+    for i, label in enumerate(position_labels):
+        pos_code = POSITION_LABEL_TO_CODE.get(label)
+        if not pos_code:
+            continue
+
+        pa = pa_list[i] if i < len(pa_list) else 0.0
+        ab = ab_list[i] if i < len(ab_list) else 0.0
+        avg = avg_list[i] if i < len(avg_list) else 0.0
+        obp = obp_list[i] if i < len(obp_list) else 0.0
+        ops = ops_list[i] if i < len(ops_list) else 0.0
+
+        if pa <= 0 and ab <= 0 and obp == 0.0 and ops == 0.0:
+            continue
+
+        iso = max(0.0, ops - obp - avg)
+
+        result[pos_code] = {
+            "pa": float(pa if pa > 0 else ab),
+            "ab": float(ab),
+            "obp": round(obp, 3),
+            "iso": round(iso, 3),
+        }
+
+    return result
+
 
     def _to_float(text: str) -> float:
         text = _clean(text)
@@ -687,10 +770,10 @@ def _get_season_position_batting() -> dict:
     global SEASON_POSITION_BATTING
 
     cache_entry = CACHE.get("season_position_batting", {})
-    if _cache_alive(cache_entry):
-        cached_value = cache_entry.get("value")
-        if isinstance(cached_value, dict):
-            return cached_value
+if _cache_alive(cache_entry):
+    cached_value = cache_entry.get("value")
+    if isinstance(cached_value, dict):
+        return cached_value
 
     try:
         data = _build_season_position_batting_from_proran()
@@ -708,14 +791,14 @@ def _get_season_position_batting() -> dict:
         }
         return data
 
-    fallback_value = SEASON_POSITION_BATTING if isinstance(SEASON_POSITION_BATTING, dict) else {}
-
+    # 空なら長く保持しない
+    SEASON_POSITION_BATTING = {}
     CACHE["season_position_batting"] = {
-        "expires_at": _cache_now() + 60,
-        "value": fallback_value,
+        "expires_at": 0,
+        "value": None,
     }
+    return {}
 
-    return fallback_value
 
 
 def _calc_def_from_components(fld: dict) -> float:
@@ -891,10 +974,9 @@ def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
     normalized_name = _normalize_player_name(canonical_name)
 
     if not SEASON_POSITION_BATTING:
-        try:
-            SEASON_POSITION_BATTING.update(_get_season_position_batting())
-        except Exception:
-            pass
+        season_map = _get_season_position_batting()
+        if season_map:
+            SEASON_POSITION_BATTING.update(season_map)
 
     player_stats = (
         SEASON_POSITION_BATTING.get(canonical_name)
@@ -905,18 +987,25 @@ def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
     if not player_stats:
         player_ids = _get_proran_player_ids()
         player_id = player_ids.get(normalized_name)
+
         if player_id:
             try:
                 fetched = _fetch_proran_position_batting(canonical_name, player_id)
                 print("DEBUG_PRORAN_FETCH", canonical_name, fetched)
+
                 if fetched:
                     SEASON_POSITION_BATTING[canonical_name] = fetched
                     SEASON_POSITION_BATTING[normalized_name] = fetched
                     player_stats = fetched
+
                     CACHE["season_position_batting"] = {
                         "value": dict(SEASON_POSITION_BATTING),
                         "expires_at": _cache_now() + CACHE_TTL_SEASON_POSITION_BATTING,
                     }
+                else:
+                    # 空取得の連打防止
+                    SEASON_POSITION_BATTING[canonical_name] = {}
+                    SEASON_POSITION_BATTING[normalized_name] = {}
             except Exception as e:
                 print("DEBUG_PRORAN_FETCH_ERROR", canonical_name, str(e))
                 player_stats = {}
@@ -929,6 +1018,7 @@ def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
         "obp": float(pos_stats.get("obp", 0.0) or 0.0),
         "iso": float(pos_stats.get("iso", 0.0) or 0.0),
     }
+
 
 
 def _now_jst() -> datetime:

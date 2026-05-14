@@ -1,3 +1,4 @@
+router = APIRouter(tags=["public"])
 from __future__ import annotations
 
 from functools import lru_cache
@@ -16,8 +17,17 @@ from urllib.request import Request, urlopen
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 
+@app.get("/", include_in_schema=False)
+def root():
+    return {
+        "message": "carp-lineup-api is running",
+        "docs": "/docs",
+        "health": "/health",
+    }
+@app.get("/health")
+def health():
+    return {"status": "ok", "marker": "koidanshi-check-0511"}
 
-router = APIRouter(tags=["public"])
 
 
 TEAM_CODE_TO_NAME = {

@@ -1,6 +1,9 @@
 router = APIRouter(tags=["public"])
 from __future__ import annotations
 
+from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
+
 from functools import lru_cache
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -16,6 +19,8 @@ from urllib.request import Request, urlopen
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
+from app.api import public
+
 
 @app.get("/", include_in_schema=False)
 def root():

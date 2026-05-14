@@ -185,7 +185,7 @@ PLAYER_DEFENSE_FALLBACK = {
     "小園 海斗": {"SS": 0.80, "3B": 0.40},
     "菊池 涼介": {"2B": 1.50},
 }
-PLAYER_DEFENSE = _get_player_defense()
+
 
 
 # 今季通算の打撃（今期補正OBP / 今期補正ISO の土台）
@@ -223,13 +223,9 @@ SEASON_OVERALL_BATTING = {
 #     "C": {"pa": 0, "ab": 0, "obp": 0.000, "iso": 0.000},
 #     "1B": {"pa": 0, "ab": 0, "obp": 0.000, "iso": 0.000},
 # }
-SEASON_POSITION_BATTING = {
-    name: {}
-    for name in PLAYER_PROFILE
-}
 
 # 守備位置ごとの今季打撃（守備地位の補正OBP / ISO の素材）
-SEASON_POSITION_BATTING = _build_season_position_batting_from_proran()
+
 
 
 
@@ -426,7 +422,16 @@ def _layout(title: str, body: str) -> HTMLResponse:
 
 
 def _clean_text(value: str) -> str:
-    def _to_float_or_none(value: str | None) -> float | None:
+    value = unescape(value)
+    value = re.sub(r"<br\s*/?>", " ", value, flags=re.IGNORECASE)
+    value = re.sub(r"<[^>]+>", "", value)
+    value = value.replace("&nbsp;", " ")
+    value = value.replace("\u3000", " ")
+    value = re.sub(r"\s+", " ", value).strip()
+    return value
+
+
+def _to_float_or_none(value: str | None) -> float | None:
     if value is None:
         return None
     s = str(value).strip()
@@ -440,18 +445,19 @@ def _clean_text(value: str) -> str:
         return None
 
 
-def _safe_float(value: str | float | int | None) -> float | None:
-    if value is None:
-        return None
-    s = str(value).strip()
-    if s in {"", "-", "---", "—", "None", "null"}:
-        return None
-    if s.startswith("."):
-        s = "0" + s
+def _safe_float(value) -> float:
     try:
+        if value is None:
+            return 0.0
+        s = str(value).strip()
+        if s in {"", "-", "---", "—", "None", "null"}:
+            return 0.0
+        if s.startswith("."):
+            s = "0" + s
         return float(s)
-    except ValueError:
-        return None
+    except Exception:
+        return 0.0
+
 def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]]:
     marker = "守備ポジション別成績"
     start = html_text.find(marker)
@@ -546,7 +552,7 @@ def _normalize_player_name_for_fielding(name: str) -> str:
 
 
 def _extract_npbbasement_fielding_rows(html_text: str) -> list[dict[str, str]]:
-    text = html.unescape(html_text)
+    text = unescape(html_text)
     text = re.sub(r"(?is)<script.*?>.*?</script>", " ", text)
     text = re.sub(r"(?is)<style.*?>.*?</style>", " ", text)
     text = re.sub(r"<[^>]+>", "\n", text)
@@ -675,13 +681,20 @@ def _get_player_defense() -> dict[str, dict[str, float]]:
 
     return PLAYER_DEFENSE_FALLBACK
 
-    value = unescape(value)
-    value = re.sub(r"<br\s*/?>", " ", value, flags=re.IGNORECASE)
-    value = re.sub(r"<[^>]+>", "", value)
-    value = value.replace("&nbsp;", " ")
-    value = value.replace("\u3000", " ")
-    value = re.sub(r"\s+", " ", value).strip()
-    return value
+def _get_season_position_batting() -> dict[str, dict[str, dict[str, float]]]:
+    try:
+        data = _build_season_position_batting_from_proran()
+        if data:
+            return data
+    except Exception as e:
+        print(f"WARNING: Proran の守備位置別打撃取得に失敗: {e}")
+
+    return {name: {} for name in PLAYER_PROFILE.keys()}
+
+
+PLAYER_DEFENSE = _get_player_defense()
+SEASON_POSITION_BATTING = _get_season_position_batting()
+
 
 
 def _normalize_name(value: str) -> str:
@@ -702,11 +715,6 @@ def _round3(value: float) -> float:
     return round(value, 3)
 
 
-def _safe_float(value) -> float:
-    try:
-        return float(value)
-    except Exception:
-        return 0.0
 
 
 def _calc_iso_from_stats(stats: dict) -> float:
@@ -1094,8 +1102,8 @@ def _build_season_position_score_map(candidate_names: list[str], position: str) 
 
     for name in candidate_names:
         adj = _get_adjusted_position_batting(name, position)
-        adj_obp_map[name] = adj["adj_obp"]
-        adj_iso_map[name] = adj["adj_iso"]
+        adj_obp_map[name] = adj["obp"]
+        adj_iso_map[name] = adj["iso"]
 
     obp_z = _zscore_map(adj_obp_map)
     iso_z = _zscore_map(adj_iso_map)
@@ -1126,16 +1134,57 @@ def _slot_score(
     recent_pa = int(recent_maps["pa_map"].get(player_name, 0) or 0)
     top_catcher_bats = set(recent_maps.get("top_catcher_bats", []))
 
-
-
     weights = slot["weights"]
 
-score = (
-    recent_score
-    + adjusted_obp * 100 * OBP_WEIGHT
-    + adjusted_iso * 100 * ISO_WEIGHT
-    + defense_score * DEFENSE_WEIGHT
-)
+    score = (
+        weights["recent"] * recent_form
+        + weights["defense"] * defense_score
+        + weights["season_pos"] * season_pos_score
+    )
+
+    role = slot["role"]
+
+    if role == "lead_obp_glove":
+        score += 0.30 * recent_obp_z + 0.15 * defense_score
+
+    elif role == "two_hole_bat":
+        score += 0.30 * recent_obp_z + 0.30 * recent_iso_z
+
+    elif role == "three_hole_iso_glove":
+        score += 0.15 * recent_obp_z + 0.30 * recent_iso_z + 0.10 * defense_score
+
+    elif role == "cleanup_bat":
+        score += 0.15 * recent_obp_z + 0.40 * recent_iso_z
+
+    elif role == "five_hole_power":
+        score += 0.05 * recent_obp_z + 0.35 * recent_iso_z
+
+    elif role == "six_hole_balance":
+        score += 0.20 * recent_obp_z + 0.20 * defense_score
+
+    elif role == "glove_bottom":
+        score += 0.25 * defense_score - 0.05 * recent_obp_z - 0.05 * recent_iso_z
+
+    elif role == "turnover_obp":
+        score += 0.25 * recent_obp_z + 0.10 * defense_score
+
+    if chosen_position == POS_C and recent_pa < MIN_CATCHER_RECENT_PA:
+        score -= WEAK_CATCHER_PENALTY
+
+    if chosen_position == POS_DH and player_name in top_catcher_bats:
+        score -= TOP_CATCHER_TO_DH_PENALTY
+
+    if chosen_position == POS_C and player_name in top_catcher_bats:
+        score += TOP_CATCHER_AT_C_BONUS
+
+    if sample_weight < 0.5:
+        score -= (0.5 - sample_weight) * 0.8
+
+    if defense_score < slot.get("min_defense", -999):
+        score -= slot.get("low_defense_penalty", 0.0)
+
+    return score
+
 
 
     role = slot["role"]
@@ -1209,9 +1258,8 @@ def _build_slot_reason(
     if is_recent_promotion:
         return (
             f"昇格7日特例 / 二軍{farm_pa}打席の比較値(0.9倍) {farm_score:+.3f} / "
-            f"{position_label}時の今季補正OBP {season_adj['adj_obp']:.3f} / "
-            f"今期補正OBP {adjusted_obp:.3f}",
-            f"今季補正ISO {season_adj['adj_iso']:.3f} / "
+            f"{position_label}時の今季補正OBP {season_adj['obp']:.3f} / "
+            f"今季補正ISO {season_adj['iso']:.3f} / "
             f"守備スコア {defense_score:+.2f} を評価して "
             f"{slot['order']}番 {position_label}"
         )
@@ -1219,16 +1267,16 @@ def _build_slot_reason(
     if is_farm_candidate:
         return (
             f"二軍候補 / 二軍{farm_pa}打席の比較値(0.9倍) {farm_score:+.3f} / "
-            f"{position_label}時の今季補正OBP {season_adj['adj_obp']:.3f} / "
-            f"今季補正ISO {season_adj['adj_iso']:.3f} / "
+            f"{position_label}時の今季補正OBP {season_adj['obp']:.3f} / "
+            f"今季補正ISO {season_adj['iso']:.3f} / "
             f"守備スコア {defense_score:+.2f} を評価して "
             f"{slot['order']}番 {position_label}"
         )
 
     return (
         f"一軍比較 / 直近PA {recent_pa} / 直近OBP {recent_obp:.3f} / 直近ISO {recent_iso:.3f} / "
-        f"{position_label}時の今季補正OBP {season_adj['adj_obp']:.3f} / "
-        f"今季補正ISO {season_adj['adj_iso']:.3f} / "
+        f"{position_label}時の今季補正OBP {season_adj['obp']:.3f} / "
+        f"今季補正ISO {season_adj['iso']:.3f} / "
         f"守備スコア {defense_score:+.2f} を評価して "
         f"{slot['order']}番 {position_label}"
     )

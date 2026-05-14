@@ -20,12 +20,13 @@ from fastapi.responses import HTMLResponse, JSONResponse
 router = APIRouter(tags=["public"])
 
 @router.get("/public/recent-batting")
-def public_recent_batting(...):
-    ...
+def public_recent_batting():
+    return {"ok": True, "endpoint": "recent-batting"}
 
 @router.get("/public/predicted-lineup")
-def public_predicted_lineup(...):
-    ...
+def public_predicted_lineup():
+    return {"ok": True, "endpoint": "predicted-lineup"}
+
 
 
 TEAM_CODE_TO_NAME = {
@@ -1668,3 +1669,8 @@ def _aggregate_recent_batting_stats(window_games: int) -> dict:
                 value = int(row.get(key, 0) or 0)
                 stat_line[key] += value
                 team_totals[key] += value
+    return {
+        "games": games,
+        "player_totals": player_totals,
+        "team_totals": team_totals,
+    }

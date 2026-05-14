@@ -481,6 +481,9 @@ def _normalize_player_name(name: str) -> str:
 def _canonical_player_name(name: str) -> str:
     normalized = _normalize_player_name(name)
 
+    if not normalized:
+        return name
+
     if normalized in PLAYER_NAME_ALIASES:
         return PLAYER_NAME_ALIASES[normalized]
 
@@ -488,7 +491,21 @@ def _canonical_player_name(name: str) -> str:
         if _normalize_player_name(full_name) == normalized:
             return full_name
 
+    surname_matches = []
+    for full_name in PLAYER_PROFILE.keys():
+        parts = [p for p in full_name.replace("　", " ").split(" ") if p]
+        if not parts:
+            continue
+
+        surname_normalized = _normalize_player_name(parts[0])
+        if surname_normalized == normalized:
+            surname_matches.append(full_name)
+
+    if len(surname_matches) == 1:
+        return surname_matches[0]
+
     return name
+
 
 
 def _to_float_or_none(value: str | None) -> float | None:

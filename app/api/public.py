@@ -1726,20 +1726,26 @@ def _get_prediction_candidate_names(now: datetime | None = None) -> list[str]:
 
     return candidates
 
-
 def _defense_value_for(name: str, position: str = "", defense_map: dict | None = None) -> float:
-    canonical_name = _canonical_name(name)
+    canonical_name = _canonical_player_name(name)
+    defense_map = defense_map or _get_player_defense()
 
     player_def = (
         defense_map.get(canonical_name)
-        or defense_map.get(_normalize_name(canonical_name))
+        or defense_map.get(_normalize_player_name(canonical_name))
+        or PLAYER_DEFENSE_FALLBACK.get(canonical_name)
         or {}
     )
-    if position in player_def:
+
+    if not isinstance(player_def, dict) or not player_def:
+        return 0.0
+
+    if position:
         return float(player_def.get(position, 0.0) or 0.0)
 
-    fallback = PLAYER_DEFENSE_FALLBACK.get(canonical_name, {})
-    return float(fallback.get(position, 0.0) or 0.0)
+    return float(max((float(v or 0.0) for v in player_def.values()), default=0.0))
+
+
 
 
 def _slot_score(

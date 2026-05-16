@@ -2176,7 +2176,7 @@ def _render_predicted_lineup_html(data: dict) -> HTMLResponse:
 
               <div class="stats">
                 <div class="stat">
-                  <div class="label">直近 OBP</div>
+                  <p>{html.escape(_build_lineup_reason(slot, row, data.get("lineup", [])))}</p>
                   <div class="value">{float(recent.get("obp", 0.0) or 0.0):.3f}</div>
                 </div>
                 <div class="stat">
@@ -2250,6 +2250,46 @@ def public_recent_batting(request: Request, window_games: int = 5, view: str | N
                 "message": str(e),
             },
         )
+        
+def _build_lineup_reason(slot: int, row: dict, lineup: list[dict] | None = None) -> str:
+    lineup = lineup or []
+
+    name = str(row.get("name", "この選手"))
+    recent_obp = float(row.get("recent_obp", 0.0) or 0.0)
+    recent_iso = float(row.get("recent_iso", 0.0) or 0.0)
+    defense = float(row.get("defense_bonus", 0.0) or 0.0)
+
+    def _rank_text(items: list[dict], key: str, value: float) -> str:
+        values = sorted(
+            [float(x.get(key, 0.0) or 0.0) for x in items],
+            reverse=True,
+        )
+        if not values:
+            return ""
+        rank = values.index(value) + 1
+        return f"{rank}番目"
+
+    obp_rank = _rank_text(lineup, "recent_obp", recent_obp)
+    iso_rank = _rank_text(lineup, "recent_iso", recent_iso)
+    defense_rank = _rank_text(lineup, "defense_bonus", defense)
+
+    if slot == 1:
+        return f"{name}は直近OBPが{recent_obp:.3f}でチーム内{obp_rank}と高く、出塁役として1番です。直近ISOも{recent_iso:.3f}あります。"
+    if slot == 2:
+        return f"{name}は直近OBPが{recent_obp:.3f}でチーム内{obp_rank}、直近ISOが{recent_iso:.3f}でチーム内{iso_rank}です。出塁と長打の両方を見て2番です。"
+    if slot == 3:
+        return f"{name}は直近OBPが{recent_obp:.3f}でチーム内{obp_rank}、直近ISOが{recent_iso:.3f}でチーム内{iso_rank}です。中軸向きの打撃成績なので3番です。"
+    if slot == 4:
+        return f"{name}は直近ISOが{recent_iso:.3f}でチーム内{iso_rank}です。長打力を重く見て4番です。"
+    if slot == 5:
+        return f"{name}は直近OBP{recent_obp:.3f}、直近ISO{recent_iso:.3f}で、打線の中ほどで返す役として5番です。"
+    if slot == 6:
+        return f"{name}は直近成績のバランスを見て6番です。直近OBPは{recent_obp:.3f}、直近ISOは{recent_iso:.3f}です。"
+    if slot == 7:
+        return f"{name}は直近OBPが{recent_obp:.3f}で、下位でも流れを作れる打者として7番です。"
+    if slot == 8:
+        return f"{name}は守備補正が{defense:+.3f}でチーム内{defense_rank}です。守備面も含めて8番です。"
+    return f"{name}は直近OBPが{recent_obp:.3f}で、次の1番につなぐ役として9番です。"
 
 @router.get("/public/predicted-lineup")
 def public_predicted_lineup(

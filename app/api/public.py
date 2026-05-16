@@ -561,6 +561,34 @@ def _fetch_text(url: str) -> str:
     with urlopen(req, timeout=20) as res:
         return res.read().decode("utf-8", errors="ignore")
 
+def _is_pitcher_for_display(name: str) -> bool:
+    canonical = _canonical_player_name(name)
+
+    profile = PLAYER_PROFILE.get(canonical, {}) if "PLAYER_PROFILE" in globals() else {}
+
+    for key in ("position", "primary_position", "main_position", "pos"):
+        value = str(profile.get(key, "")).strip().upper()
+        if value in {"P", "SP", "RP", "投手", "PITCHER"}:
+            return True
+
+    pitcher_names = {
+        "栗林", "栗林 良吏",
+        "床田", "床田 寛樹",
+        "玉村", "玉村 昇悟",
+        "岡本", "岡本 駿",
+        "ハーン",
+        "中﨑", "中崎", "中﨑 翔太", "中崎 翔太",
+        "塹江", "塹江 敦哉",
+        "常廣", "常廣 羽也斗",
+        "森浦", "森浦 大輔",
+        "益田", "益田 武尚",
+        "赤木", "赤木 翔太",
+        "遠藤", "遠藤 淳志",
+        "髙", "高", "髙 太一", "高 太一",
+    }
+
+    return canonical in pitcher_names or name in pitcher_names
+
 
 def _fetch_html(url: str) -> str:
     return _fetch_text(url)
@@ -1601,6 +1629,11 @@ def _build_recent_batting_response(window_games: int) -> dict:
     rows = []
     for player_name, stats in aggregated.get("player_totals", {}).items():
         pa = _calc_recent_pa(stats)
+        if _is_pitcher_for_display(player_name):
+            continue
+        if pa <= 0:
+            continue
+
         ab = int(stats.get("at_bats", 0) or 0)
         hits = int(stats.get("hits", 0) or 0)
 
@@ -2065,7 +2098,7 @@ def _render_recent_batting_html(data: dict) -> HTMLResponse:
       <h1>直近打撃成績</h1>
       <div class="muted">直近 {int(data.get("window_games", 0) or 0)} 試合の打撃成績と守備指標です。</div>
       <div class="links">
-        <a href="/public/recent-batting?window_games={int(data.get("window_games", 5) or 5)}&view=json">JSONを見る</a>
+      
        
       </div>
     </div>
@@ -2160,7 +2193,7 @@ def _render_predicted_lineup_html(data: dict) -> HTMLResponse:
         生成時刻 {escape(str(data.get("generated_at", "")))}
       </div>
       <div class="links">
-        <a href="/public/predicted-lineup?window_games={int(data.get("window_games", 5) or 5)}&use_dh={'true' if bool(data.get('use_dh', True)) else 'false'}&view=json">JSONを見る</a>
+
         <a href="/public/recent-batting?window_games={int(data.get("window_games", 5) or 5)}">直近打撃を見る</a>
       </div>
     </div>

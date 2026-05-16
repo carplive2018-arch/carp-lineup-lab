@@ -1,3 +1,4 @@
+# 1/5
 from __future__ import annotations
 
 from functools import lru_cache
@@ -107,7 +108,6 @@ LAST_FIXED_FIRST_TEAM_POSITION_PLAYERS = {
 }
 
 PROMOTED_FROM_FARM = {
-    # 例:
     # "田村 俊介": "2026-05-12",
     # "末包 昇大": "2026-05-12",
 }
@@ -274,146 +274,28 @@ SEASON_OVERALL_BATTING = {
 }
 
 DH_LINEUP_SLOTS = [
-    {
-        "order": 1,
-        "allowed_positions": [POS_CF, POS_2B],
-        "role": "lead_obp_glove",
-        "weights": {"recent": 0.45, "defense": 0.35, "season_pos": 0.20},
-        "min_defense": 0.00,
-        "low_defense_penalty": 1.20,
-    },
-    {
-        "order": 2,
-        "allowed_positions": [POS_DH, POS_1B],
-        "role": "two_hole_bat",
-        "weights": {"recent": 0.50, "defense": 0.10, "season_pos": 0.40},
-        "min_defense": -9.99,
-        "low_defense_penalty": 0.00,
-    },
-    {
-        "order": 3,
-        "allowed_positions": [POS_3B, POS_RF],
-        "role": "three_hole_iso_glove",
-        "weights": {"recent": 0.45, "defense": 0.20, "season_pos": 0.35},
-        "min_defense": -0.30,
-        "low_defense_penalty": 0.80,
-    },
-    {
-        "order": 4,
-        "allowed_positions": [POS_1B, POS_DH],
-        "role": "cleanup_bat",
-        "weights": {"recent": 0.50, "defense": 0.05, "season_pos": 0.45},
-        "min_defense": -9.99,
-        "low_defense_penalty": 0.00,
-    },
-    {
-        "order": 5,
-        "allowed_positions": [POS_LF],
-        "role": "five_hole_power",
-        "weights": {"recent": 0.45, "defense": 0.15, "season_pos": 0.40},
-        "min_defense": -0.60,
-        "low_defense_penalty": 0.90,
-    },
-    {
-        "order": 6,
-        "allowed_positions": [POS_2B, POS_CF],
-        "role": "six_hole_balance",
-        "weights": {"recent": 0.35, "defense": 0.40, "season_pos": 0.25},
-        "min_defense": 0.00,
-        "low_defense_penalty": 1.20,
-    },
-    {
-        "order": 7,
-        "allowed_positions": [POS_C],
-        "role": "glove_bottom",
-        "weights": {"recent": 0.15, "defense": 0.65, "season_pos": 0.20},
-        "min_defense": 0.30,
-        "low_defense_penalty": 1.50,
-    },
-    {
-        "order": 8,
-        "allowed_positions": [POS_SS],
-        "role": "glove_bottom",
-        "weights": {"recent": 0.10, "defense": 0.70, "season_pos": 0.20},
-        "min_defense": 0.30,
-        "low_defense_penalty": 1.50,
-    },
-    {
-        "order": 9,
-        "allowed_positions": [POS_RF, POS_3B],
-        "role": "turnover_obp",
-        "weights": {"recent": 0.35, "defense": 0.25, "season_pos": 0.40},
-        "min_defense": -0.30,
-        "low_defense_penalty": 0.80,
-    },
+    {"order": 1, "allowed_positions": [POS_CF, POS_2B], "role": "lead_obp_glove", "weights": {"recent": 0.45, "defense": 0.35, "season_pos": 0.20}, "min_defense": 0.00, "low_defense_penalty": 1.20},
+    {"order": 2, "allowed_positions": [POS_DH, POS_1B], "role": "two_hole_bat", "weights": {"recent": 0.50, "defense": 0.10, "season_pos": 0.40}, "min_defense": -9.99, "low_defense_penalty": 0.00},
+    {"order": 3, "allowed_positions": [POS_3B, POS_RF], "role": "three_hole_iso_glove", "weights": {"recent": 0.45, "defense": 0.20, "season_pos": 0.35}, "min_defense": -0.30, "low_defense_penalty": 0.80},
+    {"order": 4, "allowed_positions": [POS_1B, POS_DH], "role": "cleanup_bat", "weights": {"recent": 0.50, "defense": 0.05, "season_pos": 0.45}, "min_defense": -9.99, "low_defense_penalty": 0.00},
+    {"order": 5, "allowed_positions": [POS_LF], "role": "five_hole_power", "weights": {"recent": 0.45, "defense": 0.15, "season_pos": 0.40}, "min_defense": -0.60, "low_defense_penalty": 0.90},
+    {"order": 6, "allowed_positions": [POS_2B, POS_CF], "role": "six_hole_balance", "weights": {"recent": 0.35, "defense": 0.40, "season_pos": 0.25}, "min_defense": 0.00, "low_defense_penalty": 1.20},
+    {"order": 7, "allowed_positions": [POS_C], "role": "glove_bottom", "weights": {"recent": 0.15, "defense": 0.65, "season_pos": 0.20}, "min_defense": 0.30, "low_defense_penalty": 1.50},
+    {"order": 8, "allowed_positions": [POS_SS], "role": "glove_bottom", "weights": {"recent": 0.10, "defense": 0.70, "season_pos": 0.20}, "min_defense": 0.30, "low_defense_penalty": 1.50},
+    {"order": 9, "allowed_positions": [POS_RF, POS_3B], "role": "turnover_obp", "weights": {"recent": 0.35, "defense": 0.25, "season_pos": 0.40}, "min_defense": -0.30, "low_defense_penalty": 0.80},
 ]
 
 NO_DH_LINEUP_SLOTS = [
-    {
-        "order": 1,
-        "allowed_positions": [POS_CF, POS_2B],
-        "role": "lead_obp_glove",
-        "weights": {"recent": 0.40, "defense": 0.40, "season_pos": 0.20},
-        "min_defense": 0.00,
-        "low_defense_penalty": 1.20,
-    },
-    {
-        "order": 2,
-        "allowed_positions": [POS_1B, POS_3B],
-        "role": "two_hole_bat",
-        "weights": {"recent": 0.40, "defense": 0.20, "season_pos": 0.40},
-        "min_defense": -0.40,
-        "low_defense_penalty": 0.90,
-    },
-    {
-        "order": 3,
-        "allowed_positions": [POS_RF, POS_3B],
-        "role": "three_hole_iso_glove",
-        "weights": {"recent": 0.45, "defense": 0.20, "season_pos": 0.35},
-        "min_defense": -0.30,
-        "low_defense_penalty": 0.80,
-    },
-    {
-        "order": 4,
-        "allowed_positions": [POS_LF, POS_1B],
-        "role": "cleanup_bat",
-        "weights": {"recent": 0.45, "defense": 0.15, "season_pos": 0.40},
-        "min_defense": -0.50,
-        "low_defense_penalty": 0.90,
-    },
-    {
-        "order": 5,
-        "allowed_positions": [POS_3B, POS_RF],
-        "role": "five_hole_power",
-        "weights": {"recent": 0.40, "defense": 0.20, "season_pos": 0.40},
-        "min_defense": -0.30,
-        "low_defense_penalty": 0.80,
-    },
-    {
-        "order": 6,
-        "allowed_positions": [POS_2B, POS_CF],
-        "role": "six_hole_balance",
-        "weights": {"recent": 0.35, "defense": 0.40, "season_pos": 0.25},
-        "min_defense": 0.00,
-        "low_defense_penalty": 1.20,
-    },
-    {
-        "order": 7,
-        "allowed_positions": [POS_C, POS_SS],
-        "role": "glove_bottom",
-        "weights": {"recent": 0.10, "defense": 0.70, "season_pos": 0.20},
-        "min_defense": 0.30,
-        "low_defense_penalty": 1.50,
-    },
-    {
-        "order": 8,
-        "allowed_positions": [POS_SS, POS_C],
-        "role": "glove_bottom",
-        "weights": {"recent": 0.10, "defense": 0.70, "season_pos": 0.20},
-        "min_defense": 0.30,
-        "low_defense_penalty": 1.50,
-    },
+    {"order": 1, "allowed_positions": [POS_CF, POS_2B], "role": "lead_obp_glove", "weights": {"recent": 0.40, "defense": 0.40, "season_pos": 0.20}, "min_defense": 0.00, "low_defense_penalty": 1.20},
+    {"order": 2, "allowed_positions": [POS_1B, POS_3B], "role": "two_hole_bat", "weights": {"recent": 0.40, "defense": 0.20, "season_pos": 0.40}, "min_defense": -0.40, "low_defense_penalty": 0.90},
+    {"order": 3, "allowed_positions": [POS_RF, POS_3B], "role": "three_hole_iso_glove", "weights": {"recent": 0.45, "defense": 0.20, "season_pos": 0.35}, "min_defense": -0.30, "low_defense_penalty": 0.80},
+    {"order": 4, "allowed_positions": [POS_LF, POS_1B], "role": "cleanup_bat", "weights": {"recent": 0.45, "defense": 0.15, "season_pos": 0.40}, "min_defense": -0.50, "low_defense_penalty": 0.90},
+    {"order": 5, "allowed_positions": [POS_3B, POS_RF], "role": "five_hole_power", "weights": {"recent": 0.40, "defense": 0.20, "season_pos": 0.40}, "min_defense": -0.30, "low_defense_penalty": 0.80},
+    {"order": 6, "allowed_positions": [POS_2B, POS_CF], "role": "six_hole_balance", "weights": {"recent": 0.35, "defense": 0.40, "season_pos": 0.25}, "min_defense": 0.00, "low_defense_penalty": 1.20},
+    {"order": 7, "allowed_positions": [POS_C, POS_SS], "role": "glove_bottom", "weights": {"recent": 0.10, "defense": 0.70, "season_pos": 0.20}, "min_defense": 0.30, "low_defense_penalty": 1.50},
+    {"order": 8, "allowed_positions": [POS_SS, POS_C], "role": "glove_bottom", "weights": {"recent": 0.10, "defense": 0.70, "season_pos": 0.20}, "min_defense": 0.30, "low_defense_penalty": 1.50},
 ]
+# 2/5
 def _cache_now() -> float:
     return time.time()
 
@@ -614,16 +496,8 @@ def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]
         m = re.search(r"([0-9]*\.[0-9]+|[0-9]+)", text)
         return float(m.group(1)) if m else 0.0
 
-    th_matches = re.findall(
-        r'<div class="player_detail_more_th">(.*?)</div>',
-        html_text,
-        flags=re.S | re.I,
-    )
-    ba_matches = re.findall(
-        r'<div class="player_detail_more_ba">(.*?)</div>',
-        html_text,
-        flags=re.S | re.I,
-    )
+    th_matches = re.findall(r'<div class="player_detail_more_th">(.*?)</div>', html_text, flags=re.S | re.I)
+    ba_matches = re.findall(r'<div class="player_detail_more_ba">(.*?)</div>', html_text, flags=re.S | re.I)
 
     raw_labels = [_clean_label(x) for x in th_matches if _clean_label(x)]
     raw_values = [_clean_label(x) for x in ba_matches]
@@ -707,10 +581,7 @@ def _get_proran_player_ids() -> dict[str, str]:
 
 
 def _fetch_proran_position_batting(player_name: str, player_id: str) -> dict:
-    url = PRORAN_PLAYER_DETAIL_MORE_URL.format(
-        player_id=player_id,
-        year=CURRENT_SEASON_YEAR,
-    )
+    url = PRORAN_PLAYER_DETAIL_MORE_URL.format(player_id=player_id, year=CURRENT_SEASON_YEAR)
     html_text = _fetch_text(url)
     data = _extract_proran_position_table(html_text)
     print("DEBUG_PRORAN_PARSED", player_name, data)
@@ -774,7 +645,6 @@ def _get_season_position_batting() -> dict:
 
 def _calc_def_from_components(fld: dict) -> float:
     value = 0.0
-
     for key in ["RngR", "DPR", "ARM", "ErrR", "Positional"]:
         value += _safe_float(fld.get(key)) or 0.0
 
@@ -787,10 +657,7 @@ def _calc_def_from_components(fld: dict) -> float:
 
 def _discover_npbbasement_main_bundle_url() -> str | None:
     html = _fetch_text(NPBBASEMENT_FIELDING_URL)
-    match = re.search(
-        r'<script type="module" crossorigin src="([^"]+index-[^"]+\.js)">',
-        html,
-    )
+    match = re.search(r'<script type="module" crossorigin src="([^"]+index-[^"]+\.js)">', html)
     if not match:
         return None
     return urljoin(NPBBASEMENT_BASE_URL, match.group(1))
@@ -830,6 +697,7 @@ def _load_npbbasement_players() -> list[dict]:
         return json.loads(raw_json)
     except Exception:
         return []
+# 3/5
 def _build_player_defense_from_npbbasement() -> dict:
     result = {}
     players = _load_npbbasement_players()
@@ -840,9 +708,7 @@ def _build_player_defense_from_npbbasement() -> dict:
     }
 
     for player in players:
-        name = _normalize_player_name(
-            player.get("nameJ") or player.get("nameSponavi") or ""
-        )
+        name = _normalize_player_name(player.get("nameJ") or player.get("nameSponavi") or "")
         real_name = normalized_profile_names.get(name)
         if not real_name:
             continue
@@ -905,12 +771,7 @@ def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
     overall_iso = float(overall.get("iso", 0.0) or 0.0)
 
     if player_stats.get("__empty__"):
-        return {
-            "pa": 0.0,
-            "ab": 0.0,
-            "obp": _round3(overall_obp),
-            "iso": _round3(overall_iso),
-        }
+        return {"pa": 0.0, "ab": 0.0, "obp": _round3(overall_obp), "iso": _round3(overall_iso)}
 
     if not player_stats:
         player_ids = _get_proran_player_ids()
@@ -934,27 +795,16 @@ def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
                     "value": dict(SEASON_POSITION_BATTING),
                     "expires_at": _cache_now() + 60,
                 }
-
             except Exception as e:
                 print("DEBUG_PRORAN_FETCH_ERROR", canonical_name, str(e))
                 player_stats = {}
 
     if player_stats.get("__empty__"):
-        return {
-            "pa": 0.0,
-            "ab": 0.0,
-            "obp": _round3(overall_obp),
-            "iso": _round3(overall_iso),
-        }
+        return {"pa": 0.0, "ab": 0.0, "obp": _round3(overall_obp), "iso": _round3(overall_iso)}
 
     pos_stats = (player_stats or {}).get(position, {})
     if not pos_stats:
-        return {
-            "pa": 0.0,
-            "ab": 0.0,
-            "obp": _round3(overall_obp),
-            "iso": _round3(overall_iso),
-        }
+        return {"pa": 0.0, "ab": 0.0, "obp": _round3(overall_obp), "iso": _round3(overall_iso)}
 
     pa = float(pos_stats.get("pa", pos_stats.get("ab", 0.0)) or 0.0)
     ab = float(pos_stats.get("ab", 0.0) or 0.0)
@@ -964,23 +814,10 @@ def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
     adj_obp_den = pa + POSITION_BATTING_PRIOR_PA
     adj_iso_den = ab + POSITION_BATTING_PRIOR_AB
 
-    adjusted_obp = (
-        ((pa * raw_obp) + (POSITION_BATTING_PRIOR_PA * overall_obp)) / adj_obp_den
-        if adj_obp_den > 0
-        else overall_obp
-    )
-    adjusted_iso = (
-        ((ab * raw_iso) + (POSITION_BATTING_PRIOR_AB * overall_iso)) / adj_iso_den
-        if adj_iso_den > 0
-        else overall_iso
-    )
+    adjusted_obp = (((pa * raw_obp) + (POSITION_BATTING_PRIOR_PA * overall_obp)) / adj_obp_den) if adj_obp_den > 0 else overall_obp
+    adjusted_iso = (((ab * raw_iso) + (POSITION_BATTING_PRIOR_AB * overall_iso)) / adj_iso_den) if adj_iso_den > 0 else overall_iso
 
-    return {
-        "pa": pa,
-        "ab": ab,
-        "obp": _round3(adjusted_obp),
-        "iso": _round3(adjusted_iso),
-    }
+    return {"pa": pa, "ab": ab, "obp": _round3(adjusted_obp), "iso": _round3(adjusted_iso)}
 
 
 def _now_jst() -> datetime:
@@ -989,12 +826,7 @@ def _now_jst() -> datetime:
 
 def _is_after_first_team_confirm_time(now: datetime | None = None) -> bool:
     now = now or _now_jst()
-    check_time = now.replace(
-        hour=FIRST_TEAM_CONFIRM_HOUR,
-        minute=FIRST_TEAM_CONFIRM_MINUTE,
-        second=0,
-        microsecond=0,
-    )
+    check_time = now.replace(hour=FIRST_TEAM_CONFIRM_HOUR, minute=FIRST_TEAM_CONFIRM_MINUTE, second=0, microsecond=0)
     return now >= check_time
 
 
@@ -1062,7 +894,6 @@ class _TopLevelTableParser(HTMLParser):
                 self._current_row.append(cell_text)
             self._in_cell = False
             self._current_cell = None
-
         elif tag == "tr":
             if self._current_table is not None and self._current_row is not None:
                 if any(cell != "" for cell in self._current_row):
@@ -1152,10 +983,7 @@ def _build_farm_score_maps(candidate_names: list[str]) -> dict:
         table = _find_farm_batting_table(tables)
 
         if not table:
-            return {
-                "farm_score": {},
-                "farm_pa": {},
-            }
+            return {"farm_score": {}, "farm_pa": {}}
 
         header = [_clean_text(cell) for cell in table[0]]
         idx = {name: i for i, name in enumerate(header)}
@@ -1205,23 +1033,14 @@ def _build_farm_score_maps(candidate_names: list[str]) -> dict:
         iso_z = _zscore_map(iso_map)
 
         farm_score = {
-            name: FARM_DISCOUNT * (
-                0.55 * obp_z.get(name, 0.0) + 0.45 * iso_z.get(name, 0.0)
-            )
+            name: FARM_DISCOUNT * (0.55 * obp_z.get(name, 0.0) + 0.45 * iso_z.get(name, 0.0))
             for name in obp_map.keys()
         }
 
-        return {
-            "farm_score": farm_score,
-            "farm_pa": pa_map,
-        }
-
+        return {"farm_score": farm_score, "farm_pa": pa_map}
     except Exception as e:
         print("DEBUG_FARM_SCORE_ERROR", str(e))
-        return {
-            "farm_score": {},
-            "farm_pa": {},
-        }
+        return {"farm_score": {}, "farm_pa": {}}
 
 
 def _normalize_opponent_name(name: str) -> str:
@@ -1230,11 +1049,12 @@ def _normalize_opponent_name(name: str) -> str:
     if name in ("ＤｅＮＡ", "DeNA", "横浜DeNA", "横浜ＤｅＮＡ"):
         return "DeNA"
     return name
+
+
 def _is_home_game(venue: str) -> bool:
     venue = _clean_text(venue)
     return any(keyword in venue for keyword in HOME_VENUE_KEYWORDS)
-
-
+# 4/5
 def _extract_year_from_results_page(html: str) -> str:
     m = re.search(r"(\d{4})年度", html)
     return m.group(1) if m else str(CURRENT_SEASON_YEAR)
@@ -1254,18 +1074,10 @@ def _extract_previous_results_page_url(html: str) -> str | None:
 def _extract_result_rows_from_html(html: str) -> list[list[str]]:
     rows: list[list[str]] = []
 
-    row_matches = re.findall(
-        r"<tr[^>]*>(.*?)</tr>",
-        html,
-        flags=re.DOTALL | re.IGNORECASE,
-    )
+    row_matches = re.findall(r"<tr[^>]*>(.*?)</tr>", html, flags=re.DOTALL | re.IGNORECASE)
 
     for row_html in row_matches:
-        cells = re.findall(
-            r"<t[dh][^>]*>(.*?)</t[dh]>",
-            row_html,
-            flags=re.DOTALL | re.IGNORECASE,
-        )
+        cells = re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row_html, flags=re.DOTALL | re.IGNORECASE)
         cleaned = [_clean_text(cell) for cell in cells]
         cleaned = [cell for cell in cleaned if cell != ""]
 
@@ -1448,7 +1260,6 @@ def _parse_carp_batting_rows(box_url: str) -> list[dict]:
         return row[idx]
 
     result_start_idx = index_map.get("盗塁", 7) + 1
-
     rows: list[dict] = []
 
     for row in carp_table[1:]:
@@ -1503,38 +1314,16 @@ def _aggregate_recent_batting_stats(window_games: int) -> dict:
 
     player_totals: dict[str, dict] = {}
     team_totals = {
-        "at_bats": 0,
-        "runs": 0,
-        "hits": 0,
-        "rbi": 0,
-        "steals": 0,
-        "doubles": 0,
-        "triples": 0,
-        "homeruns": 0,
-        "walks": 0,
-        "hit_by_pitch": 0,
-        "strikeouts": 0,
-        "sacrifice_bunts": 0,
-        "sacrifice_flies": 0,
+        "at_bats": 0, "runs": 0, "hits": 0, "rbi": 0, "steals": 0,
+        "doubles": 0, "triples": 0, "homeruns": 0, "walks": 0,
+        "hit_by_pitch": 0, "strikeouts": 0, "sacrifice_bunts": 0, "sacrifice_flies": 0,
     }
 
     def _empty_stat_line(player_name: str) -> dict:
         return {
-            "player_name": player_name,
-            "games": 0,
-            "at_bats": 0,
-            "runs": 0,
-            "hits": 0,
-            "rbi": 0,
-            "steals": 0,
-            "doubles": 0,
-            "triples": 0,
-            "homeruns": 0,
-            "walks": 0,
-            "hit_by_pitch": 0,
-            "strikeouts": 0,
-            "sacrifice_bunts": 0,
-            "sacrifice_flies": 0,
+            "player_name": player_name, "games": 0, "at_bats": 0, "runs": 0, "hits": 0, "rbi": 0,
+            "steals": 0, "doubles": 0, "triples": 0, "homeruns": 0, "walks": 0,
+            "hit_by_pitch": 0, "strikeouts": 0, "sacrifice_bunts": 0, "sacrifice_flies": 0,
         }
 
     for game in games:
@@ -1551,56 +1340,38 @@ def _aggregate_recent_batting_stats(window_games: int) -> dict:
             if not canonical_name:
                 continue
 
-            stat_line = player_totals.setdefault(
-                canonical_name,
-                _empty_stat_line(canonical_name),
-            )
+            stat_line = player_totals.setdefault(canonical_name, _empty_stat_line(canonical_name))
 
             if canonical_name not in seen_in_game:
                 stat_line["games"] += 1
                 seen_in_game.add(canonical_name)
 
             for key in [
-                "at_bats",
-                "runs",
-                "hits",
-                "rbi",
-                "steals",
-                "doubles",
-                "triples",
-                "homeruns",
-                "walks",
-                "hit_by_pitch",
-                "strikeouts",
-                "sacrifice_bunts",
-                "sacrifice_flies",
+                "at_bats", "runs", "hits", "rbi", "steals", "doubles", "triples",
+                "homeruns", "walks", "hit_by_pitch", "strikeouts", "sacrifice_bunts", "sacrifice_flies",
             ]:
                 value = int(row.get(key, 0) or 0)
                 stat_line[key] += value
                 team_totals[key] += value
 
-    result = {
-        "games": games,
-        "player_totals": player_totals,
-        "team_totals": team_totals,
-    }
+    result = {"games": games, "player_totals": player_totals, "team_totals": team_totals}
 
-    cache_bucket[cache_key] = {
-        "value": result,
-        "expires_at": _cache_now() + CACHE_TTL_RECENT_BATTING,
-    }
+    cache_bucket[cache_key] = {"value": result, "expires_at": _cache_now() + CACHE_TTL_RECENT_BATTING}
     return result
 
 
 def _calc_recent_pa(stats: dict) -> int:
-    return (
-        int(stats.get("at_bats", 0) or 0)
-        + int(stats.get("walks", 0) or 0)
-        + int(stats.get("hit_by_pitch", 0) or 0)
-        + int(stats.get("sacrifice_flies", 0) or 0)
-    )
+    return int(stats.get("at_bats", 0) or 0) + int(stats.get("walks", 0) or 0) + int(stats.get("hit_by_pitch", 0) or 0) + int(stats.get("sacrifice_flies", 0) or 0)
 
 
+def _calc_recent_obp(stats: dict) -> float:
+    hits = int(stats.get("hits", 0) or 0)
+    ab = int(stats.get("at_bats", 0) or 0)
+    walks = int(stats.get("walks", 0) or 0)
+    hit_by_pitch = int(stats.get("hit_by_pitch", 0) or 0)
+    sacrifice_flies = int(stats.get("sacrifice_flies", 0
+
+# 5/5
 def _calc_recent_obp(stats: dict) -> float:
     hits = int(stats.get("hits", 0) or 0)
     ab = int(stats.get("at_bats", 0) or 0)
@@ -1745,6 +1516,8 @@ def _defense_value_for(name: str, position: str = "", defense_map: dict | None =
         return float(player_def.get(position, 0.0) or 0.0)
 
     return float(max((float(v or 0.0) for v in player_def.values()), default=0.0))
+
+
 def _slot_score(
     player_name: str,
     position: str,
@@ -1838,7 +1611,7 @@ def _build_simple_predicted_lineup(window_games: int, use_dh: bool) -> dict:
                         "player_name": canonical_name,
                         "score": round(score, 3),
                         "recent": recent,
-                        "season_pos": season_pos,
+                        "season_position": season_pos,
                         "defense": round(defense, 3),
                         "role": slot_def.get("role", ""),
                     }
@@ -1849,9 +1622,87 @@ def _build_simple_predicted_lineup(window_games: int, use_dh: bool) -> dict:
         used_players.add(best_pick["player_name"])
         used_positions.add(best_pick["position"])
 
-        recent = best_pick["recent"]
-        season_pos = best_pick["season_pos"]
-        position = best_pick["position"]
+        lineup.append(best_pick)
 
-        reason = (
-            f"直近OBP {recent['obp']:.3f} / ISO {recent['iso']:.
+    lineup.sort(key=lambda x: x["order"])
+
+    result = {
+        "use_dh": use_dh,
+        "window_games": window_games,
+        "generated_at": _now_jst().isoformat(),
+        "lineup": lineup,
+    }
+
+    cache_bucket[cache_key] = {
+        "value": result,
+        "expires_at": _cache_now() + CACHE_TTL_PREDICTED_LINEUP,
+    }
+    return result
+
+
+def _build_lineup_reason(slot: int, item: dict, lineup: list[dict]) -> str:
+    name = str(item.get("player_name", "この選手"))
+
+    recent = item.get("recent", {}) or {}
+    recent_obp = float(recent.get("obp", 0.0) or 0.0)
+    recent_iso = float(recent.get("iso", 0.0) or 0.0)
+    defense = float(item.get("defense", 0.0) or 0.0)
+    score = float(item.get("score", 0.0) or 0.0)
+
+    def _rank_of_value(values: list[float], target: float) -> int:
+        if not values:
+            return 0
+        sorted_values = sorted(values, reverse=True)
+        for i, value in enumerate(sorted_values, start=1):
+            if abs(value - target) < 1e-9:
+                return i
+        return len(sorted_values)
+
+    score_values = [float(x.get("score", 0.0) or 0.0) for x in lineup]
+    obp_values = [float((x.get("recent", {}) or {}).get("obp", 0.0) or 0.0) for x in lineup]
+    iso_values = [float((x.get("recent", {}) or {}).get("iso", 0.0) or 0.0) for x in lineup]
+    defense_values = [float(x.get("defense", 0.0) or 0.0) for x in lineup]
+
+    score_rank = _rank_of_value(score_values, score)
+    obp_rank = _rank_of_value(obp_values, recent_obp)
+    iso_rank = _rank_of_value(iso_values, recent_iso)
+    defense_rank = _rank_of_value(defense_values, defense)
+
+    parts = []
+    parts.append(f"{name}は総合評価scoreが{score:.2f}でチーム内{score_rank}位です。")
+    parts.append(f"直近出塁率は{recent_obp:.3f}でチーム内{obp_rank}位、直近ISOは{recent_iso:.3f}でチーム内{iso_rank}位です。")
+
+    if defense != 0:
+        parts.append(f"守備補正は{defense:+.3f}でチーム内{defense_rank}位です。")
+
+    if slot == 1:
+        parts.append("先頭打者は出塁力が重要なので、この出塁順位を評価して1番です。")
+    elif slot == 2:
+        parts.append("2番は出塁と長打の両立が欲しいため、このバランスを評価しています。")
+    elif slot == 3:
+        parts.append("3番は打線の中核なので、出塁力と長打力の両方を重く見ています。")
+    elif slot == 4:
+        parts.append("4番は返す役なので、特に長打力を重視して置いています。")
+    elif slot == 5:
+        parts.append("5番は中軸の後ろで返す役なので、総合力を見てこの順番です。")
+    elif slot == 6:
+        parts.append("6番は下位に落としすぎない打力を評価した配置です。")
+    elif slot == 7:
+        parts.append("7番は下位打線の得点源として、長打か出塁のどちらかを買って置いています。")
+    elif slot == 8:
+        parts.append("8番は守備も含めた総合バランスで置いています。")
+    else:
+        parts.append("9番は次の1番につなぐ役なので、出塁面を見て置いています。")
+
+    return " ".join(parts)
+
+
+def _wants_html(request: Request, view: str | None) -> bool:
+    if view == "json":
+        return False
+    if view == "html":
+        return True
+
+    accept = (request.headers.get("accept") or "").lower()
+    return "text/html" in accept
+    

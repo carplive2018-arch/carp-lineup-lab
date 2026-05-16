@@ -2177,7 +2177,7 @@ def _render_predicted_lineup_html(data: dict) -> HTMLResponse:
 
               <div class="stats">
                 <div class="stat">
-                  <p>{html.escape(_build_lineup_reason(slot, row, data.get("lineup", [])))}</p>
+                  <p>{escape(_build_lineup_reason(slot, row, data.get("lineup", [])))}</p>
                   <div class="value">{float(recent.get("obp", 0.0) or 0.0):.3f}</div>
                 </div>
                 <div class="stat">

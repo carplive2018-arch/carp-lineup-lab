@@ -1728,11 +1728,11 @@ def _get_prediction_candidate_names(now: datetime | None = None) -> list[str]:
 
 
 def _defense_value_for(name: str, position: str = "", defense_map: dict | None = None) -> float:
-    canonical_name = _canonical_player_name(player_name)
+    canonical_name = _canonical_name(name)
 
     player_def = (
         defense_map.get(canonical_name)
-        or defense_map.get(_normalize_player_name(canonical_name))
+        or defense_map.get(_normalize_name(canonical_name))
         or {}
     )
     if position in player_def:

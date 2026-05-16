@@ -1,6 +1,6 @@
-import html
 from __future__ import annotations
 
+import html
 from functools import lru_cache
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo

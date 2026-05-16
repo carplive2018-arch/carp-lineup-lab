@@ -2078,6 +2078,7 @@ def _render_recent_batting_html(data: dict) -> HTMLResponse:
               <td>{int(row.get("homeruns", 0) or 0)}</td>
               <td>{int(row.get("walks", 0) or 0)}</td>
               <td>{int(row.get("strikeouts", 0) or 0)}</td>
+              <td>{float(row.get("defense_bonus", 0.0) or 0.0):+.3f}</td>
             </tr>
             """
         )
@@ -2125,6 +2126,7 @@ def _render_recent_batting_html(data: dict) -> HTMLResponse:
               <th>HR</th>
               <th>BB</th>
               <th>K</th>
+            　<th>守備補正</th>
             </tr>
           </thead>
           <tbody>

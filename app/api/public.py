@@ -2107,9 +2107,15 @@ def _render_recent_batting_html(data: dict) -> HTMLResponse:
       <h1>直近打撃成績</h1>
       <div class="muted">直近 {int(data.get("window_games", 0) or 0)} 試合の打撃成績と守備指標です。</div>
       <div class="links">
-      
-       
+        <a href="/public/recent-batting?window_games=5">直近5試合</a>
+        <a href="/public/recent-batting?window_games=10">直近10試合</a>
+        <a href="/public/predicted-lineup?window_games=5&use_dh=true">5試合 / DHあり</a>
+        <a href="/public/predicted-lineup?window_games=5&use_dh=false">5試合 / DHなし</a>
+        <a href="/public/predicted-lineup?window_games=10&use_dh=true">10試合 / DHあり</a>
+        <a href="/public/predicted-lineup?window_games=10&use_dh=false">10試合 / DHなし</a>
       </div>
+
+
     </div>
 
     <div class="card">

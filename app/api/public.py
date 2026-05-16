@@ -2157,7 +2157,7 @@ def _render_recent_batting_html(data: dict) -> HTMLResponse:
 def _render_predicted_lineup_html(data: dict) -> HTMLResponse:
     lineup_html = []
 
-    for item in data.get("lineup", []):
+    <p>{escape(_build_lineup_reason(int(item.get("slot", 0) or 0), item, data.get("lineup", [])))}</p>
         recent = item.get("recent", {}) or {}
         season = item.get("season_position", {}) or {}
 

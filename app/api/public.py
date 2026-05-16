@@ -1727,7 +1727,7 @@ def _get_prediction_candidate_names(now: datetime | None = None) -> list[str]:
     return candidates
 
 
-def _defense_value_for(player_name: str, position: str, defense_map: dict) -> float:
+def _defense_value_for(name: str, position: str = "", defense_map: dict | None = None) -> float:
     canonical_name = _canonical_player_name(player_name)
 
     player_def = (

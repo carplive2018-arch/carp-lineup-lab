@@ -1621,7 +1621,6 @@ def _build_simple_predicted_lineup(window_games: int, use_dh: bool) -> dict:
 
         used_players.add(best_pick["player_name"])
         used_positions.add(best_pick["position"])
-
         lineup.append(best_pick)
 
     lineup.sort(key=lambda x: x["order"])
@@ -1696,7 +1695,6 @@ def _build_lineup_reason(slot: int, item: dict, lineup: list[dict]) -> str:
 
     return " ".join(parts)
 
-
 def _wants_html(request: Request, view: str | None) -> bool:
     if view == "json":
         return False
@@ -1706,3 +1704,81 @@ def _wants_html(request: Request, view: str | None) -> bool:
     accept = (request.headers.get("accept") or "").lower()
     return "text/html" in accept
     
+def _no_cache_json(data: dict) -> JSONResponse:
+    return JSONResponse(
+        content=data,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
+
+
+def _render_predicted_lineup_html(data: dict) -> HTMLResponse:
+    lineup_html = []
+
+    for item in data.get("lineup", []):
+        recent = item.get("recent", {}) or {}
+        season = item.get("season_position", {}) or {}
+        slot = int(item.get("order", 0) or 0)
+        reason_text = _build_lineup_reason(slot, item, data.get("lineup", []))
+
+        lineup_html.append(
+            f"""
+            <div class="card">
+              <div class="slot-head">
+                <div>
+                  <span class="order">{slot}番</span>
+                  <span class="name">{escape(str(item.get("player_name", "")))}</span>
+                  <span class="pos">{escape(str(item.get("position", "")))}</span>
+                </div>
+                <div class="muted">score {float(item.get("score", 0.0) or 0.0):.3f}</div>
+              </div>
+
+              <div class="reason">{escape(reason_text)}</div>
+
+              <div class="stats">
+                <div class="stat">
+                  <div class="label">直近 OBP</div>
+                  <div class="value">{float(recent.get("obp", 0.0) or 0.0):.3f}</div>
+                </div>
+                <div class="stat">
+                  <div class="label">直近 ISO</div>
+                  <div class="value">{float(recent.get("iso", 0.0) or 0.0):.3f}</div>
+                </div>
+                <div class="stat">
+                  <div class="label">ポジション補正 OBP</div>
+                  <div class="value">{float(season.get("obp", 0.0) or 0.0):.3f}</div>
+                </div>
+                <div class="stat">
+                  <div class="label">ポジション補正 ISO</div>
+                  <div class="value">{float(season.get("iso", 0.0) or 0.0):.3f}</div>
+                </div>
+                <div class="stat">
+                  <div class="label">守備補正</div>
+                  <div class="value">{float(item.get("defense", 0.0) or 0.0):+.3f}</div>
+                </div>
+              </div>
+            </div>
+            """
+        )
+
+    body = f"""
+    <div class="hero">
+      <h1>予想打順</h1>
+      <div class="muted">
+        DH {('あり' if bool(data.get('use_dh', True)) else 'なし')} /
+        直近 {int(data.get("window_games", 0) or 0)} 試合ベース /
+        生成時刻 {escape(str(data.get("generated_at", "")))}
+      </div>
+      <div class="links">
+        <a href="/public/recent-batting?window_games={int(data.get("window_games", 5) or 5)}">直近打撃を見る</a>
+      </div>
+    </div>
+
+    <div class="lineup-grid">
+      {''.join(lineup_html) if lineup_html else '<div class="card empty">打順データがありません</div>'}
+    </div>
+    """
+    return _html_page("予想打順", body)

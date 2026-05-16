@@ -1659,6 +1659,8 @@ def _build_recent_batting_response(window_games: int) -> dict:
             "avg": avg,
             "obp": obp,
             "iso": iso,
+            "defense_bonus": round(float(_defense_value_for(player_name)), 3),
+
         })
 
     rows.sort(

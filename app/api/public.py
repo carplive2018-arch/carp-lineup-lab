@@ -65,7 +65,7 @@ TOP_CATCHER_AT_C_BONUS = 0.8
 
 JST = ZoneInfo("Asia/Tokyo")
 
-FIRST_TEAM_MEMBERS_URL = "https://www.carp.co.jp/team/members"
+FIRST_TEAM_MEMBERS_URL = "https://npb.jp/announcement/roster/"
 FARM_BATTING_STATS_URL = "https://npb.jp/bis/2026/stats/idb2_c.html"
 CURRENT_RESULTS_URL = "https://npb.jp/bis/teams/results_c_index.html"
 
@@ -87,6 +87,11 @@ CACHE_TTL_PLAYER_DEFENSE = 60 * 60 * 12
 CACHE_TTL_SEASON_POSITION_BATTING = 60 * 60 * 6
 CACHE_TTL_RECENT_BATTING = 60 * 5
 CACHE_TTL_PREDICTED_LINEUP = 60 * 3
+CACHE_TTL_RISP = 60 * 10  # 得点圏打率キャッシュ: 10分
+
+YAHOO_SCHEDULE_URL = "https://baseball.yahoo.co.jp/npb/schedule/first/all"
+YAHOO_GAME_TEXT_URL = "https://baseball.yahoo.co.jp/npb/game/{game_id}/text"
+CARP_TEAM_ID = 6   # Yahoo baseball 広島東洋カープのチームID
 
 LAST_FIXED_FIRST_TEAM_POSITION_PLAYERS = {
     "坂倉 将吾",
@@ -166,7 +171,8 @@ POSITION_LABEL_TO_CODE = {
 }
 
 PLAYER_PROFILE = {
-    "坂倉 将吾": {"eligible_positions": [POS_C, POS_1B, POS_3B, POS_DH]},
+    # 坂倉: 2026年シーズンよりサード転向がメインだが、捕手に入る可能性もあり。
+    "坂倉 将吾": {"eligible_positions": [POS_3B, POS_C, POS_1B, POS_DH]},
     "小園 海斗": {"eligible_positions": [POS_SS, POS_3B]},
     "菊池 涼介": {"eligible_positions": [POS_2B]},
     "モンテロ": {"eligible_positions": [POS_1B, POS_DH]},
@@ -181,6 +187,9 @@ PLAYER_PROFILE = {
     "ファビアン": {"eligible_positions": [POS_LF, POS_RF, POS_DH]},
     "佐々木 泰": {"eligible_positions": [POS_1B, POS_3B, POS_DH]},
     "勝田 成": {"eligible_positions": [POS_2B, POS_SS]},
+    "辰見 鴻之介": {"eligible_positions": [POS_SS, POS_2B, POS_CF]},
+    "前川 誠太": {"eligible_positions": [POS_1B, POS_3B, POS_DH]},
+    "林 晃汰": {"eligible_positions": [POS_LF, POS_RF, POS_DH]},
 }
 
 FARM_PROMOTION_CANDIDATES = {
@@ -234,12 +243,14 @@ CACHE = {
     "season_position_batting": {"value": None, "expires_at": 0},
     "recent_batting": {},
     "predicted_lineup": {},
+    "risp": {},  # 得点圏打率キャッシュ
 }
 
 SEASON_POSITION_BATTING: dict[str, dict] = {}
 
 PLAYER_DEFENSE_FALLBACK = {
-    "坂倉 将吾": {"C": 0.30, "1B": 0.20, "3B": -0.20, "DH": 0.00},
+    # 坂倉: サードがメイン(+0.05)。捕手は継続してこなせるが専任捕手より劣るため+0.10に調整。
+    "坂倉 将吾": {"3B": 0.05, "C": 0.10, "1B": 0.20, "DH": 0.00},
     "小園 海斗": {"SS": 0.80, "3B": 0.40},
     "菊池 涼介": {"2B": 1.50},
     "石原 貴規": {"C": 0.45},
@@ -275,145 +286,112 @@ SEASON_OVERALL_BATTING = {
 
 DH_LINEUP_SLOTS = [
     {
+        # 1番：出塁最重視＋守備
         "order": 1,
-        "allowed_positions": [POS_CF, POS_2B],
         "role": "lead_obp_glove",
-        "weights": {"recent": 0.45, "defense": 0.35, "season_pos": 0.20},
-        "min_defense": 0.00,
-        "low_defense_penalty": 1.20,
+        "weights": {"recent_obp": 0.35, "recent_iso": 0.05, "season_obp": 0.30, "season_iso": 0.05, "defense": 0.25},
     },
     {
+        # 2番：打撃バランス（OBP＋長打均等）
         "order": 2,
-        "allowed_positions": [POS_DH, POS_1B],
         "role": "two_hole_bat",
-        "weights": {"recent": 0.50, "defense": 0.10, "season_pos": 0.40},
-        "min_defense": -9.99,
-        "low_defense_penalty": 0.00,
+        "weights": {"recent_obp": 0.25, "recent_iso": 0.20, "season_obp": 0.25, "season_iso": 0.20, "defense": 0.10},
     },
     {
+        # 3番：総合打撃最強（OBP＋ISO重視）
         "order": 3,
-        "allowed_positions": [POS_3B, POS_RF],
-        "role": "three_hole_iso_glove",
-        "weights": {"recent": 0.45, "defense": 0.20, "season_pos": 0.35},
-        "min_defense": -0.30,
-        "low_defense_penalty": 0.80,
+        "role": "three_hole_contact",
+        "weights": {"recent_obp": 0.30, "recent_iso": 0.20, "season_obp": 0.25, "season_iso": 0.20, "defense": 0.05},
     },
     {
+        # 4番：長打力最大
         "order": 4,
-        "allowed_positions": [POS_1B, POS_DH],
-        "role": "cleanup_bat",
-        "weights": {"recent": 0.50, "defense": 0.05, "season_pos": 0.45},
-        "min_defense": -9.99,
-        "low_defense_penalty": 0.00,
+        "role": "cleanup_power",
+        "weights": {"recent_obp": 0.10, "recent_iso": 0.35, "season_obp": 0.10, "season_iso": 0.40, "defense": 0.05},
     },
     {
+        # 5番：長打＋出塁（4番に次ぐ長打）
         "order": 5,
-        "allowed_positions": [POS_LF],
         "role": "five_hole_power",
-        "weights": {"recent": 0.45, "defense": 0.15, "season_pos": 0.40},
-        "min_defense": -0.60,
-        "low_defense_penalty": 0.90,
+        "weights": {"recent_obp": 0.15, "recent_iso": 0.30, "season_obp": 0.15, "season_iso": 0.30, "defense": 0.10},
     },
     {
+        # 6番：総合打撃（均等）
         "order": 6,
-        "allowed_positions": [POS_2B, POS_CF],
         "role": "six_hole_balance",
-        "weights": {"recent": 0.35, "defense": 0.40, "season_pos": 0.25},
-        "min_defense": 0.00,
-        "low_defense_penalty": 1.20,
+        "weights": {"recent_obp": 0.25, "recent_iso": 0.20, "season_obp": 0.25, "season_iso": 0.20, "defense": 0.10},
     },
     {
+        # 7番：シーズン成績重視＋守備
         "order": 7,
-        "allowed_positions": [POS_C],
-        "role": "glove_bottom",
-        "weights": {"recent": 0.15, "defense": 0.65, "season_pos": 0.20},
-        "min_defense": 0.30,
-        "low_defense_penalty": 1.50,
+        "role": "seven_hole_season",
+        "weights": {"recent_obp": 0.15, "recent_iso": 0.10, "season_obp": 0.30, "season_iso": 0.15, "defense": 0.30},
     },
     {
+        # 8番：守備最重視
         "order": 8,
-        "allowed_positions": [POS_SS],
         "role": "glove_bottom",
-        "weights": {"recent": 0.10, "defense": 0.70, "season_pos": 0.20},
-        "min_defense": 0.30,
-        "low_defense_penalty": 1.50,
+        "weights": {"recent_obp": 0.10, "recent_iso": 0.05, "season_obp": 0.20, "season_iso": 0.10, "defense": 0.55},
     },
     {
+        # 9番（DH有）：繋ぎ出塁
         "order": 9,
-        "allowed_positions": [POS_RF, POS_3B],
         "role": "turnover_obp",
-        "weights": {"recent": 0.35, "defense": 0.25, "season_pos": 0.40},
-        "min_defense": -0.30,
-        "low_defense_penalty": 0.80,
+        "weights": {"recent_obp": 0.30, "recent_iso": 0.10, "season_obp": 0.35, "season_iso": 0.10, "defense": 0.15},
     },
 ]
 
 NO_DH_LINEUP_SLOTS = [
     {
+        # 1番：出塁最重視＋守備
         "order": 1,
-        "allowed_positions": [POS_CF, POS_2B],
         "role": "lead_obp_glove",
-        "weights": {"recent": 0.40, "defense": 0.40, "season_pos": 0.20},
-        "min_defense": 0.00,
-        "low_defense_penalty": 1.20,
+        "weights": {"recent_obp": 0.35, "recent_iso": 0.05, "season_obp": 0.30, "season_iso": 0.05, "defense": 0.25},
     },
     {
+        # 2番：打撃バランス
         "order": 2,
-        "allowed_positions": [POS_1B, POS_3B],
         "role": "two_hole_bat",
-        "weights": {"recent": 0.40, "defense": 0.20, "season_pos": 0.40},
-        "min_defense": -0.40,
-        "low_defense_penalty": 0.90,
+        "weights": {"recent_obp": 0.25, "recent_iso": 0.20, "season_obp": 0.25, "season_iso": 0.20, "defense": 0.10},
     },
     {
+        # 3番：総合打撃最強
         "order": 3,
-        "allowed_positions": [POS_RF, POS_3B],
-        "role": "three_hole_iso_glove",
-        "weights": {"recent": 0.45, "defense": 0.20, "season_pos": 0.35},
-        "min_defense": -0.30,
-        "low_defense_penalty": 0.80,
+        "role": "three_hole_contact",
+        "weights": {"recent_obp": 0.30, "recent_iso": 0.20, "season_obp": 0.25, "season_iso": 0.20, "defense": 0.05},
     },
     {
+        # 4番：長打力最大
         "order": 4,
-        "allowed_positions": [POS_LF, POS_1B],
-        "role": "cleanup_bat",
-        "weights": {"recent": 0.45, "defense": 0.15, "season_pos": 0.40},
-        "min_defense": -0.50,
-        "low_defense_penalty": 0.90,
+        "role": "cleanup_power",
+        "weights": {"recent_obp": 0.10, "recent_iso": 0.35, "season_obp": 0.10, "season_iso": 0.40, "defense": 0.05},
     },
     {
+        # 5番：長打＋出塁
         "order": 5,
-        "allowed_positions": [POS_3B, POS_RF],
         "role": "five_hole_power",
-        "weights": {"recent": 0.40, "defense": 0.20, "season_pos": 0.40},
-        "min_defense": -0.30,
-        "low_defense_penalty": 0.80,
+        "weights": {"recent_obp": 0.15, "recent_iso": 0.30, "season_obp": 0.15, "season_iso": 0.30, "defense": 0.10},
     },
     {
+        # 6番：総合打撃（均等）
         "order": 6,
-        "allowed_positions": [POS_2B, POS_CF],
         "role": "six_hole_balance",
-        "weights": {"recent": 0.35, "defense": 0.40, "season_pos": 0.25},
-        "min_defense": 0.00,
-        "low_defense_penalty": 1.20,
+        "weights": {"recent_obp": 0.25, "recent_iso": 0.20, "season_obp": 0.25, "season_iso": 0.20, "defense": 0.10},
     },
     {
+        # 7番：シーズン成績重視＋守備
         "order": 7,
-        "allowed_positions": [POS_C, POS_SS],
-        "role": "glove_bottom",
-        "weights": {"recent": 0.10, "defense": 0.70, "season_pos": 0.20},
-        "min_defense": 0.30,
-        "low_defense_penalty": 1.50,
+        "role": "seven_hole_season",
+        "weights": {"recent_obp": 0.15, "recent_iso": 0.10, "season_obp": 0.30, "season_iso": 0.15, "defense": 0.30},
     },
     {
+        # 8番（DH無）：守備最重視
         "order": 8,
-        "allowed_positions": [POS_SS, POS_C],
         "role": "glove_bottom",
-        "weights": {"recent": 0.10, "defense": 0.70, "season_pos": 0.20},
-        "min_defense": 0.30,
-        "low_defense_penalty": 1.50,
+        "weights": {"recent_obp": 0.10, "recent_iso": 0.05, "season_obp": 0.20, "season_iso": 0.10, "defense": 0.55},
     },
 ]
+
 def _cache_now() -> float:
     return time.time()
 
@@ -1096,37 +1074,92 @@ def _find_farm_batting_table(tables: list[list[list[str]]]) -> list[list[str]]:
 
 @lru_cache(maxsize=1)
 def _fetch_current_first_team_position_players() -> set[str]:
+    """NPB公示「出場選手登録名簿」ページから広島の現在の一軍登録選手を取得する。
+
+    ページ構造:
+      - ページ上部: 当日の登録/抹消情報（広島枠は当日変更があった選手のみ）
+      - ページ下部: 「出場選手一覧」セクション（全球団の全登録選手を掲載）
+    → 「出場選手一覧」セクション内の広島ブロックを優先的に取得する。
+
+    他球団の同姓選手との誤マッチを防ぐため姓のみ(2文字以下)のエイリアスはスキップ。
+    PLAYER_PROFILE 登録済み選手名のみを返す（eligible_positions が保証されるため）。
+    """
     try:
         html = _fetch_html(FIRST_TEAM_MEMBERS_URL)
         text = _clean_text(html)
-        normalized_text = text.replace(" ", "").replace("　", "")
+        normalized = text.replace(" ", "").replace("　", "")
 
-        m = re.search(r"一軍メンバー(.*?)二軍メンバー", normalized_text)
-        block = m.group(1) if m else normalized_text
+        # ── ① 「出場選手一覧」セクション内の広島ブロックを優先取得 ──
+        # ページ下部の全登録選手一覧から広島東洋カープブロックを切り出す
+        block: str | None = None
+        idx_list = normalized.find("出場選手一覧")
+        if idx_list >= 0:
+            after_list = normalized[idx_list:]
+            carp_match = re.search(
+                r"広島東洋カープ(.*?)以上\d+名",
+                after_list,
+                re.DOTALL,
+            )
+            if carp_match:
+                block = carp_match.group(1)
+                print(f"DEBUG_FIRST_TEAM: 出場選手一覧セクションから広島ブロック取得 ({len(block)}文字)")
 
-        result = set()
+        # ── ② フォールバック: ページ先頭からの広島ブロック（当日変更のみ掲載の場合もある） ──
+        if not block:
+            carp_match = re.search(
+                r"広島東洋カープ(.*?)以上\d*名",
+                normalized,
+                re.DOTALL,
+            )
+            if carp_match:
+                block = carp_match.group(1)
+                print(f"DEBUG_FIRST_TEAM: フォールバック(先頭ブロック)から広島ブロック取得 ({len(block)}文字)")
+
+        # ── ③ フォールバック: 次球団名まで ──
+        if not block:
+            carp_match = re.search(
+                r"広島東洋カープ(.*?)"
+                r"(?:東京ヤクルト|中日ドラゴンズ|読売ジャイアンツ"
+                r"|横浜DeNA|阪神タイガース|福岡ソフトバンク|埼玉西武"
+                r"|千葉ロッテ|オリックス|東北楽天|北海道日本ハム)",
+                normalized,
+                re.DOTALL,
+            )
+            if carp_match:
+                block = carp_match.group(1)
+                print(f"DEBUG_FIRST_TEAM: フォールバック(次球団名区切り)から広島ブロック取得 ({len(block)}文字)")
+
+        if not block:
+            print("DEBUG_FIRST_TEAM_BLOCK_NOT_FOUND")
+            return set(LAST_FIXED_FIRST_TEAM_POSITION_PLAYERS)
+
+        # PLAYER_PROFILE 登録済み選手と広島ブロック内でマッチング
+        # 姓のみ（2文字以下）のエイリアスは他球団選手との誤マッチ防止のためスキップ
+        result: set[str] = set()
         for name in PLAYER_PROFILE.keys():
             for alias in _name_aliases(name):
-                if _normalize_name(alias) in block:
+                n = _normalize_name(alias)
+                if len(n) <= 2:
+                    continue
+                if n in block:
                     result.add(name)
                     break
 
+        print(f"DEBUG_FIRST_TEAM_FOUND {len(result)}名を公示ページから取得")
         if result:
             return result
     except Exception as e:
         print("DEBUG_FIRST_TEAM_MEMBER_ERROR", str(e))
 
     return set(LAST_FIXED_FIRST_TEAM_POSITION_PLAYERS)
-
-
 def _get_active_first_team_position_players(now: datetime | None = None) -> set[str]:
-    now = now or _now_jst()
-
-    if _is_after_first_team_confirm_time(now):
-        current = _fetch_current_first_team_position_players()
-        if current:
-            return set(current)
-
+    """npb.jp の一軍打撃成績ページを常時参照して一軍登録選手を返す。
+    時刻制限なし（npb.jp の一軍成績ページは常に最新の登録選手を反映）。
+    取得失敗時は LAST_FIXED_FIRST_TEAM_POSITION_PLAYERS にフォールバック。
+    """
+    current = _fetch_current_first_team_position_players()
+    if current:
+        return set(current)
     return set(LAST_FIXED_FIRST_TEAM_POSITION_PLAYERS)
 
 
@@ -1144,7 +1177,11 @@ def _is_recently_promoted(player_name: str, now: datetime | None = None) -> bool
     return now < promoted_at + timedelta(days=PROMOTION_GRACE_DAYS)
 
 
-def _build_farm_score_maps(candidate_names: list[str]) -> dict:
+def _build_farm_score_maps() -> dict:
+    """二軍打撃成績ページの全選手（50PA以上）をスキャンしてスコアを算出する。
+    candidate_names 縛りなし。選手名はページ記載の正規化名をそのまま使用。
+    返り値の farm_score キーは正規化済み選手名 → スコア(float)。
+    """
     try:
         html = _fetch_html(FARM_BATTING_STATS_URL)
         tables = _extract_tables(html)
@@ -1154,6 +1191,7 @@ def _build_farm_score_maps(candidate_names: list[str]) -> dict:
             return {
                 "farm_score": {},
                 "farm_pa": {},
+                "farm_raw": {},
             }
 
         header = [_clean_text(cell) for cell in table[0]]
@@ -1165,27 +1203,21 @@ def _build_farm_score_maps(candidate_names: list[str]) -> dict:
                 return ""
             return row[i]
 
-        alias_to_full = {}
-        for name in candidate_names:
-            for alias in _name_aliases(name):
-                alias_to_full[_normalize_name(alias)] = name
-
         obp_map: dict[str, float] = {}
         iso_map: dict[str, float] = {}
         pa_map: dict[str, int] = {}
+        raw_name_map: dict[str, str] = {}  # canonical -> 元の表記
 
         for row in table[1:]:
             raw_name = _clean_text(cell(row, "選手"))
             raw_name = re.sub(r"^[*+]+", "", raw_name).strip()
-
-            mapped_name = None
-            for alias in _name_aliases(raw_name):
-                mapped_name = alias_to_full.get(_normalize_name(alias))
-                if mapped_name:
-                    break
-
-            if not mapped_name:
+            if not raw_name:
                 continue
+
+            # 正規化名をキーとして使用
+            canonical = _canonical_player_name(raw_name)
+            if not canonical:
+                canonical = raw_name
 
             pa = _safe_int(cell(row, "打席"))
             if pa < FARM_MIN_PA:
@@ -1196,9 +1228,10 @@ def _build_farm_score_maps(candidate_names: list[str]) -> dict:
             slg = _safe_float(cell(row, "長打率")) or 0.0
             iso = max(0.0, slg - ba)
 
-            pa_map[mapped_name] = pa
-            obp_map[mapped_name] = obp
-            iso_map[mapped_name] = iso
+            pa_map[canonical] = pa
+            obp_map[canonical] = obp
+            iso_map[canonical] = iso
+            raw_name_map[canonical] = raw_name
 
         obp_z = _zscore_map(obp_map)
         iso_z = _zscore_map(iso_map)
@@ -1213,6 +1246,7 @@ def _build_farm_score_maps(candidate_names: list[str]) -> dict:
         return {
             "farm_score": farm_score,
             "farm_pa": pa_map,
+            "farm_raw": raw_name_map,
         }
 
     except Exception as e:
@@ -1220,6 +1254,7 @@ def _build_farm_score_maps(candidate_names: list[str]) -> dict:
         return {
             "farm_score": {},
             "farm_pa": {},
+            "farm_raw": {},
         }
 def _normalize_opponent_name(name: str) -> str:
     name = _clean_text(name)
@@ -1614,6 +1649,57 @@ def _calc_recent_obp(stats: dict) -> float:
     return _round3((hits + walks + hit_by_pitch) / denominator)
 
 
+# NPB 平均 wOBA (2024〜2025 セ・リーグ参考値)
+_LEAGUE_WOBA = 0.310
+_WOBA_SCALE  = 1.15   # wRAA に換算するスケールファクタ
+# wOBA 係数 (FanGraphs 2023 scaling を参考に NPB 向け微調整)
+_WOBA_BB  = 0.69
+_WOBA_HBP = 0.72
+_WOBA_1B  = 0.89
+_WOBA_2B  = 1.27
+_WOBA_3B  = 1.62
+_WOBA_HR  = 2.10
+# 打撃 WAR 換算: 10 wRAA ≒ 1 WAR (簡易)
+_WRAA_PER_WAR = 10.0
+
+
+def _calc_woba(stats: dict, pa: int) -> float:
+    """直近集計 stats から wOBA を計算して返す。"""
+    if pa <= 0:
+        return 0.0
+    hits     = int(stats.get("hits", 0) or 0)
+    doubles  = int(stats.get("doubles", 0) or 0)
+    triples  = int(stats.get("triples", 0) or 0)
+    hr       = int(stats.get("homeruns", 0) or 0)
+    bb       = int(stats.get("walks", 0) or 0)
+    hbp      = int(stats.get("hit_by_pitch", 0) or 0)
+    singles  = hits - doubles - triples - hr
+    woba = (
+        _WOBA_BB  * bb
+      + _WOBA_HBP * hbp
+      + _WOBA_1B  * singles
+      + _WOBA_2B  * doubles
+      + _WOBA_3B  * triples
+      + _WOBA_HR  * hr
+    ) / pa
+    return _round3(woba)
+
+
+def _calc_war_batting(stats: dict, pa: int, defense_bonus: float) -> float:
+    """wOBA ベースの簡易打撃 WAR を計算して返す。
+    wRAA = (wOBA - league_wOBA) / wOBA_scale × PA
+    守備 run = defense_bonus × PA / 9  (1 試合 9 打席換算)
+    WAR  = (wRAA + defense_run) / _WRAA_PER_WAR
+    """
+    if pa <= 0:
+        return 0.0
+    woba = _calc_woba(stats, pa)
+    wraa = (woba - _LEAGUE_WOBA) / _WOBA_SCALE * pa
+    defense_run = defense_bonus * pa / 9.0
+    war = (wraa + defense_run) / _WRAA_PER_WAR
+    return round(war, 2)
+
+
 def _build_recent_batting_response(window_games: int) -> dict:
     cache_bucket = _cache_get_bucket("recent_batting")
     cache_key = f"response:{window_games}"
@@ -1640,6 +1726,9 @@ def _build_recent_batting_response(window_games: int) -> dict:
         avg = _round3(hits / ab) if ab > 0 else 0.0
         obp = _calc_recent_obp(stats)
         iso = _calc_iso_from_stats(stats)
+        # SLG = AVG + ISO;  OPS = OBP + SLG
+        slg = _round3(avg + iso)
+        ops = _round3(obp + slg)
 
         rows.append({
             "player_name": player_name,
@@ -1658,9 +1747,12 @@ def _build_recent_batting_response(window_games: int) -> dict:
             "triples": int(stats.get("triples", 0) or 0),
             "avg": avg,
             "obp": obp,
+            "slg": slg,
+            "ops": ops,
             "iso": iso,
             "defense_bonus": round(float(_defense_value_for(player_name)), 3),
-
+            "woba": _calc_woba(stats, pa),
+            "war": _calc_war_batting(stats, pa, round(float(_defense_value_for(player_name)), 3)),
         })
 
     rows.sort(
@@ -1705,24 +1797,47 @@ def _recent_snapshot_map(window_games: int) -> dict[str, dict]:
 
 
 def _get_prediction_candidate_names(now: datetime | None = None) -> list[str]:
+    """打順予測の候補選手リストを返す。
+
+    一軍候補:
+        一軍メンバー登録ページに掲載されている選手のみ。
+        PLAYER_PROFILE への登録有無は問わない（ページ掲載名をそのまま採用）。
+
+    二軍候補:
+        二軍打撃成績ページで50PA以上の全選手をスキャンし、
+        打撃スコア（OBP/ISO z-score 合成）が最上位の1名のみを選出。
+        そのスコアに FARM_DISCOUNT(0.9) を乗じて一軍選手と同一軸で比較される。
+    """
     now = now or _now_jst()
 
+    # ① 一軍候補: メンバーページのみ参照
     active_first_team = _get_active_first_team_position_players(now)
-    farm_maps = _build_farm_score_maps(list(FARM_PROMOTION_CANDIDATES.keys()))
+    candidates: list[str] = list(active_first_team)
 
-    candidates: list[str] = []
+    # ② 二軍候補: 50PA以上の全選手からスコア最上位1名を選出
+    #    ただし一軍登録済み選手はスキップし、純粋な二軍選手のみを対象とする
+    farm_maps = _build_farm_score_maps()
+    farm_score = farm_maps.get("farm_score", {})
 
-    for name in PLAYER_PROFILE.keys():
-        if name in active_first_team and name not in candidates:
-            candidates.append(name)
-
-    for name in FARM_PROMOTION_CANDIDATES.keys():
-        if name in farm_maps["farm_score"] and name not in candidates:
-            candidates.append(name)
-
-    for name in PROMOTED_FROM_FARM.keys():
-        if _is_recently_promoted(name, now) and name not in candidates:
-            candidates.append(name)
+    if farm_score:
+        # 一軍登録済み選手を除外した上でスコア最大の選手を1名選出
+        first_team_canonical = {_canonical_player_name(n) for n in active_first_team}
+        farm_score_filtered = {
+            n: s for n, s in farm_score.items()
+            if _canonical_player_name(n) not in first_team_canonical
+        }
+        if farm_score_filtered:
+            best_farm_name = max(farm_score_filtered, key=lambda n: farm_score_filtered[n])
+            best_farm_score = farm_score_filtered[best_farm_name]
+            print(
+                f"DEBUG_FARM_BEST name={best_farm_name}"
+                f" score={best_farm_score:.4f}"
+                f" pa={farm_maps.get('farm_pa', {}).get(best_farm_name, 0)}"
+            )
+            if best_farm_name not in candidates:
+                candidates.append(best_farm_name)
+        else:
+            print("DEBUG_FARM_BEST: 二軍スキャン結果が全員一軍登録済みのため追加なし")
 
     return candidates
 
@@ -1755,39 +1870,392 @@ def _slot_score(
     recent_map: dict[str, dict],
     defense_map: dict,
 ) -> tuple[float, dict, dict, float]:
+    """打順スロット専用スコア計算。
+    weights キー: recent_obp / recent_iso / season_obp / season_iso / defense
+    各指標を 0〜100 スケールに正規化してウエイト合計で算出。
+    """
     canonical_name = _canonical_player_name(player_name)
 
     recent = recent_map.get(canonical_name, {
-        "games": 0,
-        "pa": 0,
-        "ab": 0,
-        "obp": 0.0,
-        "iso": 0.0,
-        "raw": {},
+        "games": 0, "pa": 0, "ab": 0, "obp": 0.0, "iso": 0.0, "raw": {},
     })
     season_pos = _get_adjusted_position_batting(canonical_name, position)
-    defense = _defense_value_for(canonical_name, position, defense_map)
+    defense    = _defense_value_for(canonical_name, position, defense_map)
 
-    recent_value = recent["obp"] * 100 + recent["iso"] * 100
-    season_value = (
-        float(season_pos.get("obp", 0.0) or 0.0) * 100
-        + float(season_pos.get("iso", 0.0) or 0.0) * 100
-    )
-    defense_value = defense * 10
+    r_obp = float(recent.get("obp", 0.0) or 0.0) * 100
+    r_iso = float(recent.get("iso", 0.0) or 0.0) * 100
+    s_obp = float(season_pos.get("obp", 0.0) or 0.0) * 100
+    s_iso = float(season_pos.get("iso", 0.0) or 0.0) * 100
+    defv  = defense * 10   # 守備補正を同スケールに
 
     weights = slot_def.get("weights", {})
     score = (
-        float(weights.get("recent", 0.0) or 0.0) * recent_value
-        + float(weights.get("season_pos", 0.0) or 0.0) * season_value
-        + float(weights.get("defense", 0.0) or 0.0) * defense_value
+        float(weights.get("recent_obp",  0.0) or 0.0) * r_obp
+      + float(weights.get("recent_iso",  0.0) or 0.0) * r_iso
+      + float(weights.get("season_obp",  0.0) or 0.0) * s_obp
+      + float(weights.get("season_iso",  0.0) or 0.0) * s_iso
+      + float(weights.get("defense",     0.0) or 0.0) * defv
     )
 
-    min_defense = float(slot_def.get("min_defense", -999.0) or -999.0)
-    penalty = float(slot_def.get("low_defense_penalty", 0.0) or 0.0)
-    if defense < min_defense:
-        score -= penalty
-
     return score, recent, season_pos, defense
+
+
+
+def _ordinal_ja(n: int) -> str:
+    """1→'1位', 2→'2位' ... """
+    return f"{n}位"
+
+
+def _build_ranks(all_stats: list[dict]) -> dict[str, dict[str, int]]:
+    """全候補選手の各指標ランキングを事前計算。
+    返り値: {player_name: {metric_key: rank}}
+    """
+    metrics = ["recent_obp", "recent_iso", "season_obp", "season_iso", "defense"]
+    ranks: dict[str, dict[str, int]] = {s["name"]: {} for s in all_stats}
+
+    for metric in metrics:
+        # 値が 0.0 の選手はランキング対象外（欠損扱い）にする
+        scored = [(s["name"], s[metric]) for s in all_stats if s[metric] != 0.0]
+        scored.sort(key=lambda x: -x[1])
+        for rank, (name, _) in enumerate(scored, start=1):
+            ranks[name][metric] = rank
+
+    return ranks
+
+
+def _build_reason(
+    player_name: str,
+    position: str,
+    role: str,
+    recent: dict,
+    season_pos: dict,
+    defense: float,
+    ranks: dict[str, dict[str, int]],
+    window_games: int,
+) -> str:
+    """指標の順位を交えた日本語の根拠文を生成する。"""
+    r_obp  = recent.get("obp", 0.0)
+    r_iso  = recent.get("iso", 0.0)
+    s_obp  = float(season_pos.get("obp", 0.0) or 0.0)
+    s_iso  = float(season_pos.get("iso", 0.0) or 0.0)
+
+    player_ranks = ranks.get(player_name, {})
+
+    def rank_tag(metric: str) -> str:
+        r = player_ranks.get(metric)
+        if r and r <= 3:
+            return f"（候補中{_ordinal_ja(r)}）"
+        return ""
+
+    r_obp_tag  = rank_tag("recent_obp")
+    r_iso_tag  = rank_tag("recent_iso")
+    s_obp_tag  = rank_tag("season_obp")
+    s_iso_tag  = rank_tag("season_iso")
+    def_tag    = rank_tag("defense")
+
+    # 打順役割ごとに強調する指標を変える
+    if role in ("lead_obp_glove",):
+        # 1番：出塁＋守備重視
+        parts = [
+            f"直近{window_games}試合出塁率 {r_obp:.3f}{r_obp_tag}",
+            f"シーズン{position}補正出塁率 {s_obp:.3f}{s_obp_tag}",
+            f"守備補正 {defense:+.3f}{def_tag}",
+        ]
+    elif role in ("two_hole_bat",):
+        # 2番：打撃バランス
+        parts = [
+            f"直近{window_games}試合出塁率 {r_obp:.3f}{r_obp_tag}",
+            f"シーズン補正出塁率 {s_obp:.3f}{s_obp_tag}",
+            f"直近長打率 {r_iso:.3f}{r_iso_tag}",
+        ]
+    elif role in ("three_hole_iso_glove",):
+        # 3番：長打＋守備
+        parts = [
+            f"直近{window_games}試合長打率 {r_iso:.3f}{r_iso_tag}",
+            f"シーズン{position}補正長打率 {s_iso:.3f}{s_iso_tag}",
+            f"守備補正 {defense:+.3f}{def_tag}",
+        ]
+    elif role in ("cleanup_bat",):
+        # 4番：長打力最重視
+        parts = [
+            f"直近{window_games}試合長打率 {r_iso:.3f}{r_iso_tag}",
+            f"直近出塁率 {r_obp:.3f}{r_obp_tag}",
+            f"シーズン補正長打率 {s_iso:.3f}{s_iso_tag}",
+        ]
+    elif role in ("five_hole_power",):
+        # 5番：長打＋出塁
+        parts = [
+            f"直近{window_games}試合長打率 {r_iso:.3f}{r_iso_tag}",
+            f"シーズン補正出塁率 {s_obp:.3f}{s_obp_tag}",
+            f"シーズン補正長打率 {s_iso:.3f}{s_iso_tag}",
+        ]
+    elif role in ("six_hole_balance",):
+        # 6番：総合打撃バランス
+        parts = [
+            f"直近{window_games}試合出塁率 {r_obp:.3f}{r_obp_tag}",
+            f"直近長打率 {r_iso:.3f}{r_iso_tag}",
+            f"シーズン補正出塁率 {s_obp:.3f}{s_obp_tag}",
+            f"シーズン補正長打率 {s_iso:.3f}{s_iso_tag}",
+        ]
+    elif role in ("seven_hole_season",):
+        # 7番：シーズン成績重視＋守備
+        parts = [
+            f"シーズン補正出塁率 {s_obp:.3f}{s_obp_tag}",
+            f"シーズン補正長打率 {s_iso:.3f}{s_iso_tag}",
+            f"守備補正 {defense:+.3f}{def_tag}",
+            f"直近{window_games}試合出塁率 {r_obp:.3f}{r_obp_tag}",
+        ]
+    elif role in ("glove_bottom",):
+        # 8番：守備最重視
+        parts = [
+            f"守備補正 {defense:+.3f}{def_tag}",
+            f"シーズン補正出塁率 {s_obp:.3f}{s_obp_tag}",
+            f"直近{window_games}試合出塁率 {r_obp:.3f}{r_obp_tag}",
+        ]
+    elif role in ("turnover_obp",):
+        # 9番：繋ぎ出塁
+        parts = [
+            f"シーズン補正出塁率 {s_obp:.3f}{s_obp_tag}",
+            f"直近{window_games}試合出塁率 {r_obp:.3f}{r_obp_tag}",
+            f"守備補正 {defense:+.3f}{def_tag}",
+        ]
+    else:
+        parts = [
+            f"直近{window_games}試合出塁率 {r_obp:.3f}{r_obp_tag}",
+            f"直近長打率 {r_iso:.3f}{r_iso_tag}",
+            f"シーズン補正出塁率 {s_obp:.3f}{s_obp_tag}",
+            f"シーズン補正長打率 {s_iso:.3f}{s_iso_tag}",
+        ]
+
+    return "、".join(parts)
+
+
+# ── 打順役割ラベル（日本語） ──────────────────────────────────────────────
+_ROLE_LABEL_JA: dict[str, str] = {
+    "lead_obp_glove":      "1番（出塁＋守備型）",
+    "two_hole_bat":        "2番（バランス型）",
+    "three_hole_contact":  "3番（巧打型）",
+    "cleanup_power":       "4番（長打型）",
+    "five_hole_power":     "5番（長打補完型）",
+    "six_hole_balance":    "6番（総合バランス型）",
+    "seven_hole_season":   "7番（シーズン実績型）",
+    "glove_bottom":        "8番（守備型）",
+    "turnover_obp":        "9番（繋ぎ出塁型）",
+}
+
+
+def _build_commentary(
+    player_name: str,
+    position: str,
+    role: str,
+    recent: dict,
+    season_pos: dict,
+    defense: float,
+    ranks: dict[str, dict[str, int]],
+    window_games: int,
+    score: float,
+) -> str:
+    """打順決定の論理的な解説文（2〜3文）を生成する。"""
+    r_obp = recent.get("obp", 0.0)
+    r_iso = recent.get("iso", 0.0)
+    s_obp = float(season_pos.get("obp", 0.0) or 0.0)
+    s_iso = float(season_pos.get("iso", 0.0) or 0.0)
+
+    player_ranks = ranks.get(player_name, {})
+
+    def rank_str(metric: str) -> str:
+        r = player_ranks.get(metric)
+        if r is None:
+            return "データ参照不能"
+        if r == 1:
+            return "候補中トップ"
+        if r == 2:
+            return "候補中2位"
+        if r == 3:
+            return "候補中3位"
+        if r <= 5:
+            return f"候補中{r}位"
+        return "候補中下位"
+
+    def rank_adj(metric: str, high_word: str = "高く", low_word: str = "低め") -> str:
+        r = player_ranks.get(metric)
+        if r is None:
+            return low_word
+        return high_word if r <= 3 else low_word
+
+    # ── role別に解説文テンプレートを分岐 ──
+    if role == "lead_obp_glove":
+        # 1番スコア = recent_obp×35 + recent_iso×5 + season_obp×30 + season_iso×5 + defense×2.5
+        sent1 = (
+            f"直近{window_games}試合の出塁率 {r_obp:.3f} は{rank_str('recent_obp')}であり、"
+            f"打線の起点となる出塁能力を備えている。"
+        )
+        sent2 = (
+            f"シーズン通算でも{position}守備での補正出塁率 {s_obp:.3f} を維持しており、"
+            f"短期スランプに左右されない安定した出塁が期待できる。"
+        )
+        sent3 = (
+            f"1番スコアは直近OBP（ウェイト35%）とシーズン補正OBP（30%）の合計が軸で、"
+            f"守備補正（10%相当）も加算した結果 {score:.1f} が候補中最高となり、選出した。"
+        )
+        return sent1 + sent2 + sent3
+
+    elif role == "two_hole_bat":
+        # 2番スコア = recent_obp×25 + recent_iso×20 + season_obp×25 + season_iso×20 + defense×1
+        sent1 = (
+            f"直近{window_games}試合の出塁率 {r_obp:.3f}（{rank_str('recent_obp')}）と"
+            f"長打指数 {r_iso:.3f}（{rank_str('recent_iso')}）を兼備しており、"
+            f"1番走者を進める「つなぎ」と自身の長打による得点機創出を両立できる。"
+        )
+        sent2 = (
+            f"2番スコアはOBP系（直近25%＋シーズン補正25%）とISO系（直近20%＋シーズン補正20%）を"
+            f"均等に評価する設計で、どちらか一方が突出するより両立している選手が高得点になる。"
+            f"この選手の総合スコア {score:.1f} はその均等評価で候補中最高と判定された。"
+        )
+        return sent1 + sent2
+
+    elif role == "three_hole_contact":
+        # 3番スコア = recent_obp×30 + recent_iso×20 + season_obp×25 + season_iso×20 + defense×0.5
+        sent1 = (
+            f"直近{window_games}試合の出塁率 {r_obp:.3f}（{rank_str('recent_obp')}）と"
+            f"長打指数 {r_iso:.3f}（{rank_str('recent_iso')}）を持ち、"
+            f"クリーンアップ前の3番として出塁と長打の両方を要求するスロットに適合している。"
+        )
+        sent2 = (
+            f"3番スコアは直近OBP（30%）を最重視しつつISO系（直近20%＋シーズン補正20%）も加算する設計で、"
+            f"シーズン補正出塁率 {s_obp:.3f}・補正長打率 {s_iso:.3f} の中・長期的な安定感も含めた"
+            f"総合スコア {score:.1f} が候補中最高となり、選出した。"
+        )
+        return sent1 + sent2
+
+    elif role == "cleanup_power":
+        # 4番スコア = recent_obp×10 + recent_iso×35 + season_obp×10 + season_iso×40 + defense×0.5
+        # → ISOに75%の重みが集中。OBPは20%のみ
+        sent1 = (
+            f"4番スコアは長打指数（ISO）に重点を置いた設計で、"
+            f"直近ISO（ウェイト35%）とシーズン補正ISO（40%）が合計75%を占め、"
+            f"OBP系は残り20%に過ぎない。つまり「長打力が評価の大部分を決める」打順である。"
+        )
+        # 直近ISOが低い場合とそうでない場合を分ける
+        if r_iso < 0.100:
+            sent2 = (
+                f"この選手の直近長打指数は {r_iso:.3f}（{rank_str('recent_iso')}）と振るわないが、"
+                f"シーズン補正長打率 {s_iso:.3f}（{rank_str('season_iso')}）が補完し、"
+                f"長打力を評価する2指標のウェイト加算後のスコア {score:.1f} が、"
+                f"守備位置制約を外した候補全員の中で4番スロットへの適合度が最も高かった。"
+            )
+        else:
+            sent2 = (
+                f"直近長打指数 {r_iso:.3f}（{rank_str('recent_iso')}）と"
+                f"シーズン補正長打率 {s_iso:.3f}（{rank_str('season_iso')}）の両ISOが"
+                f"ウェイト合計75%で積み上がり、スコア {score:.1f} が候補中最高となった。"
+            )
+        sent3 = (
+            f"出塁率 {r_obp:.3f} も一定の水準を保っており、"
+            f"残り20%のOBP評価も大きく足を引っ張らなかった点も選出の後押しとなっている。"
+        )
+        return sent1 + sent2 + sent3
+
+    elif role == "five_hole_power":
+        # 5番スコア = recent_obp×15 + recent_iso×30 + season_obp×15 + season_iso×30 + defense×1
+        # → ISO系60%、OBP系30%
+        if r_iso < 0.050:
+            # 直近ISOがほぼゼロの場合：正直に説明
+            sent1 = (
+                f"直近{window_games}試合の長打指数は {r_iso:.3f} と低調で、"
+                f"本来5番に求める直近の長打力という観点では候補中で恵まれた数値ではない。"
+            )
+            sent2 = (
+                f"ただし5番スコアはISO系（直近30%＋シーズン補正30%）が合計60%を占め、"
+                f"シーズン補正長打率 {s_iso:.3f}（{rank_str('season_iso')}）が直近不振を一定補完する。"
+                f"さらに出塁率とシーズン補正OBPを合わせた30%分も加算した結果、"
+                f"スコア {score:.1f} が残り候補の中で相対的に最高となり、繰り上がり選出となった。"
+            )
+        else:
+            sent1 = (
+                f"直近{window_games}試合の長打指数 {r_iso:.3f}（{rank_str('recent_iso')}）が示すように、"
+                f"現在の長打力が4番に次ぐ水準にある。"
+            )
+            sent2 = (
+                f"5番スコアはISO系（直近30%＋シーズン補正30%）が合計60%を占める設計で、"
+                f"シーズン補正長打率 {s_iso:.3f}（{rank_str('season_iso')}）も加算した"
+                f"スコア {score:.1f} が候補中最高となり、中軸5番として選出した。"
+            )
+        return sent1 + sent2
+
+    elif role == "six_hole_balance":
+        # 6番スコア = recent_obp×25 + recent_iso×20 + season_obp×25 + season_iso×20 + defense×1
+        sent1 = (
+            f"直近{window_games}試合の出塁率 {r_obp:.3f}・長打指数 {r_iso:.3f} に加え、"
+            f"シーズン補正出塁率 {s_obp:.3f}・補正長打率 {s_iso:.3f} の4指標で評価した。"
+        )
+        sent2 = (
+            f"6番スコアはOBP系（直近25%＋補正25%）とISO系（直近20%＋補正20%）が"
+            f"ほぼ等配分で、突出した指標がなくとも4指標を安定してカバーする選手が高得点になる設計だ。"
+            f"この選手のスコア {score:.1f} が残り候補の中で最高となり、6番に配置した。"
+        )
+        return sent1 + sent2
+
+    elif role == "seven_hole_season":
+        # 7番スコア = recent_obp×15 + recent_iso×10 + season_obp×30 + season_iso×15 + defense×3
+        sent1 = (
+            f"シーズン通算の補正出塁率 {s_obp:.3f}（{rank_str('season_obp')}）と"
+            f"補正長打率 {s_iso:.3f}（{rank_str('season_iso')}）が7番評価の中心となる。"
+        )
+        sent2 = (
+            f"7番スコアはシーズン補正OBP（30%）と守備補正（30%相当）を重視する設計で、"
+            f"直近の状態より長いスパンの実力と守備貢献度で選手を選ぶ打順だ。"
+            f"直近出塁率 {r_obp:.3f} に加え守備補正 {defense:+.3f} も含めたスコア {score:.1f} が"
+            f"候補中最高となり、下位打線の安定役として選出した。"
+        )
+        return sent1 + sent2
+
+    elif role == "glove_bottom":
+        # 8番スコア = recent_obp×10 + recent_iso×5 + season_obp×20 + season_iso×10 + defense×5.5
+        sent1 = (
+            f"8番スコアは守備補正が全ウェイトの55%を占め、守備力が選出の最大要因となる設計だ。"
+        )
+        if defense > 0:
+            sent2 = (
+                f"この選手の守備補正 {defense:+.3f}（{rank_str('defense')}）が55%のウェイトで効き、"
+                f"打撃系指標（シーズン補正OBP {s_obp:.3f}・直近OBP {r_obp:.3f}）が残り45%を補完した"
+                f"結果、スコア {score:.1f} が候補中最高となった。"
+            )
+        elif defense == 0:
+            sent2 = (
+                f"この選手の守備補正は {defense:+.3f} と中立値だが、"
+                f"残り候補の守備補正もほぼ同水準であるため差がつかず、"
+                f"打撃系指標（シーズン補正OBP {s_obp:.3f}・直近OBP {r_obp:.3f}）の45%分で"
+                f"スコア {score:.1f} が相対的に最高となり、8番に繰り上がり選出となった。"
+            )
+        else:
+            sent2 = (
+                f"守備補正 {defense:+.3f} はマイナスだが、残り候補の中では相対的に高く、"
+                f"打撃系指標の45%分も加算したスコア {score:.1f} が候補中最高となった。"
+            )
+        return sent1 + sent2
+
+    elif role == "turnover_obp":
+        # 9番スコア = recent_obp×30 + recent_iso×10 + season_obp×35 + season_iso×10 + defense×1.5
+        sent1 = (
+            f"9番スコアはシーズン補正OBP（35%）と直近OBP（30%）が合計65%を占め、"
+            f"打線をつなぐ『出塁』が評価の最重要軸となる設計だ。"
+        )
+        sent2 = (
+            f"シーズン補正出塁率 {s_obp:.3f}（{rank_str('season_obp')}）と"
+            f"直近{window_games}試合出塁率 {r_obp:.3f}（{rank_str('recent_obp')}）の"
+            f"合算が主導して、スコア {score:.1f} が候補中最高となり、"
+            f"イニング先頭で出塁して上位打線に繋げる9番として選出した。"
+        )
+        return sent1 + sent2
+
+    else:
+        # fallback
+        return (
+            f"直近{window_games}試合の出塁率 {r_obp:.3f}・長打指数 {r_iso:.3f}、"
+            f"シーズン補正出塁率 {s_obp:.3f}・補正長打率 {s_iso:.3f} の総合評価により、"
+            f"このスロットへの割り当てスコア {score:.1f} が候補中最高となったため選出した。"
+        )
 
 
 def _build_simple_predicted_lineup(window_games: int, use_dh: bool) -> dict:
@@ -1801,105 +2269,146 @@ def _build_simple_predicted_lineup(window_games: int, use_dh: bool) -> dict:
             return cached_value
 
     slot_defs = DH_LINEUP_SLOTS if use_dh else NO_DH_LINEUP_SLOTS
-    recent_map = _recent_snapshot_map(window_games)
-    defense_map = _get_player_defense()
+    recent_map    = _recent_snapshot_map(window_games)
+    defense_map   = _get_player_defense()
     candidate_names = _get_prediction_candidate_names()
 
-    used_players: set[str] = set()
-    used_positions: set[str] = set()
-    lineup: list[dict] = []
+    # ── 全候補の指標を事前集計してランキングを作る ──
+    all_stats_for_rank: list[dict] = []
+    for player_name in candidate_names:
+        cname    = _canonical_player_name(player_name)
+        recent_r = recent_map.get(cname, {"obp": 0.0, "iso": 0.0})
+        def_val  = _defense_value_for(cname, "", defense_map)
+        eligible = (PLAYER_PROFILE.get(cname) or {}).get("eligible_positions", [])
+        best_s_obp, best_s_iso = 0.0, 0.0
+        for pos in eligible:
+            sp = _get_adjusted_position_batting(cname, pos)
+            best_s_obp = max(best_s_obp, float(sp.get("obp", 0.0) or 0.0))
+            best_s_iso = max(best_s_iso, float(sp.get("iso", 0.0) or 0.0))
+        all_stats_for_rank.append({
+            "name":       cname,
+            "recent_obp": float(recent_r.get("obp", 0.0) or 0.0),
+            "recent_iso": float(recent_r.get("iso", 0.0) or 0.0),
+            "season_obp": best_s_obp,
+            "season_iso": best_s_iso,
+            "defense":    def_val,
+        })
+    ranks = _build_ranks(all_stats_for_rank)
 
-    for slot_def in slot_defs:
+    # ── 全スロット × 全候補 × 全ポジションでスコアを計算し
+    #    1番から順にグリーディに最高スコアの選手を割り当て ──
+    used_players: set[str]   = set()
+    used_positions: set[str] = set()   # 同一守備位置の重複を防ぐ
+    lineup: list[dict]       = []
+
+    for slot_def in sorted(slot_defs, key=lambda s: s["order"]):
         best_pick = None
-        allowed_positions = slot_def.get("allowed_positions", [])
 
         for player_name in candidate_names:
             canonical_name = _canonical_player_name(player_name)
             if canonical_name in used_players:
                 continue
 
-            eligible_positions = (PLAYER_PROFILE.get(canonical_name) or {}).get("eligible_positions", [])
+            # 守備位置はそのプレーヤーの最も高いスコアになるポジションを採用
+            # ただし used_positions に含まれないポジションのみ候補とする
+            # PLAYER_PROFILE 未登録の場合は DH のみ（守備位置不明なため）
+            eligible_positions = (
+                (PLAYER_PROFILE.get(canonical_name) or {}).get("eligible_positions", [])
+                or [POS_DH]
+            )
+            # まだ使われていないポジションに絞る
+            # NO_DH のときは DH を候補から除外する
+            available_positions = [
+                p for p in eligible_positions
+                if p not in used_positions
+                and (use_dh or p != POS_DH)
+            ]
+            if not available_positions:
+                continue  # この選手が出場できるポジションがすべて埋まっている
 
-            for position in allowed_positions:
-                if position in used_positions:
-                    continue
-                if position not in eligible_positions:
-                    continue
+            best_pos_score   = None
+            best_pos         = available_positions[0]
+            best_recent      = {}
+            best_season_pos  = {}
+            best_defense     = 0.0
 
+            for position in available_positions:
                 score, recent, season_pos, defense = _slot_score(
-                    canonical_name,
-                    position,
-                    slot_def,
-                    recent_map,
-                    defense_map,
+                    canonical_name, position, slot_def, recent_map, defense_map,
                 )
+                if best_pos_score is None or score > best_pos_score:
+                    best_pos_score  = score
+                    best_pos        = position
+                    best_recent     = recent
+                    best_season_pos = season_pos
+                    best_defense    = defense
 
-                if (best_pick is None) or (score > best_pick["score"]):
-                    best_pick = {
-                        "order": int(slot_def.get("order", 0) or 0),
-                        "position": position,
-                        "player_name": canonical_name,
-                        "score": round(score, 3),
-                        "recent": recent,
-                        "season_pos": season_pos,
-                        "defense": round(defense, 3),
-                        "role": slot_def.get("role", ""),
-                    }
+            if best_pick is None or best_pos_score > best_pick["score"]:
+                best_pick = {
+                    "order":      int(slot_def.get("order", 0) or 0),
+                    "position":   best_pos,
+                    "player_name": canonical_name,
+                    "score":      round(best_pos_score, 3),
+                    "recent":     best_recent,
+                    "season_pos": best_season_pos,
+                    "defense":    round(best_defense, 3),
+                    "role":       slot_def.get("role", ""),
+                }
 
         if best_pick is None:
             continue
 
         used_players.add(best_pick["player_name"])
-        used_positions.add(best_pick["position"])
+        used_positions.add(best_pick["position"])  # 使用済みポジションに追加
 
-        recent = best_pick["recent"]
+        recent     = best_pick["recent"]
         season_pos = best_pick["season_pos"]
-        position = best_pick["position"]
-
-        reason = (
-            f"直近OBP {recent['obp']:.3f} / ISO {recent['iso']:.3f}、"
-            f"{position}補正OBP {float(season_pos.get('obp', 0.0) or 0.0):.3f} / "
-            f"ISO {float(season_pos.get('iso', 0.0) or 0.0):.3f}、"
-            f"守備補正 {best_pick['defense']:+.3f}"
+        position   = best_pick["position"]
+        reason = _build_reason(
+            best_pick["player_name"], position, best_pick["role"],
+            recent, season_pos, best_pick["defense"], ranks, window_games,
         )
-
+        commentary = _build_commentary(
+            best_pick["player_name"], position, best_pick["role"],
+            recent, season_pos, best_pick["defense"], ranks, window_games,
+            best_pick["score"],
+        )
         lineup.append({
-            "order": best_pick["order"],
+            "order":    best_pick["order"],
             "position": position,
             "player_name": best_pick["player_name"],
-            "score": best_pick["score"],
-            "reason": reason,
+            "score":    best_pick["score"],
+            "reason":   reason,
+            "commentary": commentary,
             "recent": {
-                "games": recent["games"],
-                "pa": recent["pa"],
-                "ab": recent["ab"],
-                "obp": recent["obp"],
-                "iso": recent["iso"],
+                "games": recent["games"], "pa": recent["pa"],
+                "ab":    recent["ab"],    "obp": recent["obp"], "iso": recent["iso"],
             },
             "season_position": {
-                "pa": float(season_pos.get("pa", 0.0) or 0.0),
-                "ab": float(season_pos.get("ab", 0.0) or 0.0),
+                "pa":  float(season_pos.get("pa",  0.0) or 0.0),
+                "ab":  float(season_pos.get("ab",  0.0) or 0.0),
                 "obp": float(season_pos.get("obp", 0.0) or 0.0),
                 "iso": float(season_pos.get("iso", 0.0) or 0.0),
             },
             "defense": best_pick["defense"],
-            "role": best_pick["role"],
+            "role":    best_pick["role"],
         })
 
     lineup.sort(key=lambda x: x["order"])
 
     result = {
-        "use_dh": use_dh,
+        "use_dh":       use_dh,
         "window_games": window_games,
         "generated_at": _now_jst().isoformat(),
-        "lineup": lineup,
+        "lineup":       lineup,
     }
 
     cache_bucket[cache_key] = {
-        "value": result,
+        "value":      result,
         "expires_at": _cache_now() + CACHE_TTL_PREDICTED_LINEUP,
     }
     return result
+
 
 def _wants_html(request: Request, view: str | None) -> bool:
     if view == "json":
@@ -1911,311 +2420,1029 @@ def _wants_html(request: Request, view: str | None) -> bool:
     return "text/html" in accept
 
 
-def _html_page(title: str, body: str) -> HTMLResponse:
+def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
+    _desc = description or "広島東洋カープの打撃成績・予想打順・得点圏打率・WAR・走塁守備指標をリアルタイムで分析するファンサイトです。"
     return HTMLResponse(
         f"""<!doctype html>
 <html lang="ja">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{escape(title)}</title>
+  <title>{escape(title)} | 鯉男の打席分析室</title>
+  <meta name="description" content="{escape(_desc)}">
+  <meta name="robots" content="index, follow">
+  <meta property="og:title" content="{escape(title)} | 鯉男の打席分析室">
+  <meta property="og:description" content="{escape(_desc)}">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="ja_JP">
   <style>
+    /* ── リセット & ベース ── */
+    *, *::before, *::after {{ box-sizing: border-box; }}
     body {{
       margin: 0;
-      background: #0b1020;
-      color: #f5f7fb;
-      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
+      background: #070d1a;
+      color: #e8edf8;
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
     }}
-    .wrap {{
-      max-width: 1100px;
+    a {{ color: inherit; text-decoration: none; }}
+
+    /* ── サイトヘッダー ── */
+    .site-header {{
+      background: #050b17;
+      border-bottom: 1px solid #1a2540;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }}
+    .site-logo {{
+      font-size: 16px;
+      font-weight: 900;
+      color: #ffd54a;
+      letter-spacing: -0.01em;
+      text-decoration: none;
+    }}
+    .site-logo span {{
+      color: #c8d8f4;
+      font-weight: 400;
+      font-size: 12px;
+      margin-left: 8px;
+    }}
+    .site-header-nav {{
+      display: flex;
+      gap: 16px;
+      font-size: 12px;
+      color: #5a6e94;
+    }}
+    .site-header-nav a:hover {{ color: #c8d8f4; }}
+
+    /* ── 3カラム広告レイアウト ── */
+    .page-layout {{
+      display: grid;
+      grid-template-columns: 160px 1fr 160px;
+      gap: 0;
+      max-width: 1480px;
       margin: 0 auto;
-      padding: 24px 16px 64px;
+      align-items: start;
     }}
+    /* 広告カラム */
+    .ad-col {{
+      padding: 16px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      position: sticky;
+      top: 57px;  /* site-header の高さ */
+      align-self: start;
+    }}
+    .ad-unit {{
+      width: 160px;
+      min-height: 600px;
+      background: #0c1424;
+      border: 1px dashed #1e2d50;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      color: #2a3a5a;
+      font-size: 10px;
+      text-align: center;
+    }}
+    .ad-unit-label {{
+      font-size: 9px;
+      color: #2a3a5a;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }}
+    /* コンテンツカラム */
+    .content-col {{
+      min-width: 0;
+      border-left: 1px solid #0f1829;
+      border-right: 1px solid #0f1829;
+    }}
+    /* ── 既存 .wrap をコンテンツ内に ── */
+    .wrap {{
+      max-width: 100%;
+      padding: 20px 20px 40px;
+    }}
+
+    /* タブレット: サイド広告を1本に */
+    @media (max-width: 1100px) {{
+      .page-layout {{ grid-template-columns: 0 1fr 0; }}
+      .ad-col {{ display: none; }}
+    }}
+
+    /* ── ページヘッダー ── */
     .hero {{
-      background: linear-gradient(135deg, #121a31 0%, #172449 100%);
-      border: 1px solid #26304d;
-      border-radius: 20px;
-      padding: 20px;
-      margin-bottom: 18px;
+      background: linear-gradient(135deg, #0e1628 0%, #142040 60%, #0e1a35 100%);
+      border: 1px solid #1e2d50;
+      border-radius: 16px;
+      padding: 20px 24px 16px;
+      margin-bottom: 16px;
+      position: relative;
+      overflow: hidden;
+    }}
+    .hero::before {{
+      content: "";
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #ffd54a 0%, #ff9800 50%, #e91e63 100%);
+      border-radius: 16px 16px 0 0;
     }}
     .hero h1 {{
-      margin: 0 0 8px;
-      font-size: 28px;
-      line-height: 1.3;
+      margin: 0 0 4px;
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
     }}
     .muted {{
-      color: #a9b5d1;
-      font-size: 13px;
+      color: #8494b8;
+      font-size: 12px;
+      margin-top: 2px;
     }}
-    .links {{
-      margin-top: 12px;
+
+    /* ── ナビゲーション ── */
+    .nav-bar {{
+      margin-top: 14px;
       display: flex;
+      flex-direction: column;
+      gap: 8px;
+      border-top: 1px solid #1e2d50;
+      padding-top: 12px;
+    }}
+    .nav-section {{
+      display: flex;
+      align-items: center;
       gap: 8px;
       flex-wrap: wrap;
     }}
-    .links a {{
-      display: inline-block;
-      text-decoration: none;
-      color: #0b1020;
-      background: #ffd54a;
-      border-radius: 999px;
-      padding: 8px 12px;
+    .nav-label {{
+      font-size: 10px;
       font-weight: 700;
-      font-size: 13px;
+      color: #4a5878;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      min-width: 56px;
     }}
-    .card {{
-      background: #121a31;
-      border: 1px solid #26304d;
-      border-radius: 18px;
-      padding: 18px;
-      margin-top: 14px;
-    }}
-    .lineup-grid {{
-      display: grid;
-      gap: 14px;
-    }}
-    .slot-head {{
+    .nav-group {{
       display: flex;
-      justify-content: space-between;
-      gap: 12px;
+      gap: 4px;
       flex-wrap: wrap;
-      align-items: baseline;
-      margin-bottom: 10px;
     }}
-    .order {{
-      font-size: 24px;
-      font-weight: 800;
-      color: #ffd54a;
-    }}
-    .name {{
-      font-size: 22px;
-      font-weight: 800;
-    }}
-    .pos {{
-      display: inline-block;
-      margin-left: 8px;
-      padding: 4px 8px;
-      border-radius: 999px;
-      background: #243154;
-      color: #d8e5ff;
+    .nav-btn {{
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      text-decoration: none;
+      color: #9db0d4;
+      background: #0f1829;
+      border: 1px solid #1e2d50;
+      border-radius: 6px;
+      padding: 5px 11px;
+      font-weight: 600;
       font-size: 12px;
-      font-weight: 700;
+      transition: all 0.15s;
+      white-space: nowrap;
+      cursor: pointer;
     }}
-    .reason {{
-      margin-top: 10px;
-      font-size: 15px;
-      line-height: 1.8;
-      color: #f5f7fb;
+    .nav-btn:hover {{
+      background: #192540;
+      border-color: #3a5080;
+      color: #e8edf8;
     }}
-    .stats {{
-      margin-top: 14px;
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 10px;
+    .nav-btn.active {{
+      background: #ffd54a;
+      color: #07100a;
+      border-color: #ffd54a;
+      font-weight: 800;
+      pointer-events: none;
     }}
-    .stat {{
-      background: #0f1730;
-      border: 1px solid #26304d;
+    .nav-divider {{
+      width: 1px;
+      height: 18px;
+      background: #1e2d50;
+      margin: 0 2px;
+      align-self: center;
+    }}
+
+    /* ── カード ── */
+    .card {{
+      background: #0c1424;
+      border: 1px solid #1a2540;
       border-radius: 14px;
-      padding: 12px;
+      padding: 20px;
+      margin-top: 14px;
     }}
-    .stat .label {{
-      font-size: 12px;
-      color: #a9b5d1;
-      margin-bottom: 6px;
+    .card-title {{
+      font-size: 16px;
+      font-weight: 700;
+      color: #c8d8f4;
+      margin: 0 0 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }}
-    .stat .value {{
-      font-size: 20px;
-      font-weight: 800;
+    .card-title::before {{
+      content: "";
+      display: inline-block;
+      width: 4px;
+      height: 16px;
+      background: #ffd54a;
+      border-radius: 2px;
+    }}
+    .legend {{
+      font-size: 11px;
+      color: #4a5878;
+      margin: 8px 0 14px;
+      line-height: 1.8;
+    }}
+    .legend b {{ color: #7a90b8; }}
+
+    /* ── テーブル共通 ── */
+    .table-wrap {{
+      overflow-x: auto;
+      margin-top: 4px;
+      border-radius: 8px;
+      border: 1px solid #1a2540;
     }}
     table {{
       width: 100%;
       border-collapse: collapse;
-      margin-top: 12px;
-      min-width: 880px;
+      min-width: 640px;
     }}
-    .table-wrap {{
-      overflow-x: auto;
-    }}
-    th, td {{
-      border-bottom: 1px solid #26304d;
-      padding: 10px 8px;
+    thead {{ background: #0a1020; }}
+    th {{
+      color: #5a6e94;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      padding: 10px 10px;
       text-align: right;
+      border-bottom: 1px solid #1a2540;
       white-space: nowrap;
+      user-select: none;
     }}
-    th:first-child, td:first-child {{
+    th:first-child {{ text-align: left; }}
+    td {{
+      padding: 9px 10px;
+      text-align: right;
+      border-bottom: 1px solid #111e35;
+      white-space: nowrap;
+      font-size: 13px;
+    }}
+    td:first-child {{
       text-align: left;
+      font-weight: 600;
+      color: #c8d8f4;
       position: sticky;
       left: 0;
-      background: #121a31;
+      background: #0c1424;
+      z-index: 1;
     }}
-    th {{
-      color: #a9b5d1;
-      font-size: 12px;
+    tbody tr:nth-child(even) td {{ background: #0a1120; }}
+    tbody tr:nth-child(even) td:first-child {{ background: #0a1120; }}
+    tbody tr:hover td {{ background: #132040 !important; transition: background 0.1s; }}
+    tbody tr:last-child td {{ border-bottom: none; }}
+    .empty {{ color: #4a5878; padding: 24px; text-align: center; }}
+
+    /* ── ソート可能ヘッダ ── */
+    th.sortable {{
+      cursor: pointer;
+      position: relative;
+      padding-right: 20px;
+      transition: color 0.15s;
     }}
-    .empty {{
-      color: #a9b5d1;
-      padding: 18px;
+    th.sortable::after {{ content: "⇅"; position: absolute; right: 5px; opacity: 0.3; font-size: 9px; }}
+    th.sortable.asc::after  {{ content: "▲"; opacity: 0.9; color: #ffd54a; }}
+    th.sortable.desc::after {{ content: "▼"; opacity: 0.9; color: #ffd54a; }}
+    th.sortable:hover {{ color: #ffd54a; }}
+
+    /* ── 強調カラム ── */
+    .col-gold  {{ color: #ffd54a; font-weight: 700; }}
+    .col-cyan  {{ color: #56cff8; font-weight: 700; }}
+    .col-green {{ color: #5ce65c; font-weight: 700; }}
+    .col-red   {{ color: #f06060; }}
+    th.col-gold {{ color: #ffd54a; }}
+    th.col-cyan {{ color: #56cff8; }}
+
+    /* ── 2カラムレイアウト（一部ページ用） ── */
+    .two-col-layout {{
+      display: grid;
+      grid-template-columns: 1fr 210px;
+      gap: 14px;
+      align-items: start;
+    }}
+    @media (max-width: 860px) {{
+      .two-col-layout {{ grid-template-columns: 1fr; }}
+      .sidebar-col {{ order: -1; }}
+    }}
+    .sidebar-card {{ position: sticky; top: 16px; }}
+    .sidebar-title {{ font-size: 14px; font-weight: 700; margin: 0 0 12px; color: #ffd54a; }}
+
+    /* ── 試合カード ── */
+    .game-card {{ padding: 10px 0; border-bottom: 1px solid #1a2540; }}
+    .game-card:last-child {{ border-bottom: none; }}
+    .game-date-row {{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 3px; }}
+    .game-date {{ font-size: 12px; font-weight: 700; color: #8494b8; }}
+    .game-result {{ font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 999px; background: #1a2540; color: #8494b8; }}
+    .result-win  {{ background: #0e2a0e; color: #5ce65c; }}
+    .result-lose {{ background: #2a0e0e; color: #f06060; }}
+    .result-draw {{ background: #1e2010; color: #d4c84a; }}
+    .game-opponent {{ font-size: 14px; font-weight: 700; margin-bottom: 1px; }}
+    .game-score    {{ font-size: 18px; font-weight: 800; }}
+    .game-meta     {{ font-size: 11px; color: #4a5878; }}
+
+    /* ── 打順ページ専用 ── */
+    .lineup-grid {{ display: grid; gap: 12px; }}
+    .slot-head {{ display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: baseline; margin-bottom: 8px; }}
+    .order {{ font-size: 22px; font-weight: 800; color: #ffd54a; }}
+    .name  {{ font-size: 20px; font-weight: 800; }}
+    .pos {{ display: inline-block; margin-left: 8px; padding: 3px 8px; border-radius: 999px; background: #1a2540; color: #8494b8; font-size: 11px; font-weight: 700; }}
+    .reason {{ margin-top: 8px; font-size: 14px; line-height: 1.8; color: #c8d8f4; }}
+    .stats {{ margin-top: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }}
+    .stat {{ background: #0a1120; border: 1px solid #1a2540; border-radius: 10px; padding: 10px 12px; }}
+    .stat .label {{ font-size: 11px; color: #4a5878; margin-bottom: 4px; }}
+    .stat .value {{ font-size: 18px; font-weight: 800; }}
+    .hero-sm {{ padding: 14px 20px 10px; margin-bottom: 10px; }}
+    .hero-title-sm {{ margin: 0 0 4px; font-size: 18px; }}
+
+    /* ── フッター ── */
+    .site-footer {{
+      background: #050b17;
+      border-top: 1px solid #1a2540;
+      padding: 24px 20px;
+      margin-top: 40px;
+      text-align: center;
+      font-size: 11px;
+      color: #3a4a6a;
+      line-height: 2;
+    }}
+    .site-footer a {{ color: #4a6a9a; }}
+    .site-footer a:hover {{ color: #9db0d4; }}
+    .footer-links {{ display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; margin-bottom: 8px; }}
+
+    /* ── スマホ ── */
+    @media (max-width: 600px) {{
+      .wrap {{ padding: 10px 10px 40px; }}
+      .hero {{ border-radius: 12px; padding: 14px 14px 12px; }}
+      .hero h1 {{ font-size: 20px; }}
+      .nav-btn {{ font-size: 11px; padding: 4px 9px; }}
+      th, td {{ padding: 7px 7px; }}
+      table {{ font-size: 12px; }}
+      .card {{ padding: 14px; border-radius: 10px; }}
+      .site-logo span {{ display: none; }}
     }}
   </style>
 </head>
 <body>
-  <div class="wrap">
-    {body}
+  <!-- サイトヘッダー -->
+  <header class="site-header">
+    <a class="site-logo" href="/public/predicted-lineup?window_games=5&use_dh=true&view=html">
+      鯉男の打席分析室<span>広島カープ データ分析</span>
+    </a>
+    <nav class="site-header-nav">
+      <a href="/public/game-recap?view=html">試合一覧</a>
+      <a href="/public/risp?view=html">得点圏</a>
+      <a href="/public/privacy">プライバシーポリシー</a>
+    </nav>
+  </header>
+
+  <!-- 3カラムレイアウト -->
+  <div class="page-layout">
+
+    <!-- 左広告 -->
+    <aside class="ad-col">
+      <div class="ad-unit" id="ad-left-1">
+        <!-- Google AdSense / アフィリエイト広告をここに挿入 -->
+        <!-- 例: <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script> -->
+        <div class="ad-unit-label">Advertisement</div>
+        <div style="font-size:11px;color:#2a3a5a">160 × 600</div>
+      </div>
+    </aside>
+
+    <!-- メインコンテンツ -->
+    <main class="content-col">
+      <div class="wrap">
+        {body}
+      </div>
+      <!-- フッター -->
+      <footer class="site-footer">
+        <div class="footer-links">
+          <a href="/public/predicted-lineup?window_games=5&use_dh=true&view=html">予想打順</a>
+          <a href="/public/recent-batting?view=html">直近打撃</a>
+          <a href="/public/risp?view=html">得点圏</a>
+          <a href="/public/game-recap?view=html">試合一覧</a>
+          <a href="/public/fielding-baserunning?view=html">走塁・守備</a>
+          <a href="/public/war-ranking?view=html">WAR</a>
+          <a href="/public/privacy">プライバシーポリシー</a>
+          <a href="/public/terms">利用規約</a>
+        </div>
+        <div>© 2025 鯉男の打席分析室 — 非公式ファンサイト。掲載データはYahoo!スポーツ・NPB Basementより取得。</div>
+        <div style="margin-top:4px">本サイトは広島東洋カープ及びNPBとは無関係の個人ファンサイトです。</div>
+      </footer>
+    </main>
+
+    <!-- 右広告 -->
+    <aside class="ad-col">
+      <div class="ad-unit" id="ad-right-1">
+        <!-- Google AdSense / アフィリエイト広告をここに挿入 -->
+        <div class="ad-unit-label">Advertisement</div>
+        <div style="font-size:11px;color:#2a3a5a">160 × 600</div>
+      </div>
+    </aside>
+
   </div>
 </body>
 </html>"""
     )
 
 
+def _common_nav(active_page: str = "", window_games: int = 5) -> str:
+    """全ページ共通ナビゲーションバー HTML を返す。
+    active_page: 'recent-batting' / 'risp' / 'fielding' / 'war' /
+                 'predicted-lineup-5t' / 'predicted-lineup-5f' /
+                 'predicted-lineup-10t' / 'predicted-lineup-10f' / 'game-recap'
+    """
+    def _a(label: str, href: str, page_key: str) -> str:
+        cls = " active" if active_page == page_key else ""
+        return f'<a class="nav-btn{cls}" href="{href}">{label}</a>'
+
+    wg = window_games
+    nav_html = f"""
+    <nav class="nav-bar">
+      <div class="nav-section">
+        <span class="nav-label">予想打順</span>
+        <div class="nav-group">
+          {_a("5試合 DH有",  f"/public/predicted-lineup?window_games=5&use_dh=true",   "predicted-lineup-5t")}
+          {_a("5試合 DH無",  f"/public/predicted-lineup?window_games=5&use_dh=false",  "predicted-lineup-5f")}
+          {_a("10試合 DH有", f"/public/predicted-lineup?window_games=10&use_dh=true",  "predicted-lineup-10t")}
+          {_a("10試合 DH無", f"/public/predicted-lineup?window_games=10&use_dh=false", "predicted-lineup-10f")}
+        </div>
+      </div>
+      <div class="nav-section">
+        <span class="nav-label">打撃</span>
+        <div class="nav-group">
+          {_a("直近打撃",  f"/public/recent-batting?window_games={wg}", "recent-batting")}
+          {_a("得点圏",    f"/public/risp?window_games={wg}&view=html", "risp")}
+        </div>
+      </div>
+      <div class="nav-section">
+        <span class="nav-label">指標</span>
+        <div class="nav-group">
+          {_a("走塁・守備", "/public/fielding-baserunning", "fielding")}
+          {_a("WAR",       "/public/war-ranking",          "war")}
+        </div>
+      </div>
+      <div class="nav-section">
+        <span class="nav-label">試合</span>
+        <div class="nav-group">
+          {_a("試合一覧", "/public/game-recap", "game-recap")}
+        </div>
+      </div>
+    </nav>"""
+    return nav_html
+
+
 def _render_recent_batting_html(data: dict) -> HTMLResponse:
     rows_html = []
 
     for row in data.get("players", []):
+        # data-* 属性にソート用の生数値を埋め込む
         rows_html.append(
             f"""
             <tr>
-              <td>{escape(str(row.get("player_name", "")))}</td>
-              <td>{int(row.get("games", 0) or 0)}</td>
-              <td>{int(row.get("pa", 0) or 0)}</td>
-              <td>{int(row.get("ab", 0) or 0)}</td>
-              <td>{int(row.get("hits", 0) or 0)}</td>
-              <td>{float(row.get("avg", 0.0) or 0.0):.3f}</td>
-              <td>{float(row.get("obp", 0.0) or 0.0):.3f}</td>
-              <td>{float(row.get("iso", 0.0) or 0.0):.3f}</td>
-              <td>{int(row.get("homeruns", 0) or 0)}</td>
-              <td>{int(row.get("walks", 0) or 0)}</td>
-              <td>{int(row.get("strikeouts", 0) or 0)}</td>
-              <td>{float(row.get("defense_bonus", 0.0) or 0.0):+.3f}</td>
+              <td data-val="{escape(str(row.get("player_name", "")))}">{escape(str(row.get("player_name", "")))}</td>
+              <td data-val="{int(row.get("games", 0) or 0)}">{int(row.get("games", 0) or 0)}</td>
+              <td data-val="{int(row.get("pa", 0) or 0)}">{int(row.get("pa", 0) or 0)}</td>
+              <td data-val="{int(row.get("ab", 0) or 0)}">{int(row.get("ab", 0) or 0)}</td>
+              <td data-val="{int(row.get("hits", 0) or 0)}">{int(row.get("hits", 0) or 0)}</td>
+              <td data-val="{float(row.get("avg", 0.0) or 0.0):.3f}">{float(row.get("avg", 0.0) or 0.0):.3f}</td>
+              <td data-val="{float(row.get("obp", 0.0) or 0.0):.3f}">{float(row.get("obp", 0.0) or 0.0):.3f}</td>
+              <td data-val="{float(row.get("slg", 0.0) or 0.0):.3f}">{float(row.get("slg", 0.0) or 0.0):.3f}</td>
+              <td data-val="{float(row.get("ops", 0.0) or 0.0):.3f}" class="ops-col"><strong>{float(row.get("ops", 0.0) or 0.0):.3f}</strong></td>
+              <td data-val="{float(row.get("iso", 0.0) or 0.0):.3f}">{float(row.get("iso", 0.0) or 0.0):.3f}</td>
+              <td data-val="{int(row.get("homeruns", 0) or 0)}">{int(row.get("homeruns", 0) or 0)}</td>
+              <td data-val="{int(row.get("walks", 0) or 0)}">{int(row.get("walks", 0) or 0)}</td>
+              <td data-val="{int(row.get("strikeouts", 0) or 0)}">{int(row.get("strikeouts", 0) or 0)}</td>
+              <td data-val="{float(row.get("woba", 0.0) or 0.0):.3f}" class="woba-col">{float(row.get("woba", 0.0) or 0.0):.3f}</td>
             </tr>
             """
         )
 
     games_html = []
     for game in data.get("games", []):
+        result_val = str(game.get("result", "") or "")
+        result_class = ""
+        if result_val == "勝":
+            result_class = "result-win"
+        elif result_val == "負":
+            result_class = "result-lose"
+        elif result_val == "分":
+            result_class = "result-draw"
         games_html.append(
             f"""
-            <div class="card">
-              <div><strong>{escape(str(game.get("date", "")))}</strong> / {escape(str(game.get("opponent", "")))}</div>
-              <div class="muted">{escape(str(game.get("venue", "")))} ・ {escape(str(game.get("score", "")))} {escape(str(game.get("result", "")))}</div>
+            <div class="game-card">
+              <div class="game-date-row">
+                <span class="game-date">{escape(str(game.get("date", "")))}</span>
+                <span class="game-result {result_class}">{escape(result_val)}</span>
+              </div>
+              <div class="game-opponent">vs {escape(str(game.get("opponent", "")))}</div>
+              <div class="game-meta">{escape(str(game.get("venue", "")))} &nbsp;{escape(str(game.get("score", "")))}</div>
             </div>
             """
         )
 
+    wg = int(data.get("window_games", 5) or 5)
+
+    def _rb_cls(w):
+        return " active" if w == wg else ""
+
     body = f"""
+    <style>
+      #batting-table td:nth-child(6)  {{ color: #ffd54a; font-weight:700; }}
+      #batting-table td:nth-child(7)  {{ color: #56cff8; }}
+      #batting-table td:nth-child(9)  {{ color: #ffd54a; font-weight:700; }}
+      #batting-table td:nth-child(14) {{ color: #56cff8; font-weight:700; }}
+      th.col-ops  {{ color: #ffd54a !important; }}
+      th.col-woba {{ color: #56cff8 !important; }}
+      th.col-avg  {{ color: #ffd54a !important; }}
+    </style>
+
     <div class="hero">
       <h1>直近打撃成績</h1>
-      <div class="muted">直近 {int(data.get("window_games", 0) or 0)} 試合の打撃成績と守備指標です。</div>
-      <div class="links">
-        <a href="/public/predicted-lineup?window_games=5&use_dh=true">5試合 / DHあり</a>
-        <a href="/public/predicted-lineup?window_games=5&use_dh=false">5試合 / DHなし</a>
-        <a href="/public/predicted-lineup?window_games=10&use_dh=true">10試合 / DHあり</a>
-        <a href="/public/predicted-lineup?window_games=10&use_dh=false">10試合 / DHなし</a>
-        <a href="/public/recent-batting?window_games=5">直近5試合</a>
-        <a href="/public/recent-batting?window_games=10">直近10試合</a>
+      <div class="muted">直近 {wg} 試合の打撃成績 ／ 列ヘッダをクリックでソート</div>
+      <div class="nav-bar">
+        <div class="nav-section">
+          <span class="nav-label">期間</span>
+          <div class="nav-group">
+            <a class="nav-btn{_rb_cls(5)}"  href="/public/recent-batting?window_games=5">直近 5試合</a>
+            <a class="nav-btn{_rb_cls(10)}" href="/public/recent-batting?window_games=10">直近 10試合</a>
+          </div>
+        </div>
+      </div>
+      {_common_nav("recent-batting", wg)}
+    </div>
+
+    <div class="two-col-layout">
+      <div class="main-col">
+        <div class="card">
+          <div class="card-title">選手別 直近{wg}試合成績</div>
+          <div class="table-wrap">
+            <table id="batting-table">
+              <thead>
+                <tr>
+                  <th class="sortable" data-col="0">選手</th>
+                  <th class="sortable" data-col="1">試合</th>
+                  <th class="sortable" data-col="2">打席</th>
+                  <th class="sortable" data-col="3">打数</th>
+                  <th class="sortable" data-col="4">安打</th>
+                  <th class="sortable col-avg" data-col="5">打率</th>
+                  <th class="sortable col-woba" data-col="6">出塁率</th>
+                  <th class="sortable" data-col="7">長打率</th>
+                  <th class="sortable col-ops" data-col="8">OPS</th>
+                  <th class="sortable" data-col="9">長打指数</th>
+                  <th class="sortable" data-col="10">本塁打</th>
+                  <th class="sortable" data-col="11">四球</th>
+                  <th class="sortable" data-col="12">三振</th>
+                  <th class="sortable col-woba" data-col="13">wOBA</th>
+                </tr>
+              </thead>
+              <tbody>
+                {''.join(rows_html) if rows_html else '<tr><td colspan="14" class="empty">データがありません</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
-
     </div>
 
-    <div class="card">
-      <h2>最近の試合</h2>
-      {''.join(games_html) if games_html else '<div class="empty">試合データがありません</div>'}
-    </div>
-
-    <div class="card">
-      <h2>選手別の直近打撃</h2>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>選手</th>
-              <th>試合</th>
-              <th>PA</th>
-              <th>AB</th>
-              <th>H</th>
-              <th>AVG</th>
-              <th>OBP</th>
-              <th>ISO</th>
-              <th>HR</th>
-              <th>BB</th>
-              <th>K</th>
-            　<th>守備補正</th>
-            </tr>
-          </thead>
-          <tbody>
-            {''.join(rows_html) if rows_html else '<tr><td colspan="11" class="empty">データがありません</td></tr>'}
-          </tbody>
-        </table>
-      </div>
-    </div>
+    {_make_sort_script(["batting-table"])}
     """
     return _html_page("直近打撃成績", body)
 
 
 def _render_predicted_lineup_html(data: dict) -> HTMLResponse:
-    lineup_html = []
+    lineup = data.get("lineup", [])
 
-    for item in data.get("lineup", []):
-        recent = item.get("recent", {}) or {}
-        season = item.get("season_position", {}) or {}
+    # ── 打順行（1行レイアウト）を生成 ──
+    rows_html = []
+    for item in lineup:
+        recent   = item.get("recent", {}) or {}
+        season   = item.get("season_position", {}) or {}
+        order    = int(item.get("order", 0) or 0)
+        pos_code = str(item.get("position", "") or "")
+        pos_ja   = POSITION_LABELS.get(pos_code, pos_code)
+        r_obp    = float(recent.get("obp", 0.0) or 0.0)
+        r_iso    = float(recent.get("iso", 0.0) or 0.0)
+        s_obp    = float(season.get("obp", 0.0) or 0.0)
+        s_iso    = float(season.get("iso", 0.0) or 0.0)
+        r_avg    = float(recent.get("avg", 0.0) or 0.0)
+        r_slg    = round(r_avg + r_iso, 3)
+        r_ops    = round(r_obp + r_slg, 3)
+        defv     = float(item.get("defense", 0.0) or 0.0)
+        score    = float(item.get("score",   0.0) or 0.0)
+        def_cls  = "def-pos" if defv > 0 else ("def-neg" if defv < 0 else "")
+        reason      = escape(str(item.get("reason", "")))
+        commentary  = escape(str(item.get("commentary", "")))
 
-        lineup_html.append(
-            f"""
-            <div class="card">
-              <div class="slot-head">
-                <div>
-                  <span class="order">{int(item.get("order", 0) or 0)}番</span>
-                  <span class="name">{escape(str(item.get("player_name", "")))}</span>
-                  <span class="pos">{escape(str(item.get("position", "")))}</span>
-                </div>
-                <div class="muted">score {float(item.get("score", 0.0) or 0.0):.3f}</div>
+        rows_html.append(f"""
+        <div class="lu-row" data-id="{order}">
+          <!-- ── ヘッダー：常時表示 ── -->
+          <div class="lu-header">
+            <span class="lu-order">{order}</span>
+            <span class="lu-pos">{escape(pos_ja)}</span>
+            <span class="lu-name">{escape(str(item.get("player_name", "")))}</span>
+            <div class="lu-score-wrap">
+              <div class="lu-slabel">スコア</div>
+              <div class="lu-score">{score:.1f}</div>
+            </div>
+            <!-- タブボタン群 -->
+            <div class="lu-tabs">
+              <button class="lu-tab-btn" data-tab="stats" aria-expanded="false">
+                指標<span class="lu-tab-arrow">›</span>
+              </button>
+              <button class="lu-tab-btn" data-tab="commentary" aria-expanded="false">
+                解説<span class="lu-tab-arrow">›</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- ── 指標パネル ── -->
+          <div class="lu-panel" data-panel="stats">
+            <div class="lu-stats-grid">
+              <div class="lu-stat">
+                <div class="lu-slabel">出塁率</div>
+                <div class="lu-sval">{r_obp:.3f}</div>
               </div>
-
-              <div class="reason">{escape(str(item.get("reason", "")))}</div>
-
-              <div class="stats">
-                <div class="stat">
-                  <div class="label">直近 OBP</div>
-                  <div class="value">{float(recent.get("obp", 0.0) or 0.0):.3f}</div>
-                </div>
-                <div class="stat">
-                  <div class="label">直近 ISO</div>
-                  <div class="value">{float(recent.get("iso", 0.0) or 0.0):.3f}</div>
-                </div>
-                <div class="stat">
-                  <div class="label">ポジション補正 OBP</div>
-                  <div class="value">{float(season.get("obp", 0.0) or 0.0):.3f}</div>
-                </div>
-                <div class="stat">
-                  <div class="label">ポジション補正 ISO</div>
-                  <div class="value">{float(season.get("iso", 0.0) or 0.0):.3f}</div>
-                </div>
-                <div class="stat">
-                  <div class="label">守備補正</div>
-                  <div class="value">{float(item.get("defense", 0.0) or 0.0):+.3f}</div>
-                </div>
+              <div class="lu-stat">
+                <div class="lu-slabel">長打指数</div>
+                <div class="lu-sval">{r_iso:.3f}</div>
+              </div>
+              <div class="lu-stat">
+                <div class="lu-slabel">長打率</div>
+                <div class="lu-sval">{r_slg:.3f}</div>
+              </div>
+              <div class="lu-stat lu-stat-ops">
+                <div class="lu-slabel">OPS</div>
+                <div class="lu-sval">{r_ops:.3f}</div>
+              </div>
+              <div class="lu-stat">
+                <div class="lu-slabel">補正出塁</div>
+                <div class="lu-sval">{s_obp:.3f}</div>
+              </div>
+              <div class="lu-stat">
+                <div class="lu-slabel">補正長打</div>
+                <div class="lu-sval">{s_iso:.3f}</div>
+              </div>
+              <div class="lu-stat">
+                <div class="lu-slabel">守備補正</div>
+                <div class="lu-sval {def_cls}">{defv:+.3f}</div>
               </div>
             </div>
-            """
-        )
+            <div class="lu-reason-inner">
+              <span class="lu-reason-text">{reason}</span>
+            </div>
+          </div>
+
+          <!-- ── 解説パネル ── -->
+          <div class="lu-panel" data-panel="commentary">
+            <div class="lu-commentary-inner">
+              <span class="lu-commentary-text">{commentary}</span>
+            </div>
+          </div>
+        </div>""")
+
+    wg     = int(data.get("window_games", 5) or 5)
+    dh     = bool(data.get("use_dh", True))
+    dh_str = 'あり' if dh else 'なし'
+
+    def _lu_cls(w, d):
+        return " active" if (w == wg and d == dh) else ""
+
+    def _rb_cls2(w):
+        return " active" if w == wg else ""
+
+    rows_body = (
+        ''.join(rows_html)
+        if rows_html
+        else '<div class="empty">打順データがありません</div>'
+    )
 
     body = f"""
+    <style>
+      /* ══════════════════════════════════════
+         予想打順 専用スタイル
+      ══════════════════════════════════════ */
+
+      .lu-grid {{
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        width: 100%;
+      }}
+
+      /* ── カード ── */
+      .lu-row {{
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+        background: #121a31;
+        border: 1px solid #26304d;
+        border-radius: 12px;
+        overflow: hidden;
+        transition: border-color .15s;
+      }}
+      .lu-row:hover {{ border-color: #3a4d7a; }}
+
+      /* ── ヘッダー（常時表示） ── */
+      .lu-header {{
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 9px 12px;
+        flex-wrap: nowrap;
+        width: 100%;
+        box-sizing: border-box;
+      }}
+
+      /* 打順番号 */
+      .lu-order {{
+        font-size: 28px;
+        font-weight: 900;
+        color: #ffd54a;
+        min-width: 30px;
+        text-align: center;
+        flex-shrink: 0;
+        line-height: 1;
+      }}
+
+      /* 守備位置バッジ */
+      .lu-pos {{
+        display: inline-block;
+        padding: 3px 9px;
+        border-radius: 6px;
+        background: #243154;
+        color: #d8e5ff;
+        font-size: 12px;
+        font-weight: 700;
+        flex-shrink: 0;
+        white-space: nowrap;
+        min-width: 40px;
+        text-align: center;
+      }}
+
+      /* 選手名 */
+      .lu-name {{
+        font-size: 18px;
+        font-weight: 800;
+        white-space: nowrap;
+        flex: 1 1 auto;
+        color: #ffffff;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }}
+
+      /* スコアボックス */
+      .lu-score-wrap {{
+        background: #0f1730;
+        border: 1px solid #3a4570;
+        border-radius: 8px;
+        padding: 3px 9px;
+        text-align: center;
+        flex-shrink: 0;
+        min-width: 50px;
+      }}
+      .lu-slabel {{
+        font-size: 9px;
+        color: #7080a0;
+        white-space: nowrap;
+        line-height: 1.3;
+      }}
+      .lu-score {{
+        font-size: 16px;
+        font-weight: 800;
+        color: #ffd54a;
+        line-height: 1.3;
+        white-space: nowrap;
+      }}
+
+      /* ── タブボタン群 ── */
+      .lu-tabs {{
+        display: flex;
+        gap: 5px;
+        flex-shrink: 0;
+        margin-left: 4px;
+      }}
+      .lu-tab-btn {{
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        padding: 4px 9px;
+        border-radius: 7px;
+        border: 1px solid #2e3d60;
+        background: #0f1730;
+        color: #8090b8;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: background .15s, color .15s, border-color .15s;
+        line-height: 1;
+      }}
+      .lu-tab-btn:hover {{
+        background: #1a2848;
+        color: #c0d0f0;
+      }}
+      .lu-tab-btn.active {{
+        background: #1e3a6e;
+        color: #ffd54a;
+        border-color: #3a6abf;
+      }}
+      .lu-tab-btn.active[data-tab="commentary"] {{
+        background: #0d2040;
+        color: #88bbff;
+        border-color: #2a4a90;
+      }}
+      .lu-tab-arrow {{
+        font-size: 13px;
+        line-height: 1;
+        display: inline-block;
+        transition: transform .2s;
+      }}
+      .lu-tab-btn.active .lu-tab-arrow {{
+        transform: rotate(90deg);
+      }}
+
+      /* ── パネル共通（アコーディオン） ── */
+      .lu-panel {{
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height .25s ease, padding .2s ease;
+        padding: 0 12px;
+        border-top: 0px solid #26304d;
+      }}
+      .lu-panel.open {{
+        max-height: 600px;
+        padding: 8px 12px;
+        border-top-width: 1px;
+      }}
+
+      /* ── 指標パネル内容 ── */
+      .lu-stats-grid {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        margin-bottom: 8px;
+      }}
+      .lu-stat {{
+        background: #0f1730;
+        border: 1px solid #26304d;
+        border-radius: 8px;
+        padding: 4px 10px;
+        text-align: center;
+        min-width: 54px;
+      }}
+      .lu-stat-ops {{
+        border-color: #4a5c8a;
+        background: #14203a;
+      }}
+      .lu-sval {{
+        font-size: 15px;
+        font-weight: 700;
+        line-height: 1.3;
+        white-space: nowrap;
+        color: #d8e5ff;
+      }}
+      .lu-stat-ops .lu-sval {{
+        color: #ffd54a;
+        font-size: 16px;
+      }}
+      .def-pos {{ color: #6ee86e; }}
+      .def-neg {{ color: #e86e6e; }}
+
+      /* 根拠テキスト（指標パネル下部） */
+      .lu-reason-inner {{
+        padding: 5px 8px;
+        background: #0a1020;
+        border-radius: 6px;
+      }}
+      .lu-reason-text {{
+        font-size: 11px;
+        color: #8090b0;
+        line-height: 1.6;
+        white-space: normal;
+      }}
+
+      /* ── 解説パネル内容 ── */
+      .lu-commentary-inner {{
+        padding: 6px 10px;
+        background: #0d1628;
+        border-left: 3px solid #3a5faa;
+        border-radius: 0 6px 6px 0;
+      }}
+      .lu-commentary-text {{
+        font-size: 12.5px;
+        color: #c8d8f8;
+        line-height: 1.75;
+        white-space: normal;
+      }}
+
+      /* ══ スマホ（≤600px） ══ */
+      @media (max-width: 600px) {{
+        .lu-grid {{ gap: 4px; }}
+
+        /* ヘッダー: 1行に収まるよう nowrap 維持、サイズ縮小 */
+        .lu-header {{
+          padding: 7px 9px;
+          gap: 5px;
+          flex-wrap: nowrap;
+          min-height: 0;
+        }}
+        .lu-order  {{ font-size: 20px; min-width: 20px; }}
+        .lu-pos    {{ font-size: 10px; padding: 2px 5px; min-width: 30px; }}
+        .lu-name   {{ font-size: 14px; min-width: 0; }}
+        .lu-score-wrap {{ padding: 2px 6px; min-width: 38px; }}
+        .lu-slabel {{ font-size: 8px; }}
+        .lu-score  {{ font-size: 13px; }}
+
+        /* タブボタン: 縮めて1行に */
+        .lu-tabs   {{ gap: 3px; margin-left: 2px; flex-shrink: 0; }}
+        .lu-tab-btn {{ font-size: 10px; padding: 3px 7px; gap: 1px; }}
+        .lu-tab-arrow {{ font-size: 11px; }}
+
+        /* パネル */
+        .lu-panel.open {{ padding: 6px 10px; }}
+
+        /* 指標グリッド: 折り返しで縦並び + スクロール不要 */
+        .lu-stats-grid {{
+          gap: 4px;
+          flex-wrap: wrap;
+          overflow-x: visible;
+        }}
+        .lu-stat   {{ min-width: 70px; flex: 1 1 70px; padding: 4px 8px; }}
+        .lu-sval   {{ font-size: 14px; }}
+        .lu-stat-ops .lu-sval {{ font-size: 15px; }}
+
+        .lu-commentary-text {{ font-size: 11.5px; line-height: 1.65; }}
+        .lu-commentary-inner {{ border-left-width: 2px; }}
+      }}
+    </style>
+
+    <script>
+    (function() {{
+      document.addEventListener('DOMContentLoaded', function() {{
+        document.querySelectorAll('.lu-row').forEach(function(row) {{
+          row.querySelectorAll('.lu-tab-btn').forEach(function(btn) {{
+            btn.addEventListener('click', function() {{
+              var tab = btn.dataset.tab;
+              var panel = row.querySelector('.lu-panel[data-panel="' + tab + '"]');
+              var isOpen = btn.classList.contains('active');
+
+              // 全パネル・全ボタンを閉じる
+              row.querySelectorAll('.lu-panel').forEach(function(p) {{
+                p.classList.remove('open');
+              }});
+              row.querySelectorAll('.lu-tab-btn').forEach(function(b) {{
+                b.classList.remove('active');
+                b.setAttribute('aria-expanded', 'false');
+              }});
+
+              // 同じタブを押した場合はトグルで閉じる
+              if (!isOpen) {{
+                panel.classList.add('open');
+                btn.classList.add('active');
+                btn.setAttribute('aria-expanded', 'true');
+              }}
+            }});
+          }});
+        }});
+      }});
+    }})();
+    </script>
+
     <div class="hero">
       <h1>予想打順</h1>
-      <div class="muted">
-        DH {('あり' if bool(data.get('use_dh', True)) else 'なし')} /
-        直近 {int(data.get("window_games", 0) or 0)} 試合ベース /
-        生成時刻 {escape(str(data.get("generated_at", "")))}
-      </div>
-      <div class="links">
-
-        <a href="/public/recent-batting?window_games={int(data.get("window_games", 5) or 5)}">直近打撃を見る</a>
-      </div>
+      <div class="muted">DH {dh_str} / 直近 {wg} 試合ベース / 生成時刻 {escape(str(data.get("generated_at", "")))}</div>
+      {_common_nav("predicted-lineup-" + str(wg) + ("t" if dh else "f"), wg)}
     </div>
 
-    <div class="lineup-grid">
-      {''.join(lineup_html) if lineup_html else '<div class="card empty">打順データがありません</div>'}
+    <div class="lu-grid">
+      {rows_body}
     </div>
     """
     return _html_page("予想打順", body)
@@ -2275,4 +3502,2384 @@ def public_predicted_lineup(
                 "message": str(e),
             },
         )
+
+
+# ─────────────────────────────────────────────
+# 走塁・守備指標 / WAR一覧  共通データ取得
+# ─────────────────────────────────────────────
+
+def _decode_nb(s: str) -> str:
+    """npbbasement の文字化け名前を UTF-8 に戻す"""
+    try:
+        return s.encode("latin-1").decode("utf-8")
+    except Exception:
+        return s
+
+
+def _build_advanced_stats_rows() -> list[dict]:
+    """
+    npbbasement の今シーズン通算データから
+    走塁指標・守備指標・WAR を選手ごとに集約して返す。
+    PLAYER_PROFILE に登録済みの野手のみ対象。
+    """
+    players = _load_npbbasement_players()
+    profile_names = set(PLAYER_PROFILE.keys())
+
+    # normalized_name -> canonical_profile_name のマップ
+    norm_to_profile: dict[str, str] = {
+        _normalize_player_name(n): n for n in profile_names
+    }
+
+    rows: list[dict] = []
+
+    for p in players:
+        if not isinstance(p, dict):
+            continue
+        nameJ = _decode_nb(p.get("nameJ") or "")
+        norm  = _normalize_player_name(nameJ)
+        profile_name = norm_to_profile.get(norm)
+        if not profile_name:
+            continue
+
+        stats = p.get("Stats") or {}
+        if not isinstance(stats, dict):
+            continue
+
+        war_obj = stats.get("war") or {}
+        bat_obj = stats.get("bat") or {}
+        fld_list = stats.get("fld") or []
+
+        def _f(obj: dict, key: str) -> float | None:
+            v = obj.get(key)
+            return round(float(v), 2) if v is not None else None
+
+        # 走塁
+        ubr  = _f(war_obj, "UBR")
+        wsb  = _f(war_obj, "wSB")
+        runn_war = _f(war_obj, "runnWAR")
+
+        # 守備 – ポジション別明細
+        fld_rows = []
+        for fld in fld_list:
+            if not isinstance(fld, dict):
+                continue
+            pos = (fld.get("POS") or "").upper()
+            inn = fld.get("Inn")
+            tzr = _f(fld, "TZR")
+            rng = _f(fld, "RngR")
+            dpr = _f(fld, "DPR")
+            arm = _f(fld, "ARM")
+            err = _f(fld, "ErrR")
+            frm = _f(fld, "Framing")
+            blk = _f(fld, "Blocking")
+            if pos:
+                fld_rows.append({
+                    "pos": pos,
+                    "inn": round(float(inn), 1) if inn is not None else None,
+                    "tzr": tzr,
+                    "rng": rng,
+                    "dpr": dpr,
+                    "arm": arm,
+                    "err": err,
+                    "framing": frm,
+                    "blocking": blk,
+                })
+
+        # 守備通算 (war_obj 内の _total フィールド)
+        def_inn   = _f(war_obj, "DefInn_total")
+        tzr_total = _f(war_obj, "TZR_total")
+        rng_total = _f(war_obj, "RngR_total")
+        dpr_total = _f(war_obj, "DPR_total")
+        arm_total = _f(war_obj, "ARM_total")
+        err_total = _f(war_obj, "ErrR_total")
+        fld_war   = _f(war_obj, "fldWAR")
+
+        # バット
+        bat_pa   = bat_obj.get("PA") if isinstance(bat_obj, dict) else None
+        bat_woba = _f(bat_obj, "wOBA") if isinstance(bat_obj, dict) else None
+        bat_wraa = _f(bat_obj, "wRAA") if isinstance(bat_obj, dict) else None
+        bat_war  = _f(war_obj, "batWAR")
+
+        # 総合 WAR
+        total_war = _f(war_obj, "WAR")
+
+        rows.append({
+            "player_name": profile_name,
+            "pa": int(bat_pa) if bat_pa is not None else 0,
+            # 走塁
+            "ubr":      ubr,
+            "wsb":      wsb,
+            "runn_war": runn_war,
+            # 守備通算
+            "def_inn":   def_inn,
+            "tzr_total": tzr_total,
+            "rng_total": rng_total,
+            "dpr_total": dpr_total,
+            "arm_total": arm_total,
+            "err_total": err_total,
+            "fld_war":   fld_war,
+            # ポジション別守備
+            "fld_rows":  fld_rows,
+            # 打撃
+            "bat_pa":   int(bat_pa) if bat_pa is not None else 0,
+            "bat_woba": bat_woba,
+            "bat_wraa": bat_wraa,
+            "bat_war":  bat_war,
+            # 総合
+            "total_war": total_war,
+        })
+
+    # PA 降順でソート
+    rows.sort(key=lambda x: (-x["pa"], x["player_name"]))
+    return rows
+
+
+def _get_advanced_stats_rows() -> list[dict]:
+    """キャッシュ付き advanced stats 取得（12時間）"""
+    cache_entry = CACHE.get("advanced_stats", {})
+    if _cache_alive(cache_entry) and cache_entry.get("value"):
+        return cache_entry["value"]
+    rows = _build_advanced_stats_rows()
+    CACHE["advanced_stats"] = {
+        "value": rows,
+        "expires_at": _cache_now() + CACHE_TTL_PLAYER_DEFENSE,  # 12h
+    }
+    return rows
+
+
+# ─────────────────────────────────────────────
+# 走塁・守備指標ページ  /public/fielding-baserunning
+# ─────────────────────────────────────────────
+
+def _fmt(v: float | None, fmt: str = ".2f", plus: bool = False) -> str:
+    if v is None:
+        return '<span style="color:#555">—</span>'
+    s = format(v, fmt)
+    if plus and v > 0:
+        s = "+" + s
+    color = ""
+    if plus:
+        color = "#7fff9e" if v > 0 else ("#ff7e7e" if v < 0 else "#aaa")
+    return f'<span style="color:{color}">{s}</span>' if color else s
+
+
+def _render_fielding_baserunning_html(rows: list[dict]) -> HTMLResponse:
+
+    # ── 走塁テーブル行 ──
+    run_rows_html = []
+    for r in rows:
+        ubr  = r.get("ubr")
+        wsb  = r.get("wsb")
+        rw   = r.get("runn_war")
+        run_rows_html.append(f"""
+        <tr>
+          <td>{r["player_name"]}</td>
+          <td>{r["pa"]}</td>
+          <td data-val="{ubr if ubr is not None else -99}">{_fmt(ubr, ".2f", plus=True)}</td>
+          <td data-val="{wsb if wsb is not None else -99}">{_fmt(wsb, ".2f", plus=True)}</td>
+          <td data-val="{rw  if rw  is not None else -99}">{_fmt(rw,  ".2f", plus=True)}</td>
+        </tr>""")
+
+    # ── 守備テーブル行（ポジション別） ──
+    fld_rows_html = []
+    for r in rows:
+        name = r["player_name"]
+        for fld in r.get("fld_rows", []):
+            tzr = fld.get("tzr")
+            rng = fld.get("rng")
+            dpr = fld.get("dpr")
+            arm = fld.get("arm")
+            err = fld.get("err")
+            frm = fld.get("framing")
+            blk = fld.get("blocking")
+            inn = fld.get("inn")
+            fld_rows_html.append(f"""
+        <tr>
+          <td>{name}</td>
+          <td>{fld["pos"]}</td>
+          <td>{inn if inn is not None else "—"}</td>
+          <td data-val="{tzr if tzr is not None else -99}">{_fmt(tzr, ".2f", plus=True)}</td>
+          <td data-val="{rng if rng is not None else -99}">{_fmt(rng, ".2f", plus=True)}</td>
+          <td data-val="{dpr if dpr is not None else -99}">{_fmt(dpr, ".2f", plus=True)}</td>
+          <td data-val="{arm if arm is not None else -99}">{_fmt(arm, ".2f", plus=True)}</td>
+          <td data-val="{err if err is not None else -99}">{_fmt(err, ".2f", plus=True)}</td>
+          <td data-val="{frm if frm is not None else -99}">{_fmt(frm, ".2f", plus=True)}</td>
+          <td data-val="{blk if blk is not None else -99}">{_fmt(blk, ".2f", plus=True)}</td>
+        </tr>""")
+
+    # ── 守備通算テーブル行 ──
+    fld_total_rows_html = []
+    for r in rows:
+        if not r.get("fld_rows"):
+            continue  # 守備イニング 0 は除外
+        tzr = r.get("tzr_total")
+        rng = r.get("rng_total")
+        dpr = r.get("dpr_total")
+        arm = r.get("arm_total")
+        err = r.get("err_total")
+        fw  = r.get("fld_war")
+        inn = r.get("def_inn")
+        fld_total_rows_html.append(f"""
+        <tr>
+          <td>{r["player_name"]}</td>
+          <td>{inn if inn is not None else "—"}</td>
+          <td data-val="{tzr if tzr is not None else -99}">{_fmt(tzr, ".2f", plus=True)}</td>
+          <td data-val="{rng if rng is not None else -99}">{_fmt(rng, ".2f", plus=True)}</td>
+          <td data-val="{dpr if dpr is not None else -99}">{_fmt(dpr, ".2f", plus=True)}</td>
+          <td data-val="{arm if arm is not None else -99}">{_fmt(arm, ".2f", plus=True)}</td>
+          <td data-val="{err if err is not None else -99}">{_fmt(err, ".2f", plus=True)}</td>
+          <td data-val="{fw  if fw  is not None else -99}" style="color:#7fff9e;font-weight:bold">{_fmt(fw, ".2f", plus=True)}</td>
+        </tr>""")
+
+    def sortable_table(table_id: str, headers: list[tuple[str, int]], body_html: str, empty_msg: str = "データがありません") -> str:
+        ths = "".join(
+            f'<th class="sortable" data-col="{i}">{h}</th>'
+            for i, (h, _) in enumerate(headers)
+        )
+        return f"""
+        <table id="{table_id}">
+          <thead><tr>{ths}</tr></thead>
+          <tbody>
+            {body_html if body_html.strip() else f'<tr><td colspan="{len(headers)}" class="empty">{empty_msg}</td></tr>'}
+          </tbody>
+        </table>"""
+
+    run_table = sortable_table(
+        "run-table",
+        [("選手", 0), ("打席", 1), ("UBR", 2), ("wSB", 3), ("走塁WAR", 4)],
+        "".join(run_rows_html),
+    )
+    fld_pos_table = sortable_table(
+        "fld-pos-table",
+        [("選手", 0), ("POS", 1), ("守備回", 2),
+         ("TZR", 3), ("RngR", 4), ("DPR", 5), ("ARM", 6), ("ErrR", 7),
+         ("Framing", 8), ("Blocking", 9)],
+        "".join(fld_rows_html),
+    )
+    fld_total_table = sortable_table(
+        "fld-total-table",
+        [("選手", 0), ("守備回(計)", 1),
+         ("TZR", 2), ("RngR", 3), ("DPR", 4), ("ARM", 5), ("ErrR", 6),
+         ("守備WAR", 7)],
+        "".join(fld_total_rows_html),
+    )
+
+    body = f"""
+    <style>
+      /* タブ UI */
+      .tab-bar {{
+        display: flex;
+        gap: 4px;
+        margin-bottom: 0;
+        border-bottom: 2px solid #1a2540;
+        padding-bottom: 0;
+      }}
+      .tab-btn {{
+        padding: 9px 18px;
+        font-size: 13px;
+        font-weight: 600;
+        color: #5a6e94;
+        background: transparent;
+        border: none;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -2px;
+        cursor: pointer;
+        transition: all 0.15s;
+        white-space: nowrap;
+      }}
+      .tab-btn:hover {{ color: #c8d8f4; }}
+      .tab-btn.active {{
+        color: #ffd54a;
+        border-bottom-color: #ffd54a;
+        font-weight: 800;
+      }}
+      .tab-panel {{ display: none; margin-top: 16px; }}
+      .tab-panel.active {{ display: block; }}
+    </style>
+
+    <div class="hero">
+      <h1>走塁・守備指標 <span style="font-size:13px;color:#4a5878;font-weight:400">今シーズン通算</span></h1>
+      <div class="muted">出所：NPB Basement（TZR ベース） ／ 列ヘッダをクリックでソート</div>
+      {_common_nav("fielding")}
+    </div>
+
+    <div class="card">
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="run">🏃 走塁指標</button>
+        <button class="tab-btn" data-tab="fld-pos">🧤 守備（ポジション別）</button>
+        <button class="tab-btn" data-tab="fld-total">📋 守備（通算合計）</button>
+      </div>
+
+      <!-- 走塁 -->
+      <div class="tab-panel active" id="tab-run">
+        <div class="legend">
+          <b>UBR</b> 非盗塁走塁価値（進塁・突入） ／
+          <b>wSB</b> 盗塁価値（盗塁数・刺殺から算出） ／
+          <b>走塁WAR</b> UBR+wSB をWAR換算
+        </div>
+        <div class="table-wrap">{run_table}</div>
+      </div>
+
+      <!-- 守備ポジション別 -->
+      <div class="tab-panel" id="tab-fld-pos">
+        <div class="legend">
+          <b>TZR</b> Total Zone Rating ／ <b>RngR</b> レンジ ／ <b>DPR</b> 併殺 ／
+          <b>ARM</b> 送球 ／ <b>ErrR</b> エラー ／ <b>Framing</b>・<b>Blocking</b> 捕手のみ
+        </div>
+        <div class="table-wrap">{fld_pos_table}</div>
+      </div>
+
+      <!-- 守備通算合計 -->
+      <div class="tab-panel" id="tab-fld-total">
+        <div class="legend">複数ポジションを守った選手は全ポジションの合算値</div>
+        <div class="table-wrap">{fld_total_table}</div>
+      </div>
+    </div>
+
+    {_make_sort_script(["run-table","fld-pos-table","fld-total-table"])}
+    <script>
+    (function(){{
+      var btns = document.querySelectorAll('.tab-btn');
+      btns.forEach(function(btn){{
+        btn.addEventListener('click', function(){{
+          btns.forEach(function(b){{ b.classList.remove('active'); }});
+          document.querySelectorAll('.tab-panel').forEach(function(p){{ p.classList.remove('active'); }});
+          btn.classList.add('active');
+          document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+        }});
+      }});
+    }})();
+    </script>
+    """
+    return _html_page("走塁・守備指標", body)
+
+
+# ─────────────────────────────────────────────
+# WAR一覧ページ  /public/war-ranking
+# ─────────────────────────────────────────────
+
+def _war_chart_html(rows: list[dict]) -> str:
+    """総合WAR の横棒グラフ HTML を生成（WAR降順ソート）"""
+    sorted_rows = sorted(rows, key=lambda r: r.get("total_war") or 0.0, reverse=True)
+    max_abs = max((abs(r.get("total_war") or 0.0) for r in sorted_rows), default=1.0)
+    max_abs = max(max_abs, 0.1)
+    lines = []
+    for r in sorted_rows:
+        tw = r.get("total_war") or 0.0
+        name = r["player_name"]
+        pct = min(abs(tw) / max_abs * 48, 48)  # 最大48%（センターから両端）
+        if tw >= 0:
+            bar = f'<div class="war-bar-pos" style="width:{pct:.1f}%"></div>'
+        else:
+            bar = f'<div class="war-bar-neg" style="width:{pct:.1f}%"></div>'
+        val_cls = "pos" if tw > 0.005 else ("neg" if tw < -0.005 else "zero")
+        sign = "+" if tw > 0.005 else ""
+        lines.append(
+            f'<div class="war-row">'
+            f'<span class="war-name">{escape(name)}</span>'
+            f'<div class="war-bar-track">{bar}</div>'
+            f'<span class="war-val {val_cls}">{sign}{tw:.2f}</span>'
+            f'</div>'
+        )
+    return "\n".join(lines)
+
+
+def _render_war_ranking_html(rows: list[dict]) -> HTMLResponse:
+
+    war_rows_html = []
+    for r in rows:
+        tw  = r.get("total_war")
+        bw  = r.get("bat_war")
+        rw  = r.get("runn_war")
+        fw  = r.get("fld_war")
+        wraa = r.get("bat_wraa")
+        woba = r.get("bat_woba")
+
+        war_rows_html.append(f"""
+        <tr>
+          <td>{r["player_name"]}</td>
+          <td>{r["pa"]}</td>
+          <td data-val="{woba  if woba  is not None else -99}">{_fmt(woba,  ".3f")}</td>
+          <td data-val="{wraa  if wraa  is not None else -99}">{_fmt(wraa,  ".2f", plus=True)}</td>
+          <td data-val="{bw    if bw    is not None else -99}">{_fmt(bw,    ".2f", plus=True)}</td>
+          <td data-val="{rw    if rw    is not None else -99}">{_fmt(rw,    ".2f", plus=True)}</td>
+          <td data-val="{fw    if fw    is not None else -99}">{_fmt(fw,    ".2f", plus=True)}</td>
+          <td data-val="{tw    if tw    is not None else -99}" style="color:#ffd54a;font-weight:bold">{_fmt(tw, ".2f", plus=True)}</td>
+        </tr>""")
+
+    war_table = f"""
+    <table id="war-table">
+      <thead>
+        <tr>
+          <th class="sortable" data-col="0">選手</th>
+          <th class="sortable" data-col="1">打席</th>
+          <th class="sortable" data-col="2">wOBA</th>
+          <th class="sortable" data-col="3">wRAA</th>
+          <th class="sortable" data-col="4">打撃WAR</th>
+          <th class="sortable" data-col="5">走塁WAR</th>
+          <th class="sortable" data-col="6">守備WAR</th>
+          <th class="sortable" data-col="7" style="color:#ffd54a">総合WAR</th>
+        </tr>
+      </thead>
+      <tbody>
+        {"".join(war_rows_html) if war_rows_html else '<tr><td colspan="8" class="empty">データがありません</td></tr>'}
+      </tbody>
+    </table>"""
+
+    body = f"""
+    <style>
+      /* WARバーチャート */
+      .war-chart {{ margin: 20px 0 6px; display: flex; flex-direction: column; gap: 6px; }}
+      .war-row {{
+        display: grid;
+        grid-template-columns: 90px 1fr 52px;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+      }}
+      .war-name {{ font-weight:600; color:#c8d8f4; text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
+      .war-bar-track {{
+        background: #0a1120;
+        border-radius: 4px;
+        height: 14px;
+        position: relative;
+        overflow: hidden;
+      }}
+      .war-bar-fill {{
+        height: 100%;
+        border-radius: 4px;
+        transition: width 0.4s ease;
+      }}
+      .war-bar-neg {{
+        position: absolute;
+        right: 50%;
+        height: 100%;
+        border-radius: 4px 0 0 4px;
+        background: linear-gradient(90deg, #f06060, #c03030);
+      }}
+      .war-bar-pos {{
+        position: absolute;
+        left: 50%;
+        height: 100%;
+        border-radius: 0 4px 4px 0;
+        background: linear-gradient(90deg, #3cb878, #5ce65c);
+      }}
+      .war-val {{ font-weight:700; font-size:13px; text-align:right; }}
+      .war-val.pos {{ color: #5ce65c; }}
+      .war-val.neg {{ color: #f06060; }}
+      .war-val.zero {{ color: #4a5878; }}
+    </style>
+
+    <div class="hero">
+      <h1>WAR一覧 <span style="font-size:13px;color:#4a5878;font-weight:400">今シーズン通算</span></h1>
+      <div class="muted">出所：NPB Basement ／ 列ヘッダをクリックでソート</div>
+      {_common_nav("war")}
+    </div>
+
+    <!-- WAR バーチャート -->
+    <div class="card">
+      <div class="card-title">総合WAR ランキング</div>
+      <div class="legend"><b>WAR</b>: 0より大きければ平均以上の貢献。打撃＋走塁＋守備の合計。</div>
+      <div class="war-chart" id="war-chart">
+        {_war_chart_html(rows)}
+      </div>
+    </div>
+
+    <!-- WAR 詳細テーブル -->
+    <div class="card">
+      <div class="card-title">選手別 WAR内訳</div>
+      <div class="legend">
+        <b>wOBA</b> 加重出塁率 ／ <b>wRAA</b> 平均打者比較の得点貢献 ／
+        <b>打撃WAR</b> wRAA ベース ／ <b>走塁WAR</b> UBR+wSB ／
+        <b>守備WAR</b> TZR ベース ／ <b>総合WAR</b> 打撃+走塁+守備
+      </div>
+      <div class="table-wrap">{war_table}</div>
+    </div>
+
+    {_make_sort_script(["war-table"])}
+    """
+    return _html_page("WAR一覧", body)
+
+
+# ─────────────────────────────────────────────
+# 共通ソートスクリプト生成
+# ─────────────────────────────────────────────
+
+def _make_sort_script(table_ids: list[str]) -> str:
+    """複数テーブルに同じソートロジックを適用する JS スニペットを返す"""
+    ids_js = "[" + ",".join(f"'{tid}'" for tid in table_ids) + "]"
+    return f"""
+    <script>
+    (function(){{
+      var tableIds = {ids_js};
+      tableIds.forEach(function(tid){{
+        var table = document.getElementById(tid);
+        if (!table) return;
+        var sortCol = -1, sortAsc = true;
+        table.querySelectorAll('th.sortable').forEach(function(th){{
+          th.addEventListener('click', function(){{
+            var col = parseInt(th.dataset.col, 10);
+            if (sortCol === col) {{ sortAsc = !sortAsc; }}
+            else {{ sortCol = col; sortAsc = false; }}
+            table.querySelectorAll('th.sortable').forEach(function(h){{
+              h.classList.remove('asc','desc');
+            }});
+            th.classList.add(sortAsc ? 'asc' : 'desc');
+            var tbody = table.tBodies[0];
+            var rows = Array.from(tbody.rows);
+            rows.sort(function(a,b){{
+              var av = a.cells[col].dataset.val || '';
+              var bv = b.cells[col].dataset.val || '';
+              var an = parseFloat(av), bn = parseFloat(bv);
+              var cmp = (!isNaN(an)&&!isNaN(bn)) ? an-bn : av.localeCompare(bv,'ja');
+              return sortAsc ? cmp : -cmp;
+            }});
+            rows.forEach(function(r){{ tbody.appendChild(r); }});
+          }});
+        }});
+      }});
+    }})();
+    </script>"""
+
+
+# ─────────────────────────────────────────────
+# ルート定義
+# ─────────────────────────────────────────────
+
+@router.get("/public/fielding-baserunning")
+def public_fielding_baserunning(request: Request, view: str | None = None):
+    try:
+        rows = _get_advanced_stats_rows()
+        if _wants_html(request, view):
+            return _render_fielding_baserunning_html(rows)
+        return _no_cache_json({"players": rows})
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "fielding-baserunning failed",
+                "type": type(e).__name__,
+                "message": str(e),
+            },
+        )
+
+
+@router.get("/public/war-ranking")
+def public_war_ranking(request: Request, view: str | None = None):
+    try:
+        rows = _get_advanced_stats_rows()
+        if _wants_html(request, view):
+            return _render_war_ranking_html(rows)
+        return _no_cache_json({"players": rows})
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "war-ranking failed",
+                "type": type(e).__name__,
+                "message": str(e),
+            },
+        )
+
+
+# ─────────────────────────────────────────────
+# ホットバッター（直近5試合ランキング）ページ
+# /public/hot-batters
+# ─────────────────────────────────────────────
+
+@lru_cache(maxsize=16)
+def _parse_carp_batting_risp(box_url: str) -> dict[str, dict]:
+    """
+    ボックスコアの生HTML を直接パースしてカープ選手の
+    ・得点圏安打数 (rbi_hits)  ← class="hit Red rbi"
+    ・全安打数     (hits)       ← class="hit Red" or "hit Red rbi"
+    ・打点付き打席(chance_pa)  ← 打点列 > 0 の行を得点圏打席として近似
+    ・全打席数     (pa)
+    を返す。
+    """
+    try:
+        html = _fetch_html(box_url)
+    except Exception:
+        return {}
+
+    # 打撃テーブルブロックを raw HTML で抽出
+    # <table> 内を保持したまま処理
+    raw_tables = re.findall(r"<table[^>]*>(.*?)</table>", html, re.DOTALL)
+
+    # 守備・選手・打点 ヘッダーを持つテーブルのみ抜き出す
+    batting_raw = []
+    for rt in raw_tables:
+        rows_raw = re.findall(r"<tr[^>]*>(.*?)</tr>", rt, re.DOTALL)
+        if not rows_raw:
+            continue
+        h_cells = re.findall(r"<t[hd][^>]*>(.*?)</t[hd]>", rows_raw[0], re.DOTALL)
+        hc = [re.sub(r"<[^>]+>", "", c).strip() for c in h_cells]
+        if {"守備", "選手", "打点"}.issubset(set(hc)):
+            batting_raw.append((rows_raw, hc))
+
+    if len(batting_raw) < 2:
+        return {}
+
+    carp_is_home = bool(re.search(r"/scores/\d{4}/\d{4}/c-[a-z]{1,2}-\d{2}/box\.html", box_url))
+    carp_rows_raw, header = batting_raw[1] if carp_is_home else batting_raw[0]
+
+    idx_map = {name: i for i, name in enumerate(header)}
+    rbi_col = idx_map.get("打点", -1)
+
+    result: dict[str, dict] = {}
+
+    for row_raw in carp_rows_raw[1:]:
+        tds = re.findall(r"<td([^>]*)>(.*?)</td>", row_raw, re.DOTALL)
+        if not tds:
+            continue
+
+        player_name = ""
+        rbi_hits   = 0
+        hits       = 0
+        plate_abs  = []  # (class_val, text) の打席リスト
+
+        for attrs, content in tds:
+            text = re.sub(r"<[^>]+>", "", content).strip()
+            cls_m = re.search(r'class=["\']([^"\']*)["\']', attrs)
+            cls_val = (cls_m.group(1) if cls_m else "").strip()
+
+            if "player" in cls_val:
+                player_name = text
+            else:
+                plate_abs.append((cls_val, text))
+
+        if not player_name or player_name == "チーム計":
+            continue
+
+        # 打席結果セルを走査（守備・打順・各種カウント列を除く打席結果列）
+        # 打席結果列の識別: class が hit/walk/Green/'' かつ
+        #   テキストが打席結果らしい（ゴロ/飛/安/本/振/球/邪 などを含む）
+        def _is_plate_result(cls: str, text: str) -> bool:
+            result_keywords = ["ゴロ", "飛", "安", "本", "振", "球", "邪", "犠", "ゴ失", "内野安"]
+            if not text or text in ("-", "－", "&nbsp;"):
+                return False
+            if any(kw in text for kw in result_keywords):
+                return True
+            if cls in ("hit Red", "hit Red rbi", "walk Blue", "Green"):
+                return True
+            return False
+
+        pa_count   = 0
+        chance_pa  = 0
+
+        for cls_val, text in plate_abs:
+            if not _is_plate_result(cls_val, text):
+                continue
+            pa_count += 1
+            if "hit Red rbi" in cls_val:
+                hits += 1
+                rbi_hits += 1
+                chance_pa += 1
+            elif "hit Red" in cls_val:
+                hits += 1
+            # 打点付き非安打（犠飛等）も得点圏打席扱い
+            elif "①" in text or "②" in text or "③" in text:
+                chance_pa += 1
+
+        result[player_name] = {
+            "hits":      hits,
+            "rbi_hits":  rbi_hits,
+            "chance_pa": chance_pa,
+            "pa":        pa_count,
+        }
+
+    return result
+
+
+def _build_hot_batters_data(window_games: int = 5) -> dict:
+    """
+    直近 window_games 試合の 打率・出塁率・チャンス打率 TOP選手を算出。
+    """
+    cache_key = f"hot_batters:{window_games}"
+    cache_entry = CACHE.get(cache_key, {})
+    if _cache_alive(cache_entry) and cache_entry.get("value"):
+        return cache_entry["value"]
+
+    # ── 打率・出塁率は既存の集計を再利用 ──
+    recent_data  = _build_recent_batting_response(window_games)
+    players      = recent_data.get("players", [])
+    games_list   = recent_data.get("games", [])
+
+    # MIN_PA フィルタ（打席数が少なすぎる選手を除外）
+    MIN_PA = 5
+    eligible = [p for p in players if p.get("pa", 0) >= MIN_PA]
+
+    # ── 打率TOP ──
+    avg_top  = max(eligible, key=lambda p: p.get("avg",  0.0), default=None) if eligible else None
+
+    # ── 出塁率TOP ──
+    obp_top  = max(eligible, key=lambda p: p.get("obp",  0.0), default=None) if eligible else None
+
+    # ── チャンス打率（得点圏近似）集計 ──
+    chance_totals: dict[str, dict] = {}
+    for game in games_list:
+        box_url = game.get("box_url", "")
+        if not box_url:
+            continue
+        try:
+            risp = _parse_carp_batting_risp(box_url)
+        except Exception:
+            continue
+        for raw_name, s in risp.items():
+            cname = _canonical_player_name(raw_name)
+            if not cname:
+                continue
+            ct = chance_totals.setdefault(cname, {"rbi_hits": 0, "chance_pa": 0})
+            ct["rbi_hits"]  += s["rbi_hits"]
+            ct["chance_pa"] += s["chance_pa"]
+
+    # 最低 2 チャンス打席以上
+    chance_eligible = {
+        name: d for name, d in chance_totals.items()
+        if d["chance_pa"] >= 2
+    }
+
+    def _chance_avg(d: dict) -> float:
+        cp = d.get("chance_pa", 0)
+        return d["rbi_hits"] / cp if cp > 0 else 0.0
+
+    chance_top_name = (
+        max(chance_eligible, key=lambda n: _chance_avg(chance_eligible[n]))
+        if chance_eligible else None
+    )
+
+    # フルネームに変換（canonical → PLAYER_PROFILE キー）
+    def _profile_name(cname: str) -> str:
+        for pname in PLAYER_PROFILE:
+            if _canonical_player_name(pname) == cname:
+                return pname
+        return cname
+
+    chance_top = None
+    if chance_top_name:
+        d = chance_eligible[chance_top_name]
+        chance_top = {
+            "player_name":  _profile_name(chance_top_name),
+            "chance_avg":   round(_chance_avg(d), 3),
+            "rbi_hits":     d["rbi_hits"],
+            "chance_pa":    d["chance_pa"],
+        }
+
+    # ── 全選手チャンス成績リスト（補足用）──
+    chance_ranking = []
+    for cname, d in sorted(chance_eligible.items(),
+                            key=lambda x: -_chance_avg(x[1])):
+        chance_ranking.append({
+            "player_name": _profile_name(cname),
+            "chance_avg":  round(_chance_avg(d), 3),
+            "rbi_hits":    d["rbi_hits"],
+            "chance_pa":   d["chance_pa"],
+        })
+
+    result = {
+        "window_games": window_games,
+        "games":        games_list,
+        "avg_top":      avg_top,
+        "obp_top":      obp_top,
+        "chance_top":   chance_top,
+        "chance_ranking": chance_ranking,
+        "all_players":  players,
+    }
+
+    CACHE[cache_key] = {
+        "value":      result,
+        "expires_at": _cache_now() + CACHE_TTL_RECENT_BATTING,
+    }
+    return result
+
+
+def _render_hot_batters_html(data: dict) -> HTMLResponse:
+    wg          = int(data.get("window_games", 5))
+    avg_top     = data.get("avg_top")  or {}
+    obp_top     = data.get("obp_top")  or {}
+    chance_top  = data.get("chance_top") or {}
+    all_players = data.get("all_players", [])
+    games_list  = data.get("games", [])
+    chance_rank = data.get("chance_ranking", [])
+
+    def _wg_cls(w: int) -> str:
+        return " active" if w == wg else ""
+
+    def _hero_card(
+        rank_label: str,
+        stat_label: str,
+        stat_key: str,
+        player: dict,
+        val_fmt: str,
+        accent: str,
+        extra_html: str = "",
+    ) -> str:
+        if not player:
+            return f"""
+            <div class="hero-card" style="--accent:{accent}">
+              <div class="rank-badge">{rank_label}</div>
+              <div class="stat-label">{stat_label}</div>
+              <div class="no-data">データなし</div>
+            </div>"""
+
+        name     = player.get("player_name", "")
+        val      = player.get(stat_key, 0.0) or 0.0
+        games_n  = int(player.get("games", 0) or 0)
+        pa       = int(player.get("pa",    0) or 0)
+        hits     = int(player.get("hits",  0) or 0)
+        hr       = int(player.get("homeruns", 0) or 0)
+        rbi      = int(player.get("rbi",   0) or 0)
+
+        val_str = format(val, val_fmt)
+
+        sub_stats = f"""
+          <div class="sub-stats">
+            <span>{games_n}試合</span>
+            <span>{pa}打席</span>
+            <span>{hits}安打</span>
+            {"<span>"+str(hr)+"本塁打</span>" if hr else ""}
+            {"<span>"+str(rbi)+"打点</span>" if rbi else ""}
+          </div>"""
+
+        return f"""
+        <div class="hero-card" style="--accent:{accent}">
+          <div class="rank-badge">{rank_label}</div>
+          <div class="stat-label">{stat_label}</div>
+          <div class="player-name">{name}</div>
+          <div class="big-val" style="color:var(--accent)">{val_str}</div>
+          {sub_stats}
+          {extra_html}
+        </div>"""
+
+    # チャンス打率カードの extra_html
+    chance_extra = ""
+    if chance_top:
+        rbi_h  = int(chance_top.get("rbi_hits", 0) or 0)
+        ch_pa  = int(chance_top.get("chance_pa", 0) or 0)
+        chance_extra = f'<div class="sub-note">打点安打 {rbi_h}/{ch_pa} チャンス打席</div>'
+
+    # チャンス用カードを独立生成
+    def _chance_card() -> str:
+        if not chance_top:
+            return """
+            <div class="hero-card" style="--accent:#ff9f43">
+              <div class="rank-badge">チャンス強打者</div>
+              <div class="stat-label">チャンス打率</div>
+              <div class="no-data">データなし<br><small>(最低2チャンス打席)</small></div>
+            </div>"""
+        name = chance_top.get("player_name", "")
+        val  = chance_top.get("chance_avg", 0.0)
+        rbi_h = int(chance_top.get("rbi_hits", 0))
+        ch_pa = int(chance_top.get("chance_pa", 0))
+        return f"""
+        <div class="hero-card" style="--accent:#ff9f43">
+          <div class="rank-badge">チャンス強打者</div>
+          <div class="stat-label">チャンス打率 <span style="font-size:11px;opacity:.7">※打点付打席</span></div>
+          <div class="player-name">{name}</div>
+          <div class="big-val" style="color:#ff9f43">{val:.3f}</div>
+          <div class="sub-stats">
+            <span>打点安打 {rbi_h}本</span>
+            <span>チャンス打席 {ch_pa}</span>
+          </div>
+        </div>"""
+
+    card_avg    = _hero_card("首位打者", f"直近{wg}試合 打率", "avg", avg_top, ".3f", "#ffd54a")
+    card_obp    = _hero_card("出塁王", f"直近{wg}試合 出塁率", "obp", obp_top, ".3f", "#7ecfff")
+    card_chance = _chance_card()
+
+    # ── サポートテーブル：全選手成績 ──
+    # PA 降順・打率TOP から並べ替え
+    sorted_players = sorted(all_players, key=lambda p: -p.get("avg", 0))
+    rows_html = []
+    for p in sorted_players:
+        pname  = p.get("player_name", "")
+        avg    = float(p.get("avg",  0) or 0)
+        obp    = float(p.get("obp",  0) or 0)
+        slg    = float(p.get("slg",  0) or 0)
+        ops    = float(p.get("ops",  0) or 0)
+        pa     = int(p.get("pa",    0) or 0)
+        hits   = int(p.get("hits",  0) or 0)
+        hr     = int(p.get("homeruns", 0) or 0)
+        woba   = float(p.get("woba", 0) or 0)
+
+        # チャンス成績を取得
+        cname  = _canonical_player_name(pname)
+        chance_d = next((r for r in chance_rank if _canonical_player_name(r["player_name"]) == cname), None)
+        if chance_d:
+            ca_str = f"{chance_d['chance_avg']:.3f} ({chance_d['rbi_hits']}/{chance_d['chance_pa']})"
+        else:
+            ca_str = "—"
+
+        # アクティブ選手ハイライト
+        is_avg_top  = avg_top  and _canonical_player_name(avg_top.get("player_name",""))  == cname
+        is_obp_top  = obp_top  and _canonical_player_name(obp_top.get("player_name",""))  == cname
+        is_ch_top   = chance_top and _canonical_player_name(chance_top.get("player_name","")) == cname
+
+        badges = ""
+        if is_avg_top:  badges += '<span class="badge avg-badge">打</span>'
+        if is_obp_top:  badges += '<span class="badge obp-badge">出</span>'
+        if is_ch_top:   badges += '<span class="badge ch-badge">機</span>'
+
+        rows_html.append(f"""
+        <tr{"" if pa >= 5 else ' style="opacity:.55"'}>
+          <td>{pname} {badges}</td>
+          <td>{pa}</td>
+          <td>{hits}</td>
+          <td style="color:#ffd54a;font-weight:bold">{avg:.3f}</td>
+          <td style="color:#7ecfff">{obp:.3f}</td>
+          <td>{slg:.3f}</td>
+          <td>{ops:.3f}</td>
+          <td>{hr}</td>
+          <td style="color:#ff9f43">{ca_str}</td>
+          <td>{woba:.3f}</td>
+        </tr>""")
+
+    # 試合リスト
+    games_html_parts = []
+    for g in games_list:
+        rv = str(g.get("result","") or "")
+        rc = "result-win" if rv=="勝" else ("result-lose" if rv=="負" else "result-draw" if rv=="分" else "")
+        games_html_parts.append(f"""
+        <div class="mini-game">
+          <span class="gdate">{g.get("date","")}</span>
+          <span class="gopp">vs {g.get("opponent","")}</span>
+          <span class="gres {rc}">{rv}</span>
+          <span class="gscore">{g.get("score","")}</span>
+        </div>""")
+
+    body = f"""
+    <style>
+      /* ── ホットバッターページ専用スタイル ── */
+      .hb-wrap {{ max-width: 1000px; margin: 0 auto; }}
+
+      /* ヒーローカードグリッド */
+      .hero-cards {{
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 18px;
+        margin-bottom: 20px;
+      }}
+      .hero-card {{
+        background: linear-gradient(150deg, #131e38 0%, #0c1424 100%);
+        border: 1.5px solid var(--accent, #ffd54a);
+        border-radius: 18px;
+        padding: 28px 22px 22px;
+        text-align: center;
+        box-shadow: 0 0 28px color-mix(in srgb, var(--accent,#ffd54a) 15%, transparent),
+                    inset 0 1px 0 rgba(255,255,255,.05);
+        transition: transform .2s, box-shadow .2s;
+        position: relative;
+        overflow: hidden;
+      }}
+      .hero-card::before {{
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(--accent,#ffd54a) 12%, transparent) 0%, transparent 65%);
+        pointer-events: none;
+      }}
+      .hero-card:hover {{
+        transform: translateY(-5px);
+        box-shadow: 0 8px 40px color-mix(in srgb, var(--accent,#ffd54a) 22%, transparent),
+                    inset 0 1px 0 rgba(255,255,255,.08);
+      }}
+      .rank-badge {{
+        display: inline-block;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: var(--accent, #ffd54a);
+        background: color-mix(in srgb, var(--accent,#ffd54a) 10%, transparent);
+        border: 1px solid color-mix(in srgb, var(--accent,#ffd54a) 30%, transparent);
+        border-radius: 20px;
+        padding: 3px 14px;
+        margin-bottom: 10px;
+      }}
+      .stat-label {{
+        font-size: 12px;
+        color: #5a6e94;
+        margin-bottom: 14px;
+        min-height: 16px;
+      }}
+      .player-name {{
+        font-size: 26px;
+        font-weight: 800;
+        color: #e8f0ff;
+        margin-bottom: 10px;
+        letter-spacing: .02em;
+        line-height: 1.2;
+      }}
+      .big-val {{
+        font-size: 64px;
+        font-weight: 900;
+        line-height: 1;
+        margin-bottom: 16px;
+        font-variant-numeric: tabular-nums;
+        text-shadow: 0 0 22px currentColor;
+      }}
+      .sub-stats {{
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 6px;
+        font-size: 11px;
+        color: #5a6e94;
+      }}
+      .sub-stats span {{
+        background: rgba(255,255,255,.04);
+        border: 1px solid #1e2d50;
+        border-radius: 6px;
+        padding: 3px 9px;
+      }}
+      .sub-note {{
+        font-size: 11px;
+        color: #4a5878;
+        margin-top: 8px;
+      }}
+      .no-data {{
+        font-size: 16px;
+        color: #2a3550;
+        margin: 24px 0;
+      }}
+
+      /* ── サポートグリッド ── */
+      .support-grid {{
+        display: grid;
+        grid-template-columns: 1fr 200px;
+        gap: 14px;
+        align-items: start;
+      }}
+      @media (max-width: 720px) {{
+        .hero-cards {{ grid-template-columns: 1fr; gap: 12px; }}
+        .big-val {{ font-size: 52px; }}
+        .player-name {{ font-size: 22px; }}
+        .support-grid {{ grid-template-columns: 1fr; }}
+      }}
+
+      /* バッジ */
+      .badge {{
+        display: inline-block;
+        font-size: 10px;
+        font-weight: 700;
+        border-radius: 4px;
+        padding: 1px 5px;
+        margin-left: 4px;
+        vertical-align: middle;
+      }}
+      .avg-badge {{ background: #ffd54a15; color: #ffd54a; border: 1px solid #ffd54a40; }}
+      .obp-badge {{ background: #56cff815; color: #56cff8; border: 1px solid #56cff840; }}
+      .ch-badge  {{ background: #ff9f4315; color: #ff9f43; border: 1px solid #ff9f4340; }}
+
+      /* 試合リスト */
+      .mini-game {{
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 0;
+        border-bottom: 1px solid #1a2540;
+        font-size: 12px;
+      }}
+      .mini-game:last-child {{ border-bottom: none; }}
+      .gdate {{ color: #4a5878; min-width: 44px; }}
+      .gopp  {{ flex: 1; color: #c8d4f0; font-weight: 600; }}
+      .gres  {{ font-weight: 800; min-width: 14px; text-align: center; }}
+      .result-win  {{ color: #5ce65c; }}
+      .result-lose {{ color: #f06060; }}
+      .result-draw {{ color: #d4c84a; }}
+      .gscore {{ color: #4a5878; font-size: 11px; }}
+
+      /* テーブル強調 */
+      #all-table td:nth-child(4) {{ color: #ffd54a; font-weight:700; }}
+      #all-table td:nth-child(5) {{ color: #56cff8; }}
+      #all-table td:nth-child(9) {{ color: #ff9f43; font-weight:700; }}
+    </style>
+
+    <div class="hb-wrap">
+      <div class="hero">
+        <h1>ホットバッター</h1>
+        <div class="muted">直近 {wg} 試合で最も輝いた打者</div>
+        <div class="nav-bar">
+          <div class="nav-section">
+            <span class="nav-label">期間</span>
+            <div class="nav-group">
+              <a class="nav-btn{_wg_cls(5)}"  href="/public/hot-batters?window_games=5">直近 5試合</a>
+              <a class="nav-btn{_wg_cls(10)}" href="/public/hot-batters?window_games=10">直近 10試合</a>
+            </div>
+          </div>
+        </div>
+        {_common_nav("", wg)}
+      </div>
+
+      <!-- ── 3枚ヒーローカード ── -->
+      <div class="hero-cards">
+        {card_avg}
+        {card_obp}
+        {card_chance}
+      </div>
+
+      <!-- ── サポートエリア ── -->
+      <div class="support-grid">
+        <div class="card">
+          <div class="card-title">直近{wg}試合 全選手成績</div>
+          <div class="legend">
+            <span class="badge avg-badge">打</span> 打率TOP ／
+            <span class="badge obp-badge">出</span> 出塁率TOP ／
+            <span class="badge ch-badge">機</span> チャンスTOP ／
+            薄字 = 5打席未満
+          </div>
+          <div class="table-wrap">
+            <table id="all-table">
+              <thead>
+                <tr>
+                  <th class="sortable" data-col="0">選手</th>
+                  <th class="sortable" data-col="1">打席</th>
+                  <th class="sortable" data-col="2">安打</th>
+                  <th class="sortable col-gold" data-col="3">打率</th>
+                  <th class="sortable col-cyan"  data-col="4">出塁率</th>
+                  <th class="sortable" data-col="5">長打率</th>
+                  <th class="sortable" data-col="6">OPS</th>
+                  <th class="sortable" data-col="7">HR</th>
+                  <th class="sortable" data-col="8" style="color:#ff9f43">チャンス打率</th>
+                  <th class="sortable col-cyan" data-col="9">wOBA</th>
+                </tr>
+              </thead>
+              <tbody>
+                {"".join(rows_html) if rows_html else '<tr><td colspan="10" class="empty">データなし</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {_make_sort_script(["all-table"])}
+    """
+    return _html_page("ホットバッター", body)
+
+
+@router.get("/public/hot-batters")
+def public_hot_batters(request: Request, window_games: int = 5, view: str | None = None):
+    try:
+        window_games = max(1, min(window_games, 10))
+        data = _build_hot_batters_data(window_games)
+        if _wants_html(request, view):
+            return _render_hot_batters_html(data)
+        return _no_cache_json(data)
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "hot-batters failed",
+                "type": type(e).__name__,
+                "message": str(e),
+            },
+        )
+
+
+# ═══════════════════════════════════════════════════════
+#  得点圏打率（RISP）機能
+#  Yahoo Baseball テキスト速報からスクレイピング
+# ═══════════════════════════════════════════════════════
+
+# 得点圏（Runners In Scoring Position）: 二塁・三塁にランナーがいる状態
+# テキスト速報の打席情報フォーマット:
+#   「○死 走者状況」 例: 「無死走者なし」「一死一塁」「二死二塁」「無死満塁」 等
+# ヒット判定: 「ヒット」「二塁打」「三塁打」「本塁打」「タイムリー」を含む打席
+# アウト判定: 「三振」「ゴロ」「フライ」「ライナー」「ダブルプレー」「バントアウト」等
+# ※四球・死球・バント成功・エラー出塁は打数に含めない
+
+# ─── 走者状況 → 得点圏かどうかの判定 ───
+_RISP_RUNNER_PATTERNS = [
+    # 二塁にランナーがいるパターン
+    r"二塁",       # 「一死二塁」「無死二塁」等
+    r"二三塁",     # 「一死二三塁」等（三塁も含む）
+    r"満塁",       # 「無死満塁」「一死満塁」等
+    r"一二三塁",   # 満塁の別表現
+    r"一三塁",     # 「一三塁」（三塁のみ得点圏）
+    r"三塁",       # 「無死三塁」（二塁なし）
+]
+
+# ─── 打席結果の分類パターン ───
+# ヒット（打数あり・安打あり）
+_HIT_PATTERNS = [
+    r"ヒット",
+    r"二塁打",
+    r"ツーベース",
+    r"三塁打",
+    r"スリーベース",
+    r"本塁打",
+    r"ホームラン",
+    r"タイムリー",
+]
+# アウト（打数あり・安打なし）
+_OUT_PATTERNS = [
+    r"三振",
+    r"ゴロ",
+    r"フライ",
+    r"ライナー",
+    r"ファウルフライ",
+    r"バントアウト",
+    r"スリーバント",
+    r"犠牲フライ",     # 犠飛は打数なし→別処理
+    r"ゲッツー",
+    r"ダブルプレー",
+]
+# 打数に含まない（四球・死球・バント成功・エラー出塁・敬遠 等）
+_NO_AB_PATTERNS = [
+    r"フォアボール",
+    r"四球",
+    r"死球",
+    r"デッドボール",
+    r"送りバント.*成功",
+    r"犠牲バント",
+    r"敬遠",
+    r"インテンショナル",
+    r"妨害",
+    r"エラー.*出塁",
+    r"フィルダースチョイス",  # 野選も打数なし
+]
+
+
+def _is_risp(runner_text: str) -> bool:
+    """走者状況テキストが得点圏（二塁または三塁にランナーあり）かどうか判定"""
+    # 「走者なし」は明示的に除外
+    if "走者なし" in runner_text or "ランナーなし" in runner_text:
+        return False
+    # 一塁のみ（「一塁」単独で「二三塁」「三塁」を含まない）
+    if re.fullmatch(r"[無一二三]死一塁", runner_text.strip()):
+        return False
+    # 得点圏パターンをチェック
+    for pat in _RISP_RUNNER_PATTERNS:
+        if re.search(pat, runner_text):
+            return True
+    return False
+
+
+def _classify_at_bat(result_text: str) -> str:
+    """打席結果テキストを分類: 'hit' / 'out' / 'no_ab' / 'unknown'"""
+    # 四球・死球・バント・敬遠 → 打数なし
+    for pat in _NO_AB_PATTERNS:
+        if re.search(pat, result_text):
+            return "no_ab"
+    # ヒット系
+    for pat in _HIT_PATTERNS:
+        if re.search(pat, result_text):
+            return "hit"
+    # アウト系
+    for pat in _OUT_PATTERNS:
+        if re.search(pat, result_text):
+            return "out"
+    # 犠飛は明示チェック
+    if re.search(r"犠牲フライ|サクリファイスフライ", result_text):
+        return "no_ab"
+    return "unknown"
+
+
+def _parse_text_report(html: str, carp_team_name: str = "広島") -> list[dict]:
+    """テキスト速報HTMLを解析し、広島打者の全打席を返す。
+
+    Yahoo Baseball テキスト速報の HTML 構造:
+      <header class="bb-liveText__head bb-liveText__head--npbTeam6"> → 広島の攻撃イニング
+      <li class="bb-liveText__item"> → 各打席
+        bb-liveText__order: 「N番」「代打」
+        bb-liveText__player: 選手名
+        bb-liveText__state: 走者状況 / 結果テキスト
+
+    Returns:
+        list of {
+            "player": str,       # 選手名
+            "runner": str,       # 走者状況テキスト
+            "result": str,       # 結果テキスト
+            "is_risp": bool,     # 得点圏か
+            "ab_type": str,      # 'hit'/'out'/'no_ab'/'unknown'
+            "half": str,         # '表'/'裏'
+            "inning": int,       # 回
+        }
+    """
+    def _strip(s: str) -> str:
+        s = re.sub(r"<[^>]+>", " ", s)
+        return re.sub(r"\s+", " ", s).strip()
+
+    at_bats: list[dict] = []
+
+    # HTML を「イニングブロック」ごとに分割
+    # 各ブロックは <header class="bb-liveText__head ..."> から始まる
+    sections = re.split(r"(?=<header\s[^>]*bb-liveText__head)", html)
+
+    for sec in sections:
+        # 広島のイニングのみ対象（bb-liveText__head--npbTeam6）
+        if "bb-liveText__head--npbTeam6" not in sec:
+            continue
+
+        # イニング番号・表裏
+        m_inn = re.search(r"<h1[^>]*>(\d+)回([表裏])</h1>", sec)
+        inning = int(m_inn.group(1)) if m_inn else 0
+        half   = m_inn.group(2)     if m_inn else ""
+
+        # 各打席 <li class="bb-liveText__item"> を抽出
+        items = re.findall(
+            r'<li class="bb-liveText__item">(.*?)</li>', sec, re.DOTALL
+        )
+
+        for item in items:
+            item_text = _strip(item)
+
+            # 打者ヘッダーパターン: 「N番 選手名 走者状況」または「代打 選手名 走者状況」
+            # 走者状況: [無一二三]死 + 走者テキスト
+            m = re.search(
+                r"(?:\d+番|代打)\s+(.+?)\s+([無一二三]死(?:走者なし|[一二三満]?塁|一二塁|一三塁|二三塁|一二三塁|満塁))",
+                item_text,
+            )
+            if not m:
+                continue
+
+            player = m.group(1).strip()
+            runner = m.group(2).strip()
+            result = item_text[m.end():].strip()
+
+            ab_type = _classify_at_bat(result)
+            is_risp = _is_risp(runner)
+
+            at_bats.append({
+                "player":  player,
+                "runner":  runner,
+                "result":  result[:120],
+                "is_risp": is_risp,
+                "ab_type": ab_type,
+                "half":    half,
+                "inning":  inning,
+            })
+
+    return at_bats
+
+
+def _fetch_risp_for_game(game_id: str) -> list[dict]:
+    """1試合分のテキスト速報から広島打者の打席データを取得（キャッシュ付き）"""
+    cache_bucket = _cache_get_bucket("risp")
+    cache_key = f"game:{game_id}"
+    cache_entry = cache_bucket.get(cache_key)
+    if _cache_alive(cache_entry):
+        return cache_entry.get("value", [])
+
+    url = YAHOO_GAME_TEXT_URL.format(game_id=game_id)
+    try:
+        html = _fetch_html(url)
+        at_bats = _parse_text_report(html)
+        cache_bucket[cache_key] = {"value": at_bats, "expires_at": _cache_now() + CACHE_TTL_RISP}
+        print(f"DEBUG_RISP_GAME {game_id}: {len(at_bats)} at-bats parsed")
+        return at_bats
+    except Exception as e:
+        print(f"DEBUG_RISP_GAME_ERROR {game_id}: {e}")
+        return []
+
+
+def _fetch_carp_finished_game_ids_from_team_schedule() -> list[str]:
+    """広島チーム専用スケジュールページから「試合終了」のゲームIDを古い順で返す。
+
+    URL: https://baseball.yahoo.co.jp/npb/teams/6/schedule
+    このページには広島の試合のみが含まれるため teams/6 フィルタ不要。
+    「試合終了」テキストを持つリンクのゲームIDを順に抽出する。
+    重複除去・順序維持（古い順）で返す。
+    """
+    url = f"https://baseball.yahoo.co.jp/npb/teams/{CARP_TEAM_ID}/schedule"
+    try:
+        html = _fetch_html(url)
+    except Exception as e:
+        print(f"DEBUG_RISP_TEAM_SCHEDULE_ERROR: {e}")
+        return []
+
+    # /npb/game/(ID)/index">試合終了 パターンで抽出（広島試合のみ含まれる）
+    raw_ids = re.findall(r'/npb/game/(\d+)/index[^"]*">\s*試合終了', html)
+
+    # 重複除去（順序維持）
+    seen: set[str] = set()
+    unique_ids: list[str] = []
+    for gid in raw_ids:
+        if gid not in seen:
+            seen.add(gid)
+            unique_ids.append(gid)
+
+    print(f"DEBUG_RISP_TEAM_SCHEDULE: {len(unique_ids)} finished games found")
+    return unique_ids  # 古い順
+
+
+def _get_game_date_from_text_page(game_id: str, html: str) -> str:
+    """テキスト速報HTMLから試合日付を 'YYYY-MM-DD' 形式で返す。
+
+    ページ本文に含まれる「YYYY年M月D日」パターンを探す。
+    見つからない場合は空文字を返す。
+    """
+    m = re.search(r'(\d{4})年(\d{1,2})月(\d{1,2})日', html)
+    if m:
+        return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+    return ""
+
+
+def _get_recent_carp_game_ids(num_games: int = 5) -> list[tuple[str, str]]:
+    """直近 num_games 試合の (game_id, date_str) リストを返す（新しい順）。
+
+    広島チームスケジュールページから「試合終了」ゲームIDを取得し、
+    テキスト速報ページに広島攻撃イニング (bb-liveText__head--npbTeam6) が
+    存在するものだけを広島試合として採用する。
+    各試合の日付はテキスト速報ページ本文内「YYYY年M月D日」から取得する。
+
+    Returns:
+        [(game_id, 'YYYY-MM-DD'), ...] 新しい順
+    """
+    cache_bucket = _cache_get_bucket("risp")
+    cache_key = f"game_ids:{num_games}"
+    cache_entry = cache_bucket.get(cache_key)
+    if _cache_alive(cache_entry):
+        return cache_entry.get("value", [])
+
+    # チームスケジュールから完了試合IDを取得（古い順）
+    all_finished = _fetch_carp_finished_game_ids_from_team_schedule()
+
+    if not all_finished:
+        return []
+
+    # 新しい順（末尾から）に走査し、広島出場確認済みの num_games 件を収集
+    # スケジュールページに他球団試合が混入する場合があるため npbTeam6 でフィルタ
+    found: list[tuple[str, str]] = []
+    for gid in reversed(all_finished):
+        if len(found) >= num_games:
+            break
+        url = YAHOO_GAME_TEXT_URL.format(game_id=gid)
+        try:
+            html = _fetch_html(url)
+            # 広島の攻撃イニングが存在する試合のみ採用
+            if "bb-liveText__head--npbTeam6" not in html:
+                print(f"DEBUG_RISP_SKIP {gid}: no Carp inning found, skipping")
+                continue
+            date_str = _get_game_date_from_text_page(gid, html)
+            found.append((gid, date_str))
+            print(f"DEBUG_RISP_GAME_ID {gid}: date={date_str}")
+        except Exception as e:
+            print(f"DEBUG_RISP_GAME_ID_ERROR {gid}: {e}")
+
+    cache_bucket[cache_key] = {"value": found, "expires_at": _cache_now() + CACHE_TTL_RISP}
+    return found
+
+# ────────────────────────────────────────────────────────────
+#  game-recap: 試合要約
+# ────────────────────────────────────────────────────────────
+
+# チーム略称 → 表示名マップ
+_TEAM_SHORT: dict[str, str] = {
+    "阪神タイガース":     "阪神",
+    "読売ジャイアンツ":   "巨人",
+    "横浜DeNAベイスターズ": "DeNA",
+    "中日ドラゴンズ":     "中日",
+    "東京ヤクルトスワローズ": "ヤクルト",
+    "広島東洋カープ":     "広島",
+    "福岡ソフトバンクホークス": "ソフトバンク",
+    "埼玉西武ライオンズ": "西武",
+    "東北楽天ゴールデンイーグルス": "楽天",
+    "千葉ロッテマリーンズ": "ロッテ",
+    "北海道日本ハムファイターズ": "日本ハム",
+    "オリックス・バファローズ": "オリックス",
+}
+
+def _shorten_team(name: str) -> str:
+    return _TEAM_SHORT.get(name.strip(), name.strip())
+
+
+def _build_game_recap(game_id: str, date_str: str, html: str) -> dict:
+    """テキスト速報HTMLから試合要約を生成"""
+    # タイトルから対戦チーム
+    title_m = re.search(r"(\d{4})年(\d{1,2})月(\d{1,2})日\s+(.+?)vs\.(.+?)\s+試合", html)
+    if title_m:
+        team1 = _shorten_team(title_m.group(4))
+        team2 = _shorten_team(title_m.group(5))
+    else:
+        team1, team2 = "?", "広島"
+
+    # 広島が先攻か後攻かを判定
+    is_home = bool(re.search(r"後攻:広島|ホーム:広島", html))
+    away_team = team2 if is_home else team1
+    home_team = team1 if is_home else team2
+    carp_team = "広島"
+    opp_team  = away_team if carp_team == home_team else home_team
+
+    # 最終スコア（最後のスコア表記）
+    score_all = re.findall(r"([^\s]{1,6})\s+(\d+)\s*-\s*(\d+)\s+([^\s]{1,6})", html)
+    carp_score: int | None = None
+    opp_score: int | None = None
+    if score_all:
+        last = score_all[-1]
+        # どちらが広島？
+        s1, n1, n2, s2 = last
+        if "広" in s1 or "広島" in s1:
+            carp_score, opp_score = int(n1), int(n2)
+        elif "広" in s2 or "広島" in s2:
+            carp_score, opp_score = int(n2), int(n1)
+        else:
+            # 先攻/後攻で判定
+            carp_score = int(n1) if not is_home else int(n2)
+            opp_score  = int(n2) if not is_home else int(n1)
+
+    # 勝敗
+    if carp_score is not None and opp_score is not None:
+        result = "勝" if carp_score > opp_score else ("負" if carp_score < opp_score else "分")
+    else:
+        result = "?"
+
+    # 打席データ
+    at_bats = _parse_text_report(html)
+
+    # ハイライト: タイムリー・本塁打・犠牲フライ
+    hr_players: list[str] = []
+    timely_players: list[str] = []
+    sf_players: list[str] = []
+    for ab in at_bats:
+        res = ab.get("result", "")
+        player = ab["player"]
+        if re.search(r"本塁打|ホームラン", res):
+            hr_players.append(player)
+        elif re.search(r"タイムリー", res):
+            timely_players.append(player)
+        elif re.search(r"犠牲フライ|犠飛", res):
+            sf_players.append(player)
+
+    # 選手別安打集計
+    hit_counts: dict[str, int] = {}
+    for ab in at_bats:
+        if ab.get("ab_type") == "hit":
+            p = ab["player"]
+            hit_counts[p] = hit_counts.get(p, 0) + 1
+    multi_hit = [p for p, c in sorted(hit_counts.items(), key=lambda x: -x[1]) if c >= 2]
+
+    # 先発投手
+    starter_m = re.search(r"広島が([^\s、」<]{2,8})(?:が|は|の)?(?:先発|登板|マウンド)", html)
+    if not starter_m:
+        starter_m = re.search(r"先発ピッチャーは.*?広島が([^\s、」<]{2,8})", html)
+    starter = starter_m.group(1) if starter_m else None
+
+    # 要約文を生成
+    summary_parts: list[str] = []
+
+    # スコア行
+    if carp_score is not None:
+        score_str = f"{carp_score}－{opp_score}"
+        if result == "勝":
+            summary_parts.append(f"{opp_team}に{score_str}で勝利。")
+        elif result == "負":
+            summary_parts.append(f"{opp_team}に{score_str}で敗戦。")
+        else:
+            summary_parts.append(f"{opp_team}と{score_str}で引き分け。")
+    else:
+        summary_parts.append(f"{opp_team}戦。")
+
+    # 得点シーン
+    if hr_players:
+        # 重複を除いて数を表示
+        from collections import Counter
+        hr_cnt = Counter(hr_players)
+        hr_parts = [f"{p}の{c}本塁打" if c > 1 else f"{p}の本塁打" for p, c in hr_cnt.items()]
+        summary_parts.append("、".join(hr_parts) + "が飛び出した。")
+    if timely_players:
+        uniq = list(dict.fromkeys(timely_players))
+        summary_parts.append("、".join(uniq[:3]) + "がタイムリーを放った。")
+    if sf_players and not (hr_players or timely_players):
+        summary_parts.append("、".join(sf_players[:2]) + "が犠牲フライで得点。")
+
+    # マルチヒット
+    if multi_hit:
+        summary_parts.append("、".join(multi_hit[:3]) + "がマルチ安打。")
+
+    # 安打ゼロ・僅少
+    total_hits = sum(hit_counts.values())
+    if total_hits == 0:
+        summary_parts.append("広島打線はノーヒット。")
+    elif total_hits <= 3:
+        summary_parts.append(f"広島の安打は{total_hits}本に終わった。")
+
+    if not summary_parts:
+        summary_parts.append("試合データを取得しました。")
+
+    return {
+        "game_id":    game_id,
+        "date":       date_str,
+        "opp_team":   opp_team,
+        "carp_score": carp_score,
+        "opp_score":  opp_score,
+        "result":     result,
+        "total_hits": total_hits,
+        "hr_players": list(dict.fromkeys(hr_players)),
+        "timely_players": list(dict.fromkeys(timely_players)),
+        "multi_hit":  multi_hit[:5],
+        "starter":    starter,
+        "summary":    "".join(summary_parts),
+    }
+
+
+def _build_game_recap_data(num_games: int = 10) -> dict:
+    """直近 num_games 試合の要約データを構築（キャッシュ10分）"""
+    cache_bucket = _cache_get_bucket("risp")
+    cache_key    = f"game_recap:{num_games}"
+    cache_entry  = cache_bucket.get(cache_key)
+    if _cache_alive(cache_entry):
+        cached = cache_entry.get("value")
+        if isinstance(cached, dict):
+            return cached
+
+    all_finished = _fetch_carp_finished_game_ids_from_team_schedule()
+    games: list[dict] = []
+    for gid in reversed(all_finished):
+        if len(games) >= num_games:
+            break
+        try:
+            html = _fetch_html(YAHOO_GAME_TEXT_URL.format(game_id=gid))
+            if "bb-liveText__head--npbTeam6" not in html:
+                continue
+            date_str = _get_game_date_from_text_page(gid, html)
+            recap = _build_game_recap(gid, date_str, html)
+            games.append(recap)
+        except Exception as e:
+            print(f"DEBUG_RECAP_ERROR {gid}: {e}")
+
+    result = {
+        "games":        games,
+        "num_games":    len(games),
+        "generated_at": _now_jst().isoformat(),
+    }
+    cache_bucket[cache_key] = {"value": result, "expires_at": _cache_now() + CACHE_TTL_RISP}
+    return result
+
+
+def _render_game_recap_html(data: dict) -> HTMLResponse:
+    games       = data.get("games", [])
+    generated_at = data.get("generated_at", "")
+
+    cards_html = ""
+    for g in games:
+        result   = g.get("result", "?")
+        cs       = g.get("carp_score")
+        os_      = g.get("opp_score")
+        opp      = g.get("opp_team", "?")
+        date     = g.get("date", "")
+        summary  = g.get("summary", "")
+        hits     = g.get("total_hits", 0)
+        hrs      = g.get("hr_players", [])
+        timely   = g.get("timely_players", [])
+        multi    = g.get("multi_hit", [])
+        starter  = g.get("starter")
+
+        score_str = f"{cs}－{os_}" if cs is not None else "-"
+
+        if result == "勝":
+            result_color  = "#4ade80"
+            result_bg     = "rgba(74,222,128,.12)"
+            result_border = "#4ade80"
+        elif result == "負":
+            result_color  = "#f87171"
+            result_bg     = "rgba(248,113,113,.10)"
+            result_border = "#f87171"
+        else:
+            result_color  = "#ffd54a"
+            result_bg     = "rgba(255,213,74,.10)"
+            result_border = "#ffd54a"
+
+        # バッジ行
+        badges = ""
+        for hr in hrs:
+            badges += f'<span class="gr-badge gr-hr">{escape(hr)} HR</span>'
+        for t in timely[:3]:
+            badges += f'<span class="gr-badge gr-timely">{escape(t)} タイムリー</span>'
+        for m in multi[:3]:
+            badges += f'<span class="gr-badge gr-multi">{escape(m)} マルチ</span>'
+
+        starter_html = f'<span class="gr-starter">先発: {escape(starter)}</span>' if starter else ""
+
+        cards_html += f"""
+        <div class="gr-card" style="border-color:{result_border};background:linear-gradient(135deg,{result_bg},rgba(11,20,36,.9))">
+          <div class="gr-card-top">
+            <div class="gr-date-opp">
+              <span class="gr-date">{escape(date)}</span>
+              <span class="gr-opp">vs {escape(opp)}</span>
+              {starter_html}
+            </div>
+            <div class="gr-score-wrap">
+              <span class="gr-result" style="color:{result_color}">{result}</span>
+              <span class="gr-score" style="color:{result_color}">{score_str}</span>
+            </div>
+          </div>
+          <p class="gr-summary">{escape(summary)}</p>
+          {f'<div class="gr-badges">{badges}</div>' if badges else ''}
+        </div>"""
+
+    if not cards_html:
+        cards_html = '<div style="text-align:center;color:#5a6e94;padding:40px 0">試合データなし</div>'
+
+    body = f"""
+    <style>
+      .gr-card {{
+        border: 1px solid #1e2d50;
+        border-radius: 14px;
+        padding: 18px 20px;
+        margin-bottom: 12px;
+      }}
+      .gr-card:last-child {{ margin-bottom: 0; }}
+      .gr-card-top {{
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        margin-bottom: 10px;
+        gap: 12px;
+      }}
+      .gr-date-opp {{
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }}
+      .gr-date {{
+        font-size: 12px;
+        color: #8494b8;
+        font-weight: 700;
+      }}
+      .gr-opp {{
+        font-size: 20px;
+        font-weight: 900;
+        color: #c8d8f4;
+      }}
+      .gr-starter {{
+        font-size: 11px;
+        color: #5a6e94;
+        margin-top: 2px;
+      }}
+      .gr-score-wrap {{
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 2px;
+        flex-shrink: 0;
+      }}
+      .gr-result {{
+        font-size: 13px;
+        font-weight: 900;
+        letter-spacing: .08em;
+      }}
+      .gr-score {{
+        font-size: 28px;
+        font-weight: 900;
+        letter-spacing: .04em;
+        line-height: 1;
+      }}
+      .gr-summary {{
+        font-size: 14px;
+        color: #c8d8f4;
+        line-height: 1.7;
+        margin: 0 0 8px;
+      }}
+      .gr-badges {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 6px;
+      }}
+      .gr-badge {{
+        font-size: 11px;
+        font-weight: 700;
+        padding: 2px 8px;
+        border-radius: 999px;
+      }}
+      .gr-hr     {{ background: rgba(255,99,99,.18); color: #ff7070; border: 1px solid #ff7070; }}
+      .gr-timely {{ background: rgba(74,222,128,.14); color: #4ade80; border: 1px solid #4ade80; }}
+      .gr-multi  {{ background: rgba(96,165,250,.14); color: #60a5fa; border: 1px solid #60a5fa; }}
+      @media (max-width: 480px) {{
+        .gr-opp   {{ font-size: 17px; }}
+        .gr-score {{ font-size: 22px; }}
+      }}
+    </style>
+
+    <div class="hero">
+      <h1>試合一覧</h1>
+      <div class="muted">広島東洋カープ 直近試合 / 生成 {generated_at}</div>
+      {_common_nav("game-recap")}
+    </div>
+
+    <div class="card">
+      <div class="card-title">直近試合 結果・要約</div>
+      {cards_html}
+    </div>
+    """
+    return _html_page("試合一覧", body)
+
+
+@router.get("/public/game-recap")
+def public_game_recap(request: Request, view: str | None = None):
+    """広島の直近試合一覧と要約"""
+    try:
+        data = _build_game_recap_data(num_games=10)
+        if _wants_html(request, view):
+            return _render_game_recap_html(data)
+        return _no_cache_json(data)
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "game-recap failed",
+                "type": type(e).__name__,
+                "message": str(e),
+            },
+        )
+
+
+def _build_risp_data(window_games: int = 5) -> dict:
+    """直近 window_games 試合の得点圏打率データを構築"""
+    cache_bucket = _cache_get_bucket("risp")
+    cache_key = f"risp:{window_games}"
+    cache_entry = cache_bucket.get(cache_key)
+    if _cache_alive(cache_entry):
+        cached = cache_entry.get("value")
+        if isinstance(cached, dict):
+            return cached
+
+    game_list = _get_recent_carp_game_ids(window_games)
+
+    # 選手別集計
+    # player_name → {risp_ab, risp_hit, total_ab, total_hit, bb, hbp, sf, rbi}
+    player_stats: dict[str, dict] = {}
+    game_details: list[dict] = []
+
+    for game_id, date_str in game_list:
+        at_bats = _fetch_risp_for_game(game_id)
+        game_risp_count = 0
+        game_at_bats = []
+
+        for ab in at_bats:
+            pname = ab["player"]
+            if pname not in player_stats:
+                player_stats[pname] = {
+                    "risp_ab": 0, "risp_hit": 0,
+                    "total_ab": 0, "total_hit": 0,
+                    "bb": 0, "hbp": 0, "sf": 0, "rbi": 0,
+                }
+            ps = player_stats[pname]
+
+            ab_type = ab["ab_type"]
+            is_risp = ab["is_risp"]
+            result_text = ab.get("result", "")
+
+            # 打数カウント（四球・死球・バント・敬遠は除く）
+            if ab_type in ("hit", "out"):
+                ps["total_ab"] += 1
+                if ab_type == "hit":
+                    ps["total_hit"] += 1
+
+            # 得点圏での打数
+            if is_risp and ab_type in ("hit", "out"):
+                ps["risp_ab"] += 1
+                game_risp_count += 1
+                if ab_type == "hit":
+                    ps["risp_hit"] += 1
+
+            # 四球・死球（OBP分子・分母両方に加算）
+            if ab_type == "no_ab":
+                if re.search(r"四球|フォアボール", result_text):
+                    ps["bb"] += 1
+                elif re.search(r"死球|デッドボール", result_text):
+                    ps["hbp"] += 1
+
+            # 犠牲フライ（OBP分母のみ加算）
+            if re.search(r"犠牲フライ|サクリファイスフライ", result_text):
+                ps["sf"] += 1
+
+            # 打点（タイムリー・本塁打・犠牲フライ等）
+            if re.search(r"タイムリー|本塁打|ホームラン|犠牲フライ|サクリファイスフライ|犠飛", result_text):
+                # 「2点タイムリー」「3ランホームラン」等の点数を抽出、取れなければ1
+                m = re.search(r"(\d+)[点本].*(?:タイムリー|打点)", result_text)
+                m2 = re.search(r"(\d+)ラン", result_text)  # 2ラン、3ラン
+                if m:
+                    ps["rbi"] += int(m.group(1))
+                elif m2:
+                    ps["rbi"] += int(m2.group(1))
+                else:
+                    ps["rbi"] += 1
+
+            game_at_bats.append(ab)
+
+        game_details.append({
+            "game_id":    game_id,
+            "date":       date_str,
+            "at_bats":    game_at_bats,
+            "risp_count": game_risp_count,
+        })
+
+    # 選手別サマリーを作成（得点圏打席ゼロの選手は除外）
+    rows = []
+    for pname, ps in player_stats.items():
+        risp_avg = (ps["risp_hit"] / ps["risp_ab"]) if ps["risp_ab"] > 0 else None
+        total_avg = (ps["total_hit"] / ps["total_ab"]) if ps["total_ab"] > 0 else None
+        # OBP: (安打 + 四球 + 死球) / (打数 + 四球 + 死球 + 犠飛)
+        obp_denom = ps["total_ab"] + ps["bb"] + ps["hbp"] + ps["sf"]
+        obp = ((ps["total_hit"] + ps["bb"] + ps["hbp"]) / obp_denom) if obp_denom > 0 else None
+        rows.append({
+            "player":     pname,
+            "risp_ab":    ps["risp_ab"],
+            "risp_hit":   ps["risp_hit"],
+            "risp_avg":   round(risp_avg, 3) if risp_avg is not None else None,
+            "total_ab":   ps["total_ab"],
+            "total_hit":  ps["total_hit"],
+            "total_avg":  round(total_avg, 3) if total_avg is not None else None,
+            "bb":         ps["bb"],
+            "hbp":        ps["hbp"],
+            "sf":         ps["sf"],
+            "rbi":        ps["rbi"],
+            "obp":        round(obp, 3) if obp is not None else None,
+        })
+
+    # 得点圏打席数降順でソート
+    rows.sort(key=lambda r: (-r["risp_ab"], r["player"]))
+
+    result = {
+        "window_games":  window_games,
+        "games_found":   len(game_list),
+        "game_list":     [{"game_id": g, "date": d} for g, d in game_list],
+        "players":       rows,
+        "generated_at":  _now_jst().isoformat(),
+    }
+    cache_bucket[cache_key] = {"value": result, "expires_at": _cache_now() + CACHE_TTL_RISP}
+    return result
+
+
+def _fmt_avg(val) -> str:
+    """打率を .XXX 形式でフォーマット（Noneは '---'）"""
+    if val is None:
+        return "---"
+    if isinstance(val, float):
+        return f".{int(round(val * 1000)):03d}"
+    return str(val)
+
+
+def _render_risp_html(data: dict, window_games: int) -> HTMLResponse:
+    """得点圏打率ページのHTML生成 — 3カラムランキング（得点圏打率・出塁率・打点）"""
+    players    = data.get("players", [])
+    games_found = data.get("games_found", 0)
+    generated_at = data.get("generated_at", "")
+    game_list  = data.get("game_list", [])
+
+    # ─── 一軍登録選手セットを取得（正規化済み = スペース除去）───
+    try:
+        active_set = _fetch_current_first_team_position_players()
+        active_normalized = {_normalize_name(n) for n in active_set}
+    except Exception:
+        active_normalized = set()  # 取得失敗時はフィルタなし（全員表示）
+
+    def _is_active(player_name: str) -> bool:
+        if not active_normalized:
+            return True
+        return _normalize_name(player_name) in active_normalized
+
+    # 一軍登録中の選手のみ対象
+    active_players = [r for r in players if _is_active(r["player"])]
+
+    # ─── 列1: 得点圏打率ランキング（得点圏安打≧1）───
+    risp_ranked = sorted(
+        [r for r in active_players if r.get("risp_hit", 0) >= 1],
+        key=lambda r: (
+            -(r.get("risp_avg") or 0.0),
+            -r.get("risp_hit", 0),
+            -r.get("risp_ab", 0),
+        ),
+    )[:5]
+
+    # ─── 列2: 出塁率ランキング（打席≧1）───
+    obp_ranked = sorted(
+        [r for r in active_players if (r.get("total_ab", 0) + r.get("bb", 0) + r.get("hbp", 0)) >= 1 and r.get("obp") is not None],
+        key=lambda r: (
+            -(r.get("obp") or 0.0),
+            -r.get("total_ab", 0),
+        ),
+    )[:5]
+
+    # ─── 列3: 打点ランキング（打点≧1）───
+    rbi_ranked = sorted(
+        [r for r in active_players if r.get("rbi", 0) >= 1],
+        key=lambda r: (
+            -r.get("rbi", 0),
+            -(r.get("obp") or 0.0),
+        ),
+    )[:5]
+
+    # ─── 行番号ラベル ───
+    RANK_COLORS = {1: "#ffd54a", 2: "#b0c4de", 3: "#cd8f5a", 4: "#7a8fb8", 5: "#7a8fb8"}
+
+    def _rank_badge(rank: int) -> str:
+        color = RANK_COLORS.get(rank, "#7a8fb8")
+        return f'<span class="rc-rank" style="color:{color}">{rank}</span>'
+
+    def _avg_color(val: float) -> str:
+        if val >= 0.500: return "#ffd54a"
+        if val >= 0.400: return "#ff9e4a"
+        if val >= 0.333: return "#4ade80"
+        if val >= 0.250: return "#60a5fa"
+        return "#c8d8f4"
+
+    # ─── 列HTML生成ヘルパー ───
+    def _col_risp(ranked: list) -> str:
+        rows_html = ""
+        for rank, r in enumerate(ranked, 1):
+            avg = r.get("risp_avg") or 0.0
+            avg_str = _fmt_avg(avg)
+            ab = r.get("risp_ab", 0)
+            hit = r.get("risp_hit", 0)
+            color = _avg_color(avg)
+            rows_html += f"""
+            <div class="rc-row">
+              {_rank_badge(rank)}
+              <span class="rc-name">{escape(r['player'])}</span>
+              <span class="rc-val" style="color:{color}">{avg_str}</span>
+              <span class="rc-sub">{hit}/{ab}</span>
+            </div>"""
+        if not rows_html:
+            rows_html = '<div class="rc-empty">データなし</div>'
+        return rows_html
+
+    def _col_obp(ranked: list) -> str:
+        rows_html = ""
+        for rank, r in enumerate(ranked, 1):
+            obp = r.get("obp") or 0.0
+            obp_str = _fmt_avg(obp)
+            color = _avg_color(obp)
+            ab = r.get("total_ab", 0)
+            bb = r.get("bb", 0)
+            hbp = r.get("hbp", 0)
+            pa = ab + bb + hbp + r.get("sf", 0)
+            rows_html += f"""
+            <div class="rc-row">
+              {_rank_badge(rank)}
+              <span class="rc-name">{escape(r['player'])}</span>
+              <span class="rc-val" style="color:{color}">{obp_str}</span>
+              <span class="rc-sub">{pa}打席</span>
+            </div>"""
+        if not rows_html:
+            rows_html = '<div class="rc-empty">データなし</div>'
+        return rows_html
+
+    def _col_rbi(ranked: list) -> str:
+        rows_html = ""
+        for rank, r in enumerate(ranked, 1):
+            rbi = r.get("rbi", 0)
+            rows_html += f"""
+            <div class="rc-row">
+              {_rank_badge(rank)}
+              <span class="rc-name">{escape(r['player'])}</span>
+              <span class="rc-val rc-rbi-val">{rbi}</span>
+              <span class="rc-sub">打点</span>
+            </div>"""
+        if not rows_html:
+            rows_html = '<div class="rc-empty">データなし</div>'
+        return rows_html
+
+    risp_col_html = _col_risp(risp_ranked)
+    obp_col_html  = _col_obp(obp_ranked)
+    rbi_col_html  = _col_rbi(rbi_ranked)
+
+    # ─── 集計対象試合バッジ ───
+    game_badges = ""
+    for g in game_list:
+        game_badges += f'<span class="game-badge">{g["date"]}</span>'
+
+    body = f"""
+    <style>
+      /* ─── 3カラムランキング ─── */
+      .rc-grid {{
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        margin-top: 4px;
+      }}
+      .rc-col {{
+        background: #0b1424;
+        border: 1px solid #1e2d50;
+        border-radius: 12px;
+        overflow: hidden;
+      }}
+      .rc-col-header {{
+        background: linear-gradient(135deg, #0f1e3a, #0a1628);
+        border-bottom: 1px solid #1e2d50;
+        padding: 12px 14px 10px;
+        text-align: center;
+      }}
+      .rc-col-title {{
+        font-size: 14px;
+        font-weight: 800;
+        color: #c8d8f4;
+        letter-spacing: 0.05em;
+      }}
+      .rc-col-body {{
+        padding: 8px 6px;
+      }}
+      .rc-row {{
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 9px 8px;
+        border-radius: 8px;
+        margin-bottom: 4px;
+        background: #0f1829;
+        border: 1px solid #1a2740;
+        min-width: 0;
+      }}
+      .rc-row:last-child {{ margin-bottom: 0; }}
+      .rc-rank {{
+        font-size: 15px;
+        font-weight: 900;
+        min-width: 18px;
+        text-align: center;
+        flex-shrink: 0;
+      }}
+      .rc-name {{
+        font-size: 16px;
+        font-weight: 800;
+        color: #ffffff;
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }}
+      .rc-val {{
+        font-size: 18px;
+        font-weight: 900;
+        letter-spacing: 0.02em;
+        flex-shrink: 0;
+      }}
+      .rc-rbi-val {{
+        color: #ff9e4a;
+      }}
+      .rc-sub {{
+        font-size: 11px;
+        color: #4a5e84;
+        flex-shrink: 0;
+        white-space: nowrap;
+      }}
+      .rc-empty {{
+        text-align: center;
+        color: #5a6e94;
+        padding: 24px 0;
+        font-size: 13px;
+      }}
+      .game-badge {{
+        display: inline-block;
+        background: #0f1829;
+        border: 1px solid #1e2d50;
+        border-radius: 5px;
+        padding: 2px 8px;
+        font-size: 11px;
+        color: #9db0d4;
+      }}
+      @media (max-width: 560px) {{
+        .rc-grid {{ grid-template-columns: 1fr; }}
+        .rc-name {{ font-size: 18px; }}
+        .rc-val  {{ font-size: 20px; }}
+      }}
+    </style>
+
+    <div class="hero">
+      <h1>得点圏・出塁・打点</h1>
+      <div class="muted">直近 {games_found} 試合 / 生成 {generated_at}</div>
+      <div class="nav-bar">
+        <div class="nav-section">
+          <span class="nav-label">試合数</span>
+          <div class="nav-group">
+            <a class="nav-btn{'active' if window_games==3 else ''}" href="/public/risp?window_games=3&view=html">直近3試合</a>
+            <a class="nav-btn {'active' if window_games==5 else ''}" href="/public/risp?window_games=5&view=html">直近5試合</a>
+            <a class="nav-btn {'active' if window_games==10 else ''}" href="/public/risp?window_games=10&view=html">直近10試合</a>
+          </div>
+        </div>
+      </div>
+      {_common_nav("risp", window_games)}
+    </div>
+
+    <div class="card">
+      <div class="card-title">直近 {games_found} 試合 打撃ランキング（一軍登録中）</div>
+      <p style="font-size:11px;color:#5a6e94;margin:4px 0 14px">得点圏打率 = 二塁・三塁にランナーがいる打席 ／ 出塁率 = (安打+四球+死球)÷(打数+四球+死球+犠飛) ／ 打点はタイムリー・HR・犠飛等を集計</p>
+      <div class="rc-grid">
+        <div class="rc-col">
+          <div class="rc-col-header">
+            <div class="rc-col-title">得点圏打率</div>
+          </div>
+          <div class="rc-col-body">
+            {risp_col_html}
+          </div>
+        </div>
+        <div class="rc-col">
+          <div class="rc-col-header">
+            <div class="rc-col-title">出塁率</div>
+          </div>
+          <div class="rc-col-body">
+            {obp_col_html}
+          </div>
+        </div>
+        <div class="rc-col">
+          <div class="rc-col-header">
+            <div class="rc-col-title">打点</div>
+          </div>
+          <div class="rc-col-body">
+            {rbi_col_html}
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+    return _html_page("得点圏・出塁・打点", body)
+
+
+@router.get("/public/risp")
+def public_risp(request: Request, window_games: int = 5, view: str | None = None):
+    """広島の直近N試合の得点圏打率をYahoo Baseballテキスト速報から算出"""
+    try:
+        window_games = max(1, min(window_games, 10))
+        data = _build_risp_data(window_games)
+        if _wants_html(request, view):
+            return _render_risp_html(data, window_games)
+        return _no_cache_json(data)
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "risp failed",
+                "type": type(e).__name__,
+                "message": str(e),
+            },
+        )
+
+
+# ---------------------------------------------------------------------------
+#  プライバシーポリシー
+# ---------------------------------------------------------------------------
+
+@router.get("/public/privacy")
+def public_privacy(request: Request):
+    """プライバシーポリシーページ"""
+    body = """
+    <style>
+      .policy-wrap { max-width: 800px; margin: 0 auto; padding: 0 16px 60px; }
+      .policy-wrap h1 { font-size: 22px; font-weight: 700; color: #c8d8f0; margin: 32px 0 8px; }
+      .policy-wrap h2 { font-size: 16px; font-weight: 700; color: #a0b8d8; margin: 28px 0 8px; border-left: 3px solid #3a6ea5; padding-left: 10px; }
+      .policy-wrap p, .policy-wrap li { font-size: 14px; color: #8899b8; line-height: 1.8; margin: 6px 0; }
+      .policy-wrap ul { padding-left: 24px; }
+      .policy-wrap .updated { font-size: 12px; color: #5a6e94; margin-bottom: 24px; }
+      .policy-wrap a { color: #5b9bd5; text-decoration: none; }
+      .policy-wrap a:hover { text-decoration: underline; }
+    </style>
+    <div class="policy-wrap">
+      <h1>プライバシーポリシー</h1>
+      <p class="updated">最終更新日：2025年6月1日</p>
+
+      <h2>1. 基本方針</h2>
+      <p>鯉男の打席分析室（以下「本サービス」）は、ユーザーの個人情報保護を重要視し、個人情報の保護に関する法律（個人情報保護法）および関連法令を遵守します。</p>
+
+      <h2>2. 収集する情報</h2>
+      <p>本サービスでは、以下の情報を収集することがあります。</p>
+      <ul>
+        <li>アクセスログ（IPアドレス、ブラウザ種別、参照元URL、アクセス日時等）</li>
+        <li>Cookieおよびこれに類する技術を用いた利用状況データ</li>
+        <li>広告配信サービスによる行動ターゲティング用データ</li>
+      </ul>
+
+      <h2>3. Googleアドセンスおよび広告について</h2>
+      <p>本サービスでは、Google AdSense などの第三者広告配信サービスを利用する場合があります。これらのサービスは、ユーザーの興味に応じた広告を表示するために Cookie を使用することがあります。Googleによる Cookie の使用については、<a href="https://policies.google.com/technologies/ads" target="_blank" rel="noopener">Googleのポリシー</a>をご確認ください。</p>
+      <p>ユーザーは <a href="https://adssettings.google.com/" target="_blank" rel="noopener">広告設定ページ</a> から、パーソナライズ広告を無効にすることができます。</p>
+
+      <h2>4. アクセス解析について</h2>
+      <p>本サービスでは、Google Analytics などのアクセス解析ツールを利用する場合があります。アクセス解析ツールは Cookie を使用して利用状況を収集しますが、個人を特定する情報は含まれません。収集されたデータはサービス改善のために使用されます。</p>
+
+      <h2>5. 情報の第三者提供</h2>
+      <p>本サービスは、法令に基づく場合を除き、ユーザーの個人情報を第三者に提供・開示することはありません。</p>
+
+      <h2>6. セキュリティ</h2>
+      <p>本サービスは、収集した情報の漏洩・紛失・不正アクセス等を防止するため、適切なセキュリティ対策を講じます。</p>
+
+      <h2>7. Cookieの管理</h2>
+      <p>ユーザーはブラウザの設定により Cookie を無効にすることができますが、一部の機能が正常に動作しない場合があります。</p>
+
+      <h2>8. プライバシーポリシーの変更</h2>
+      <p>本ポリシーは、法令の変更やサービス内容の変更に伴い、予告なく改定される場合があります。最新の内容は本ページにてご確認ください。</p>
+
+      <h2>9. お問い合わせ</h2>
+      <p>プライバシーポリシーに関するお問い合わせは、本サービスのお問い合わせ窓口までご連絡ください。</p>
+
+      <p style="margin-top:40px;"><a href="/public/predicted-lineup?window_games=5&use_dh=true&view=html">← トップページへ戻る</a></p>
+    </div>
+    """
+    return _html_page(
+        "プライバシーポリシー",
+        body,
+        description="鯉男の打席分析室のプライバシーポリシーページです。個人情報の取り扱い、Cookieの使用、広告配信に関する方針を説明します。",
+    )
+
+
+# ---------------------------------------------------------------------------
+#  利用規約
+# ---------------------------------------------------------------------------
+
+@router.get("/public/terms")
+def public_terms(request: Request):
+    """利用規約ページ"""
+    body = """
+    <style>
+      .terms-wrap { max-width: 800px; margin: 0 auto; padding: 0 16px 60px; }
+      .terms-wrap h1 { font-size: 22px; font-weight: 700; color: #c8d8f0; margin: 32px 0 8px; }
+      .terms-wrap h2 { font-size: 16px; font-weight: 700; color: #a0b8d8; margin: 28px 0 8px; border-left: 3px solid #3a6ea5; padding-left: 10px; }
+      .terms-wrap p, .terms-wrap li { font-size: 14px; color: #8899b8; line-height: 1.8; margin: 6px 0; }
+      .terms-wrap ul { padding-left: 24px; }
+      .terms-wrap .updated { font-size: 12px; color: #5a6e94; margin-bottom: 24px; }
+      .terms-wrap a { color: #5b9bd5; text-decoration: none; }
+      .terms-wrap a:hover { text-decoration: underline; }
+    </style>
+    <div class="terms-wrap">
+      <h1>利用規約</h1>
+      <p class="updated">最終更新日：2025年6月1日</p>
+
+      <h2>第1条（適用）</h2>
+      <p>本規約は、鯉男の打席分析室（以下「本サービス」）の利用に関する条件を定めるものです。ユーザーは本規約に同意したうえで本サービスをご利用ください。</p>
+
+      <h2>第2条（サービスの内容）</h2>
+      <p>本サービスは、広島東洋カープの打撃成績・試合データを独自に集計・分析し、ファン向けの統計情報として提供する情報サイトです。</p>
+
+      <h2>第3条（データの利用について）</h2>
+      <ul>
+        <li>本サービスが提供するデータは、公開されている情報を独自に集計・加工したものです。</li>
+        <li>データの正確性・完全性については保証しかねます。情報は参考目的でご利用ください。</li>
+        <li>データの無断転載・商用利用はご遠慮ください。</li>
+      </ul>
+
+      <h2>第4条（知的財産権）</h2>
+      <p>本サービスのコンテンツ（テキスト・デザイン・プログラム等）に関する知的財産権は、本サービス運営者または正当な権利者に帰属します。</p>
+
+      <h2>第5条（禁止事項）</h2>
+      <p>ユーザーは、以下の行為を行ってはなりません。</p>
+      <ul>
+        <li>本サービスへの不正アクセスおよびサーバーへの過度な負荷をかける行為</li>
+        <li>本サービスのコンテンツを無断で複製・転載・再配布する行為</li>
+        <li>本サービスを商業目的で利用する行為（事前の許可なし）</li>
+        <li>法令または公序良俗に反する行為</li>
+        <li>その他、本サービスの運営を妨げる行為</li>
+      </ul>
+
+      <h2>第6条（免責事項）</h2>
+      <p>本サービスは、提供するデータの正確性・最新性・完全性を保証しません。本サービスの利用により生じたいかなる損害についても、本サービス運営者は一切の責任を負いません。</p>
+      <p>また、本サービスはプロ野球公式サイトとは無関係の非公式ファンサイトです。</p>
+
+      <h2>第7条（サービスの変更・中断・終了）</h2>
+      <p>本サービスは、予告なくサービス内容の変更・一時中断・終了を行う場合があります。これによりユーザーに損害が生じても、本サービス運営者は一切の責任を負いません。</p>
+
+      <h2>第8条（準拠法・管轄）</h2>
+      <p>本規約は日本法に準拠します。本サービスに関する紛争については、運営者所在地を管轄する裁判所を専属的合意管轄裁判所とします。</p>
+
+      <h2>第9条（規約の変更）</h2>
+      <p>本規約は、必要に応じて予告なく変更される場合があります。変更後の規約はページ上での掲載をもって効力を生じるものとします。</p>
+
+      <p style="margin-top:40px;"><a href="/public/predicted-lineup?window_games=5&use_dh=true&view=html">← トップページへ戻る</a></p>
+    </div>
+    """
+    return _html_page(
+        "利用規約",
+        body,
+        description="鯉男の打席分析室の利用規約ページです。サービスの利用条件、禁止事項、免責事項について説明します。",
+    )
 

@@ -190,10 +190,10 @@ PLAYER_PROFILE = {
     "石原 貴規": {"eligible_positions": [POS_C]},
     "矢野 雅哉": {"eligible_positions": [POS_SS]},
     "二俣 翔一": {"eligible_positions": [POS_1B, POS_3B, POS_SS, POS_2B, POS_RF, POS_CF, POS_LF]},
-    "秋山 翔吾": {"eligible_positions": [POS_LF, POS_CF, POS_RF]},
-    "大盛 穂": {"eligible_positions": [POS_LF, POS_CF, POS_RF]},
-    "野間 峻祥": {"eligible_positions": [POS_LF, POS_CF, POS_RF]},
-    "平川 蓮": {"eligible_positions": [POS_LF, POS_CF, POS_RF]},
+    "秋山 翔吾": {"eligible_positions": [POS_LF, POS_RF]},        # 主にLF/RF。CFは大盛に譲る
+    "大盛 穂":   {"eligible_positions": [POS_CF]},                 # CF専任（守備力最高）
+    "野間 峻祥": {"eligible_positions": [POS_LF, POS_RF]},        # 主にLF/RF。CF大盛不在時は平川・田村
+    "平川 蓮":   {"eligible_positions": [POS_LF, POS_CF, POS_RF]}, # 大盛不在時のCF候補
     "ファビアン": {"eligible_positions": [POS_LF, POS_RF, POS_DH]},
     "佐々木 泰": {"eligible_positions": [POS_1B, POS_3B, POS_DH]},
     "勝田 成": {"eligible_positions": [POS_2B, POS_SS]},
@@ -205,9 +205,9 @@ PLAYER_PROFILE = {
 FARM_PROMOTION_CANDIDATES = {
     "堂林 翔太": {"eligible_positions": [POS_1B, POS_3B]},
     "末包 昇大": {"eligible_positions": [POS_LF, POS_RF, POS_DH]},
-    "田村 俊介": {"eligible_positions": [POS_LF, POS_CF, POS_RF]},
+    "田村 俊介": {"eligible_positions": [POS_LF, POS_CF, POS_RF]}, # 大盛不在時のCF候補
     "中村 貴浩": {"eligible_positions": [POS_LF, POS_RF]},
-    "名原 典彦": {"eligible_positions": [POS_LF, POS_CF, POS_RF]},
+    "名原 典彦": {"eligible_positions": [POS_LF, POS_CF, POS_RF]}, # 大盛不在時のCF候補
     "岸本 大希": {"eligible_positions": [POS_2B, POS_SS]},
     "内田 湘大": {"eligible_positions": [POS_1B, POS_3B]},
 }
@@ -795,6 +795,14 @@ def _get_season_position_batting() -> dict:
     return fallback
 
 
+def _decode_nb(s: str) -> str:
+    """npbbasement の文字化け名前を UTF-8 に戻す（latin-1→utf-8 二重エンコード修正）"""
+    try:
+        return s.encode("latin-1").decode("utf-8")
+    except Exception:
+        return s
+
+
 def _calc_def_from_components(fld: dict) -> float:
     value = 0.0
 
@@ -865,9 +873,8 @@ def _build_player_defense_from_npbbasement() -> dict:
     }
 
     for player in players:
-        name = _normalize_player_name(
-            player.get("nameJ") or player.get("nameSponavi") or ""
-        )
+        raw_name = player.get("nameJ") or player.get("nameSponavi") or ""
+        name = _normalize_player_name(_decode_nb(raw_name))
         real_name = normalized_profile_names.get(name)
         if not real_name:
             continue
@@ -3937,14 +3944,6 @@ def public_predicted_lineup(
 # ─────────────────────────────────────────────
 # 走塁・守備指標 / WAR一覧  共通データ取得
 # ─────────────────────────────────────────────
-
-def _decode_nb(s: str) -> str:
-    """npbbasement の文字化け名前を UTF-8 に戻す"""
-    try:
-        return s.encode("latin-1").decode("utf-8")
-    except Exception:
-        return s
-
 
 def _build_advanced_stats_rows() -> list[dict]:
     """

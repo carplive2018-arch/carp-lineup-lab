@@ -57,9 +57,16 @@ HOME_VENUE_KEYWORDS = ["マツダ"]
 
 POSITION_BATTING_PRIOR_PA = 60
 POSITION_BATTING_PRIOR_AB = 80
-RECENT_OBP_PRIOR_PA = 12
-RECENT_ISO_PRIOR_AB = 20
+# 直近成績のベイズ収縮: PA/AB が少ないほどシーズン実績値に引き寄せる
+# OBP は四球・死球・犠飛を含む per-PA 指標 → PA ベース
+# ISO は長打のみ per-AB 指標 → AB ベース
+# PRIOR_PA/AB が大きいほど「信頼できるとみなすのに必要な打席数が多い」→ 補正が強い
+RECENT_OBP_PRIOR_PA  = 18   # 旧12 → 18: 5試合程度（~20PA）でも半分以上引き戻す
+RECENT_ISO_PRIOR_AB  = 25   # 旧20 → 25: ISO は長打率なので標本分散が大きい → より強い収縮
 RECENT_FULL_TRUST_PA = 8
+# NPBリーグ平均（prior が個人シーズン成績にない場合のフォールバック）
+NPB_LEAGUE_AVG_OBP   = 0.310
+NPB_LEAGUE_AVG_ISO   = 0.095
 MIN_CATCHER_RECENT_PA = 4
 WEAK_CATCHER_PENALTY = 1.6
 TOP_CATCHER_TO_DH_PENALTY = 1.0
@@ -1852,17 +1859,53 @@ def _do_build_recent_batting(window_games: int, aggregated: dict, cache_bucket: 
 
 
 def _recent_snapshot_map(window_games: int) -> dict[str, dict]:
+    """直近 window_games 試合の打撃スナップショットを選手名→dict で返す。
+
+    各エントリに生の観測値 (obp/iso) に加え、ベイズ収縮済み値 (adj_obp/adj_iso) を格納する。
+    打席数が少ないほどシーズン期待値に引き戻されるため、5試合・2打席の選手が
+    偶然OBP=1.000を叩き出しても過大評価されなくなる。
+
+    ベイズ収縮式:
+        adj = (pa × raw + PRIOR_PA × prior_val) / (pa + PRIOR_PA)
+    prior_val は SEASON_OVERALL_BATTING の個人値、なければ NPB リーグ平均。
+    """
     aggregated = _aggregate_recent_batting_stats(window_games)
     result: dict[str, dict] = {}
 
     for player_name, stats in aggregated.get("player_totals", {}).items():
         canonical_name = _canonical_player_name(player_name)
+        pa  = _calc_recent_pa(stats)
+        ab  = int(stats.get("at_bats", 0) or 0)
+        raw_obp = _calc_recent_obp(stats)
+        raw_iso = _calc_iso_from_stats(stats)
+
+        # ── ベイズ収縮: prior = 個人シーズン期待値 or リーグ平均 ──
+        overall = (
+            SEASON_OVERALL_BATTING.get(canonical_name)
+            or SEASON_OVERALL_BATTING.get(player_name)
+            or {}
+        )
+        prior_obp = float(overall.get("obp", NPB_LEAGUE_AVG_OBP) or NPB_LEAGUE_AVG_OBP)
+        prior_iso = float(overall.get("iso", NPB_LEAGUE_AVG_ISO) or NPB_LEAGUE_AVG_ISO)
+
+        # pa=0 でも prior が返るため 0 打席の選手も prior 値を持つ
+        adj_obp = (pa * raw_obp + RECENT_OBP_PRIOR_PA * prior_obp) / (pa + RECENT_OBP_PRIOR_PA)
+        adj_iso = (ab * raw_iso + RECENT_ISO_PRIOR_AB * prior_iso) / (ab + RECENT_ISO_PRIOR_AB)
+
+        # 信頼度: 0.0（0打席）〜 1.0（PRIOR_PA打席以上で≒1）
+        reliability = pa / (pa + RECENT_OBP_PRIOR_PA) if pa > 0 else 0.0
+
         result[canonical_name] = {
-            "games": int(stats.get("games", 0) or 0),
-            "pa": _calc_recent_pa(stats),
-            "ab": int(stats.get("at_bats", 0) or 0),
-            "obp": _calc_recent_obp(stats),
-            "iso": _calc_iso_from_stats(stats),
+            "games":       int(stats.get("games", 0) or 0),
+            "pa":          pa,
+            "ab":          ab,
+            "obp":         raw_obp,         # 表示用（生の観測値）
+            "iso":         raw_iso,         # 表示用（生の観測値）
+            "adj_obp":     _round3(adj_obp),  # スコア計算用（収縮済み）
+            "adj_iso":     _round3(adj_iso),  # スコア計算用（収縮済み）
+            "prior_obp":   _round3(prior_obp),
+            "prior_iso":   _round3(prior_iso),
+            "reliability": _round3(reliability),
             "raw": stats,
         }
 
@@ -1950,13 +1993,19 @@ def _slot_score(
     canonical_name = _canonical_player_name(player_name)
 
     recent = recent_map.get(canonical_name, {
-        "games": 0, "pa": 0, "ab": 0, "obp": 0.0, "iso": 0.0, "raw": {},
+        "games": 0, "pa": 0, "ab": 0,
+        "obp": 0.0, "iso": 0.0,
+        "adj_obp": NPB_LEAGUE_AVG_OBP, "adj_iso": NPB_LEAGUE_AVG_ISO,
+        "reliability": 0.0, "raw": {},
     })
     season_pos = _get_adjusted_position_batting(canonical_name, position)
     defense    = _defense_value_for(canonical_name, position, defense_map)
 
-    r_obp = float(recent.get("obp", 0.0) or 0.0) * 100
-    r_iso = float(recent.get("iso", 0.0) or 0.0) * 100
+    # ── スコア計算はベイズ収縮済み値を使用 ──
+    # adj_obp/adj_iso: 打席数が少ない場合はシーズン期待値に引き寄せられた補正値
+    # これにより「5試合2打席でOBP=1.000」のような過大評価を防ぐ
+    r_obp = float(recent.get("adj_obp", recent.get("obp", 0.0)) or 0.0) * 100
+    r_iso = float(recent.get("adj_iso", recent.get("iso", 0.0)) or 0.0) * 100
     s_obp = float(season_pos.get("obp", 0.0) or 0.0) * 100
     s_iso = float(season_pos.get("iso", 0.0) or 0.0) * 100
     defv  = defense * 10   # 守備補正を同スケールに
@@ -2129,10 +2178,37 @@ def _build_commentary(
     score: float,
 ) -> str:
     """打順決定の論理的な解説文（2〜3文）を生成する。"""
+    # 生の観測値（表示用）
     r_obp = recent.get("obp", 0.0)
     r_iso = recent.get("iso", 0.0)
+    # ベイズ補正済み値（スコア計算に使った値）
+    adj_obp = recent.get("adj_obp", r_obp)
+    adj_iso = recent.get("adj_iso", r_iso)
     s_obp = float(season_pos.get("obp", 0.0) or 0.0)
     s_iso = float(season_pos.get("iso", 0.0) or 0.0)
+
+    pa           = int(recent.get("pa", 0) or 0)
+    reliability  = float(recent.get("reliability", 1.0) or 1.0)
+    prior_obp    = float(recent.get("prior_obp", s_obp or NPB_LEAGUE_AVG_OBP) or NPB_LEAGUE_AVG_OBP)
+
+    # ── 打席数に応じた信頼度注記 ──
+    def _reliability_note() -> str:
+        if pa == 0:
+            return (
+                f"（注: 直近{window_games}試合の打席データなし。"
+                f"シーズン期待値 OBP={prior_obp:.3f} を基準として評価している）"
+            )
+        if reliability < 0.40:
+            return (
+                f"（注: 直近{window_games}試合は{pa}打席と少ないため、"
+                f"直近OBP {r_obp:.3f} をシーズン期待値 {prior_obp:.3f} 方向へ補正し"
+                f" {adj_obp:.3f} として評価している）"
+            )
+        if reliability < 0.65:
+            return (
+                f"（直近{pa}打席のデータにシーズン期待値を一部混合して評価）"
+            )
+        return ""  # 打席数十分 → 注記なし
 
     player_ranks = ranks.get(player_name, {})
 
@@ -2171,7 +2247,7 @@ def _build_commentary(
             f"1番スコアは直近OBP（ウェイト35%）とシーズン補正OBP（30%）の合計が軸で、"
             f"守備補正（10%相当）も加算した結果 {score:.1f} が候補中最高となり、選出した。"
         )
-        return sent1 + sent2 + sent3
+        return sent1 + sent2 + sent3 + _reliability_note()
 
     elif role == "two_hole_bat":
         # 2番スコア = recent_obp×25 + recent_iso×20 + season_obp×25 + season_iso×20 + defense×1
@@ -2185,7 +2261,7 @@ def _build_commentary(
             f"均等に評価する設計で、どちらか一方が突出するより両立している選手が高得点になる。"
             f"この選手の総合スコア {score:.1f} はその均等評価で候補中最高と判定された。"
         )
-        return sent1 + sent2
+        return sent1 + sent2 + _reliability_note()
 
     elif role == "three_hole_contact":
         # 3番スコア = recent_obp×30 + recent_iso×20 + season_obp×25 + season_iso×20 + defense×0.5
@@ -2199,7 +2275,7 @@ def _build_commentary(
             f"シーズン補正出塁率 {s_obp:.3f}・補正長打率 {s_iso:.3f} の中・長期的な安定感も含めた"
             f"総合スコア {score:.1f} が候補中最高となり、選出した。"
         )
-        return sent1 + sent2
+        return sent1 + sent2 + _reliability_note()
 
     elif role == "cleanup_power":
         # 4番スコア = recent_obp×10 + recent_iso×35 + season_obp×10 + season_iso×40 + defense×0.5
@@ -2227,7 +2303,7 @@ def _build_commentary(
             f"出塁率 {r_obp:.3f} も一定の水準を保っており、"
             f"残り20%のOBP評価も大きく足を引っ張らなかった点も選出の後押しとなっている。"
         )
-        return sent1 + sent2 + sent3
+        return sent1 + sent2 + sent3 + _reliability_note()
 
     elif role == "five_hole_power":
         # 5番スコア = recent_obp×15 + recent_iso×30 + season_obp×15 + season_iso×30 + defense×1
@@ -2254,7 +2330,7 @@ def _build_commentary(
                 f"シーズン補正長打率 {s_iso:.3f}（{rank_str('season_iso')}）も加算した"
                 f"スコア {score:.1f} が候補中最高となり、中軸5番として選出した。"
             )
-        return sent1 + sent2
+        return sent1 + sent2 + _reliability_note()
 
     elif role == "six_hole_balance":
         # 6番スコア = recent_obp×25 + recent_iso×20 + season_obp×25 + season_iso×20 + defense×1
@@ -2267,7 +2343,7 @@ def _build_commentary(
             f"ほぼ等配分で、突出した指標がなくとも4指標を安定してカバーする選手が高得点になる設計だ。"
             f"この選手のスコア {score:.1f} が残り候補の中で最高となり、6番に配置した。"
         )
-        return sent1 + sent2
+        return sent1 + sent2 + _reliability_note()
 
     elif role == "seven_hole_season":
         # 7番スコア = recent_obp×15 + recent_iso×10 + season_obp×30 + season_iso×15 + defense×3
@@ -2281,7 +2357,7 @@ def _build_commentary(
             f"直近出塁率 {r_obp:.3f} に加え守備補正 {defense:+.3f} も含めたスコア {score:.1f} が"
             f"候補中最高となり、下位打線の安定役として選出した。"
         )
-        return sent1 + sent2
+        return sent1 + sent2 + _reliability_note()
 
     elif role == "glove_bottom":
         # 8番スコア = recent_obp×10 + recent_iso×5 + season_obp×20 + season_iso×10 + defense×5.5
@@ -2306,7 +2382,7 @@ def _build_commentary(
                 f"守備補正 {defense:+.3f} はマイナスだが、残り候補の中では相対的に高く、"
                 f"打撃系指標の45%分も加算したスコア {score:.1f} が候補中最高となった。"
             )
-        return sent1 + sent2
+        return sent1 + sent2 + _reliability_note()
 
     elif role == "turnover_obp":
         # 9番スコア = recent_obp×30 + recent_iso×10 + season_obp×35 + season_iso×10 + defense×1.5
@@ -2320,7 +2396,7 @@ def _build_commentary(
             f"合算が主導して、スコア {score:.1f} が候補中最高となり、"
             f"イニング先頭で出塁して上位打線に繋げる9番として選出した。"
         )
-        return sent1 + sent2
+        return sent1 + sent2 + _reliability_note()
 
     else:
         # fallback
@@ -2328,7 +2404,7 @@ def _build_commentary(
             f"直近{window_games}試合の出塁率 {r_obp:.3f}・長打指数 {r_iso:.3f}、"
             f"シーズン補正出塁率 {s_obp:.3f}・補正長打率 {s_iso:.3f} の総合評価により、"
             f"このスロットへの割り当てスコア {score:.1f} が候補中最高となったため選出した。"
-        )
+        ) + _reliability_note()
 
 
 def _build_simple_predicted_lineup(window_games: int, use_dh: bool) -> dict:
@@ -2366,7 +2442,10 @@ def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: di
     all_stats_for_rank: list[dict] = []
     for player_name in candidate_names:
         cname    = _canonical_player_name(player_name)
-        recent_r = recent_map.get(cname, {"obp": 0.0, "iso": 0.0})
+        recent_r = recent_map.get(cname, {
+            "obp": 0.0, "iso": 0.0,
+            "adj_obp": NPB_LEAGUE_AVG_OBP, "adj_iso": NPB_LEAGUE_AVG_ISO,
+        })
         def_val  = _defense_value_for(cname, "", defense_map)
         eligible = (PLAYER_PROFILE.get(cname) or {}).get("eligible_positions", [])
         best_s_obp, best_s_iso = 0.0, 0.0
@@ -2376,8 +2455,9 @@ def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: di
             best_s_iso = max(best_s_iso, float(sp.get("iso", 0.0) or 0.0))
         all_stats_for_rank.append({
             "name":       cname,
-            "recent_obp": float(recent_r.get("obp", 0.0) or 0.0),
-            "recent_iso": float(recent_r.get("iso", 0.0) or 0.0),
+            # ランキングもベイズ補正済み値で評価（打席数の少なさを反映）
+            "recent_obp": float(recent_r.get("adj_obp", recent_r.get("obp", 0.0)) or 0.0),
+            "recent_iso": float(recent_r.get("adj_iso", recent_r.get("iso", 0.0)) or 0.0),
             "season_obp": best_s_obp,
             "season_iso": best_s_iso,
             "defense":    def_val,

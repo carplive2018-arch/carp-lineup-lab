@@ -2670,67 +2670,155 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
 
     /* ── ナビゲーション ── */
     .nav-bar {{
-      margin-top: 14px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
+      margin-top: 12px;
       border-top: 1px solid #1e2d50;
-      padding-top: 12px;
+      padding-top: 10px;
+      /* 横スクロール対応（スマホでもはみ出さない） */
+      display: flex;
+      flex-wrap: nowrap;
+      align-items: center;
+      gap: 0;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      /* スクロールバー非表示 */
+      scrollbar-width: none;
+      -ms-overflow-style: none;
     }}
+    .nav-bar::-webkit-scrollbar {{ display: none; }}
     .nav-section {{
       display: flex;
       align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
+      gap: 3px;
+      flex-shrink: 0;
+      padding-right: 8px;
+    }}
+    .nav-section:not(:last-child)::after {{
+      content: '';
+      display: inline-block;
+      width: 1px;
+      height: 16px;
+      background: #1e2d50;
+      margin-left: 8px;
+      flex-shrink: 0;
     }}
     .nav-label {{
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 700;
-      color: #4a5878;
-      letter-spacing: 0.1em;
+      color: #3d4e6e;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
       white-space: nowrap;
-      min-width: 56px;
+      padding: 0 4px 0 2px;
+      flex-shrink: 0;
     }}
     .nav-group {{
       display: flex;
-      gap: 4px;
-      flex-wrap: wrap;
+      gap: 3px;
+      flex-shrink: 0;
     }}
     .nav-btn {{
       display: inline-flex;
       align-items: center;
-      gap: 4px;
       text-decoration: none;
-      color: #9db0d4;
-      background: #0f1829;
-      border: 1px solid #1e2d50;
-      border-radius: 6px;
-      padding: 5px 11px;
+      color: #8aa0c8;
+      background: #0d1628;
+      border: 1px solid #1a2846;
+      border-radius: 5px;
+      padding: 4px 9px;
       font-weight: 600;
-      font-size: 12px;
-      transition: all 0.15s;
+      font-size: 11.5px;
+      transition: all 0.12s;
       white-space: nowrap;
       cursor: pointer;
+      flex-shrink: 0;
     }}
     .nav-btn:hover {{
-      background: #192540;
-      border-color: #3a5080;
-      color: #e8edf8;
+      background: #172038;
+      border-color: #2e4070;
+      color: #d8e4f8;
     }}
     .nav-btn.active {{
       background: #ffd54a;
-      color: #07100a;
+      color: #06100a;
       border-color: #ffd54a;
       font-weight: 800;
       pointer-events: none;
     }}
     .nav-divider {{
-      width: 1px;
-      height: 18px;
-      background: #1e2d50;
-      margin: 0 2px;
-      align-self: center;
+      display: none;
+    }}
+
+    /* ── ツールチップ（指標説明） ── */
+    .tip-wrap {{
+      position: relative;
+      display: inline-block;
+    }}
+    .tip-wrap .tip-icon {{
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      background: #2a3a5a;
+      color: #7090c0;
+      font-size: 8px;
+      font-weight: 800;
+      line-height: 12px;
+      text-align: center;
+      border-radius: 50%;
+      margin-left: 3px;
+      cursor: pointer;
+      vertical-align: middle;
+      user-select: none;
+      flex-shrink: 0;
+    }}
+    .tip-wrap .tip-box {{
+      display: none;
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: #0e1a30;
+      border: 1px solid #2a3e60;
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 11px;
+      font-weight: 400;
+      color: #b0c4e4;
+      white-space: normal;
+      min-width: 180px;
+      max-width: 260px;
+      z-index: 200;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+      pointer-events: none;
+      line-height: 1.6;
+      text-align: left;
+      letter-spacing: 0;
+      text-transform: none;
+    }}
+    .tip-wrap .tip-box::after {{
+      content: '';
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 5px solid transparent;
+      border-top-color: #2a3e60;
+    }}
+    .tip-wrap.tip-open .tip-box,
+    .tip-wrap:hover .tip-box {{
+      display: block;
+    }}
+    /* 右端ツールチップのはみ出し防止 */
+    th:last-child .tip-wrap .tip-box,
+    th:nth-last-child(2) .tip-wrap .tip-box {{
+      left: auto;
+      right: 0;
+      transform: none;
+    }}
+    th:last-child .tip-wrap .tip-box::after,
+    th:nth-last-child(2) .tip-wrap .tip-box::after {{
+      left: auto;
+      right: 12px;
+      transform: none;
     }}
 
     /* ── カード ── */
@@ -2893,7 +2981,7 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
     @media (max-width: 860px) {{
       .site-header-nav {{ gap: 10px; font-size: 11px; }}
       .hero h1 {{ font-size: 20px; }}
-      .nav-label {{ min-width: 40px; font-size: 9px; }}
+      .nav-label {{ font-size: 9px; }}
     }}
 
     /* ── スマホ ── */
@@ -2907,7 +2995,7 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
       /* ページ全体 */
       .wrap {{ padding: 8px 10px 40px; }}
       .page-layout {{ display: block; width: 100%; overflow-x: hidden; }}
-      .content-col {{ width: 100%; min-width: 0; border: none; overflow-x: hidden; }}
+      .content-col {{ width: 100%; min-width: 0; border: none; overflow-x: clip; }}
 
       /* hero */
       .hero {{ border-radius: 10px; padding: 12px 12px 10px; margin-bottom: 12px; }}
@@ -2915,11 +3003,11 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
       .muted {{ font-size: 11px; }}
 
       /* ナビ */
-      .nav-bar {{ margin-top: 10px; gap: 6px; padding-top: 10px; }}
-      .nav-section {{ gap: 6px; align-items: flex-start; flex-direction: column; }}
-      .nav-label {{ min-width: unset; font-size: 9px; margin-bottom: 2px; }}
-      .nav-group {{ gap: 4px; flex-wrap: wrap; }}
-      .nav-btn {{ font-size: 11px; padding: 4px 8px; border-radius: 5px; }}
+      .nav-bar {{ margin-top: 8px; padding-top: 8px; gap: 0; }}
+      .nav-section {{ gap: 2px; padding-right: 6px; }}
+      .nav-label {{ font-size: 8px; padding: 0 3px 0 1px; }}
+      .nav-group {{ gap: 2px; }}
+      .nav-btn {{ font-size: 10.5px; padding: 3px 7px; border-radius: 4px; }}
       .nav-divider {{ display: none; }}
 
       /* カード */
@@ -3010,8 +3098,94 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
     </aside>
 
   </div>
+
+  <!-- ツールチップ: タップで開閉 -->
+  <script>
+  (function() {{
+    document.addEventListener('DOMContentLoaded', function() {{
+      // タップ/クリックで tip-open をトグル
+      document.querySelectorAll('.tip-icon').forEach(function(icon) {{
+        icon.addEventListener('click', function(e) {{
+          e.stopPropagation();
+          var wrap = icon.closest('.tip-wrap');
+          if (!wrap) return;
+          var isOpen = wrap.classList.contains('tip-open');
+          // 他を全部閉じる
+          document.querySelectorAll('.tip-wrap.tip-open').forEach(function(w) {{
+            w.classList.remove('tip-open');
+          }});
+          if (!isOpen) wrap.classList.add('tip-open');
+        }});
+      }});
+      // 他の場所タップで全部閉じる
+      document.addEventListener('click', function() {{
+        document.querySelectorAll('.tip-wrap.tip-open').forEach(function(w) {{
+          w.classList.remove('tip-open');
+        }});
+      }});
+    }});
+  }})();
+  </script>
 </body>
 </html>"""
+    )
+
+
+# ─────────────────────────────────────────────
+# 指標ツールチップ ヘルパー
+# ─────────────────────────────────────────────
+
+# 指標名 → 説明文 マスター辞書
+_TIP_DICT: dict[str, str] = {
+    # 打撃基本
+    "打率":    "安打÷打数。シンプルな打撃結果指標。四球・死球は含まない。",
+    "出塁率":  "（安打＋四球＋死球）÷（打数＋四球＋死球＋犠飛）。どれだけ出塁できるかを示す最重要指標。",
+    "長打率":  "塁打数÷打数。ヒットの「質」を示す。単打=1、二塁打=2、三塁打=3、本塁打=4。",
+    "OPS":     "出塁率＋長打率。打者の総合打力を示す一番シンプルな合成指標。0.800以上は優秀。",
+    "長打指数": "（二塁打×1＋三塁打×2＋本塁打×3）÷打数。四球を除いた長打力のみを測る（ISO）。",
+    "ISO":     "（二塁打×1＋三塁打×2＋本塁打×3）÷打数。四球を除いた長打力のみを測る（Isolated Power）。",
+    "wOBA":   "打席の結果に重みをつけた出塁指標。四球・単打・本塁打の価値を正確に反映。リーグ平均は通常.320前後。",
+    # WAR系
+    "WAR":     "Wins Above Replacement。その選手がいることで平均以下の選手と比べて何勝分の価値があるかを示す総合評価指標。",
+    "打撃WAR": "wOBAをベースにしたwRAAから算出した打撃の貢献度。",
+    "走塁WAR": "UBR+wSBをWARに換算した走塁貢献度。",
+    "守備WAR": "TZRをベースにした守備貢献度のWAR換算値。",
+    "総合WAR": "打撃WAR＋走塁WAR＋守備WAR。選手全体の価値を一つの数値で表す。",
+    "wRAA":    "wOBAを使って算出した「平均打者と比べた得点貢献」。＋が打力が高い選手。",
+    # 走塁
+    "UBR":     "Ultimate Base Running。盗塁以外の走塁（進塁の積極性・判断力など）を評価する指標。＋が走塁巧者。",
+    "wSB":     "Weighted Stolen Base。盗塁と盗塁死をリーグ平均と比べて評価した指標。",
+    # 守備
+    "TZR":     "Total Zone Rating。守備全体（レンジ・エラー・送球・捕手指標）を合計したランナーセーブ数。＋が守備貢献。",
+    "RngR":    "Range Runs。守備範囲の広さを表す。ゴロ・フライへの到達能力を反映。",
+    "DPR":     "Double Play Runs。ダブルプレーへの貢献度。",
+    "ARM":     "Arm Runs。外野手の送球精度・内野手の牽制力などを評価。",
+    "ErrR":    "Error Runs。エラーの少なさを評価。失策が少ない選手が＋になる。",
+    "Framing": "捕手のフレーミング（ボールをストライクと判定させる技術）の価値。捕手のみ。",
+    "Blocking": "捕手のブロッキング（ワイルドピッチ防止）の価値。捕手のみ。",
+    "守備WAR":  "TZRをベースにした守備貢献度のWAR換算値。",
+    "守備回":   "その選手がそのポジションで守った回数（イニング数）。",
+    "守備回(計)": "全ポジション合計の守備イニング数。",
+    # 得点圏
+    "得点圏打率": "2塁または3塁にランナーがいる場面での打率。チャンスでの強さを示す。",
+    "チャンス打席": "得点圏（2・3塁）にランナーがいる場面の打席数。",
+}
+
+
+def _th_tip(label: str, col_class: str = "") -> str:
+    """ツールチップ付き <th> の中身（labelとiconのみ）を返す。
+    テーブルの <th> 内で使う。例: f'<th class="sortable" data-col="0">{_th_tip("打率","col-avg")}</th>'
+    """
+    desc = _TIP_DICT.get(label, "")
+    if not desc:
+        return label
+    safe_desc = escape(desc)
+    return (
+        f'<span class="tip-wrap">'
+        f'{label}'
+        f'<span class="tip-icon" role="button" aria-label="{escape(label)}の説明">?</span>'
+        f'<span class="tip-box">{safe_desc}</span>'
+        f'</span>'
     )
 
 
@@ -3154,15 +3328,15 @@ def _render_recent_batting_html(data: dict) -> HTMLResponse:
                   <th class="sortable" data-col="2">打席</th>
                   <th class="sortable" data-col="3">打数</th>
                   <th class="sortable" data-col="4">安打</th>
-                  <th class="sortable col-avg" data-col="5">打率</th>
-                  <th class="sortable col-woba" data-col="6">出塁率</th>
-                  <th class="sortable" data-col="7">長打率</th>
-                  <th class="sortable col-ops" data-col="8">OPS</th>
-                  <th class="sortable" data-col="9">長打指数</th>
+                  <th class="sortable col-avg" data-col="5">{_th_tip("打率")}</th>
+                  <th class="sortable col-woba" data-col="6">{_th_tip("出塁率")}</th>
+                  <th class="sortable" data-col="7">{_th_tip("長打率")}</th>
+                  <th class="sortable col-ops" data-col="8">{_th_tip("OPS")}</th>
+                  <th class="sortable" data-col="9">{_th_tip("長打指数")}</th>
                   <th class="sortable" data-col="10">本塁打</th>
                   <th class="sortable" data-col="11">四球</th>
                   <th class="sortable" data-col="12">三振</th>
-                  <th class="sortable col-woba" data-col="13">wOBA</th>
+                  <th class="sortable col-woba" data-col="13">{_th_tip("wOBA")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -3881,7 +4055,7 @@ def _render_fielding_baserunning_html(rows: list[dict]) -> HTMLResponse:
 
     def sortable_table(table_id: str, headers: list[tuple[str, int]], body_html: str, empty_msg: str = "データがありません") -> str:
         ths = "".join(
-            f'<th class="sortable" data-col="{i}">{h}</th>'
+            f'<th class="sortable" data-col="{i}">{_th_tip(h) if h in _TIP_DICT else h}</th>'
             for i, (h, _) in enumerate(headers)
         )
         return f"""
@@ -3921,7 +4095,14 @@ def _render_fielding_baserunning_html(rows: list[dict]) -> HTMLResponse:
         margin-bottom: 0;
         border-bottom: 2px solid #1a2540;
         padding-bottom: 0;
+        /* スマホで横スクロール */
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+        flex-wrap: nowrap;
       }}
+      .tab-bar::-webkit-scrollbar {{ display: none; }}
       .tab-btn {{
         padding: 9px 18px;
         font-size: 13px;
@@ -3934,6 +4115,7 @@ def _render_fielding_baserunning_html(rows: list[dict]) -> HTMLResponse:
         cursor: pointer;
         transition: all 0.15s;
         white-space: nowrap;
+        flex-shrink: 0;
       }}
       .tab-btn:hover {{ color: #c8d8f4; }}
       .tab-btn.active {{
@@ -4061,12 +4243,12 @@ def _render_war_ranking_html(rows: list[dict]) -> HTMLResponse:
         <tr>
           <th class="sortable" data-col="0">選手</th>
           <th class="sortable" data-col="1">打席</th>
-          <th class="sortable" data-col="2">wOBA</th>
-          <th class="sortable" data-col="3">wRAA</th>
-          <th class="sortable" data-col="4">打撃WAR</th>
-          <th class="sortable" data-col="5">走塁WAR</th>
-          <th class="sortable" data-col="6">守備WAR</th>
-          <th class="sortable" data-col="7" style="color:#ffd54a">総合WAR</th>
+          <th class="sortable" data-col="2">{_th_tip("wOBA")}</th>
+          <th class="sortable" data-col="3">{_th_tip("wRAA")}</th>
+          <th class="sortable" data-col="4">{_th_tip("打撃WAR")}</th>
+          <th class="sortable" data-col="5">{_th_tip("走塁WAR")}</th>
+          <th class="sortable" data-col="6">{_th_tip("守備WAR")}</th>
+          <th class="sortable" data-col="7" style="color:#ffd54a">{_th_tip("総合WAR")}</th>
         </tr>
       </thead>
       <tbody>
@@ -4783,13 +4965,13 @@ def _render_hot_batters_html(data: dict) -> HTMLResponse:
                   <th class="sortable" data-col="0">選手</th>
                   <th class="sortable" data-col="1">打席</th>
                   <th class="sortable" data-col="2">安打</th>
-                  <th class="sortable col-gold" data-col="3">打率</th>
-                  <th class="sortable col-cyan"  data-col="4">出塁率</th>
-                  <th class="sortable" data-col="5">長打率</th>
-                  <th class="sortable" data-col="6">OPS</th>
+                  <th class="sortable col-gold" data-col="3">{_th_tip("打率")}</th>
+                  <th class="sortable col-cyan"  data-col="4">{_th_tip("出塁率")}</th>
+                  <th class="sortable" data-col="5">{_th_tip("長打率")}</th>
+                  <th class="sortable" data-col="6">{_th_tip("OPS")}</th>
                   <th class="sortable" data-col="7">HR</th>
-                  <th class="sortable" data-col="8" style="color:#ff9f43">チャンス打率</th>
-                  <th class="sortable col-cyan" data-col="9">wOBA</th>
+                  <th class="sortable" data-col="8" style="color:#ff9f43">{_th_tip("得点圏打率")}</th>
+                  <th class="sortable col-cyan" data-col="9">{_th_tip("wOBA")}</th>
                 </tr>
               </thead>
               <tbody>

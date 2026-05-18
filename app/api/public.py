@@ -298,55 +298,55 @@ DH_LINEUP_SLOTS = [
         # 1番：出塁最重視＋守備
         "order": 1,
         "role": "lead_obp_glove",
-        "weights": {"recent_obp": 0.35, "recent_iso": 0.05, "season_obp": 0.30, "season_iso": 0.05, "defense": 0.25},
+        "weights": {"recent_obp": 0.35, "recent_iso": 0.07, "season_obp": 0.30, "season_iso": 0.03, "defense": 0.25},
     },
     {
-        # 2番：打撃バランス（OBP＋長打均等）
+        # 2番：打撃バランス（OBP＋長打）
         "order": 2,
         "role": "two_hole_bat",
-        "weights": {"recent_obp": 0.25, "recent_iso": 0.20, "season_obp": 0.25, "season_iso": 0.20, "defense": 0.10},
+        "weights": {"recent_obp": 0.25, "recent_iso": 0.25, "season_obp": 0.25, "season_iso": 0.15, "defense": 0.10},
     },
     {
         # 3番：総合打撃最強（OBP＋ISO重視）
         "order": 3,
         "role": "three_hole_contact",
-        "weights": {"recent_obp": 0.30, "recent_iso": 0.20, "season_obp": 0.25, "season_iso": 0.20, "defense": 0.05},
+        "weights": {"recent_obp": 0.30, "recent_iso": 0.25, "season_obp": 0.25, "season_iso": 0.15, "defense": 0.05},
     },
     {
-        # 4番：長打力最大
+        # 4番：長打力最大（直近ISO最重視）
         "order": 4,
         "role": "cleanup_power",
-        "weights": {"recent_obp": 0.10, "recent_iso": 0.35, "season_obp": 0.10, "season_iso": 0.40, "defense": 0.05},
+        "weights": {"recent_obp": 0.10, "recent_iso": 0.42, "season_obp": 0.10, "season_iso": 0.33, "defense": 0.05},
     },
     {
-        # 5番：長打＋出塁（4番に次ぐ長打）
+        # 5番：長打＋出塁（4番に次ぐ長打、直近ISO優先）
         "order": 5,
         "role": "five_hole_power",
-        "weights": {"recent_obp": 0.15, "recent_iso": 0.30, "season_obp": 0.15, "season_iso": 0.30, "defense": 0.10},
+        "weights": {"recent_obp": 0.15, "recent_iso": 0.35, "season_obp": 0.15, "season_iso": 0.25, "defense": 0.10},
     },
     {
-        # 6番：総合打撃（均等）
+        # 6番：総合打撃（直近ISO優先）
         "order": 6,
         "role": "six_hole_balance",
-        "weights": {"recent_obp": 0.25, "recent_iso": 0.20, "season_obp": 0.25, "season_iso": 0.20, "defense": 0.10},
+        "weights": {"recent_obp": 0.25, "recent_iso": 0.25, "season_obp": 0.25, "season_iso": 0.15, "defense": 0.10},
     },
     {
-        # 7番：シーズン成績重視＋守備
+        # 7番：シーズン成績重視＋守備（直近ISO優先）
         "order": 7,
         "role": "seven_hole_season",
-        "weights": {"recent_obp": 0.15, "recent_iso": 0.10, "season_obp": 0.30, "season_iso": 0.15, "defense": 0.30},
+        "weights": {"recent_obp": 0.15, "recent_iso": 0.13, "season_obp": 0.30, "season_iso": 0.12, "defense": 0.30},
     },
     {
-        # 8番：守備最重視
+        # 8番：守備最重視（直近ISO優先）
         "order": 8,
         "role": "glove_bottom",
-        "weights": {"recent_obp": 0.10, "recent_iso": 0.05, "season_obp": 0.20, "season_iso": 0.10, "defense": 0.55},
+        "weights": {"recent_obp": 0.10, "recent_iso": 0.08, "season_obp": 0.20, "season_iso": 0.07, "defense": 0.55},
     },
     {
         # 9番（DH有）：繋ぎ出塁
         "order": 9,
         "role": "turnover_obp",
-        "weights": {"recent_obp": 0.30, "recent_iso": 0.10, "season_obp": 0.35, "season_iso": 0.10, "defense": 0.15},
+        "weights": {"recent_obp": 0.30, "recent_iso": 0.13, "season_obp": 0.35, "season_iso": 0.07, "defense": 0.15},
     },
 ]
 
@@ -355,49 +355,49 @@ NO_DH_LINEUP_SLOTS = [
         # 1番：出塁最重視＋守備
         "order": 1,
         "role": "lead_obp_glove",
-        "weights": {"recent_obp": 0.35, "recent_iso": 0.05, "season_obp": 0.30, "season_iso": 0.05, "defense": 0.25},
+        "weights": {"recent_obp": 0.35, "recent_iso": 0.07, "season_obp": 0.30, "season_iso": 0.03, "defense": 0.25},
     },
     {
-        # 2番：打撃バランス
+        # 2番：打撃バランス（直近ISO優先）
         "order": 2,
         "role": "two_hole_bat",
-        "weights": {"recent_obp": 0.25, "recent_iso": 0.20, "season_obp": 0.25, "season_iso": 0.20, "defense": 0.10},
+        "weights": {"recent_obp": 0.25, "recent_iso": 0.25, "season_obp": 0.25, "season_iso": 0.15, "defense": 0.10},
     },
     {
-        # 3番：総合打撃最強
+        # 3番：総合打撃最強（直近ISO優先）
         "order": 3,
         "role": "three_hole_contact",
-        "weights": {"recent_obp": 0.30, "recent_iso": 0.20, "season_obp": 0.25, "season_iso": 0.20, "defense": 0.05},
+        "weights": {"recent_obp": 0.30, "recent_iso": 0.25, "season_obp": 0.25, "season_iso": 0.15, "defense": 0.05},
     },
     {
-        # 4番：長打力最大
+        # 4番：長打力最大（直近ISO最重視）
         "order": 4,
         "role": "cleanup_power",
-        "weights": {"recent_obp": 0.10, "recent_iso": 0.35, "season_obp": 0.10, "season_iso": 0.40, "defense": 0.05},
+        "weights": {"recent_obp": 0.10, "recent_iso": 0.42, "season_obp": 0.10, "season_iso": 0.33, "defense": 0.05},
     },
     {
-        # 5番：長打＋出塁
+        # 5番：長打＋出塁（直近ISO優先）
         "order": 5,
         "role": "five_hole_power",
-        "weights": {"recent_obp": 0.15, "recent_iso": 0.30, "season_obp": 0.15, "season_iso": 0.30, "defense": 0.10},
+        "weights": {"recent_obp": 0.15, "recent_iso": 0.35, "season_obp": 0.15, "season_iso": 0.25, "defense": 0.10},
     },
     {
-        # 6番：総合打撃（均等）
+        # 6番：総合打撃（直近ISO優先）
         "order": 6,
         "role": "six_hole_balance",
-        "weights": {"recent_obp": 0.25, "recent_iso": 0.20, "season_obp": 0.25, "season_iso": 0.20, "defense": 0.10},
+        "weights": {"recent_obp": 0.25, "recent_iso": 0.25, "season_obp": 0.25, "season_iso": 0.15, "defense": 0.10},
     },
     {
-        # 7番：シーズン成績重視＋守備
+        # 7番：シーズン成績重視＋守備（直近ISO優先）
         "order": 7,
         "role": "seven_hole_season",
-        "weights": {"recent_obp": 0.15, "recent_iso": 0.10, "season_obp": 0.30, "season_iso": 0.15, "defense": 0.30},
+        "weights": {"recent_obp": 0.15, "recent_iso": 0.13, "season_obp": 0.30, "season_iso": 0.12, "defense": 0.30},
     },
     {
-        # 8番（DH無）：守備最重視
+        # 8番（DH無）：守備最重視（直近ISO優先）
         "order": 8,
         "role": "glove_bottom",
-        "weights": {"recent_obp": 0.10, "recent_iso": 0.05, "season_obp": 0.20, "season_iso": 0.10, "defense": 0.55},
+        "weights": {"recent_obp": 0.10, "recent_iso": 0.08, "season_obp": 0.20, "season_iso": 0.07, "defense": 0.55},
     },
 ]
 
@@ -2234,7 +2234,7 @@ def _build_commentary(
 
     # ── role別に解説文テンプレートを分岐 ──
     if role == "lead_obp_glove":
-        # 1番スコア = recent_obp×35 + recent_iso×5 + season_obp×30 + season_iso×5 + defense×2.5
+        # 1番スコア = recent_obp×35 + recent_iso×7 + season_obp×30 + season_iso×3 + defense×25
         sent1 = (
             f"直近{window_games}試合の出塁率 {r_obp:.3f} は{rank_str('recent_obp')}であり、"
             f"打線の起点となる出塁能力を備えている。"
@@ -2245,45 +2245,48 @@ def _build_commentary(
         )
         sent3 = (
             f"1番スコアは直近OBP（ウェイト35%）とシーズン補正OBP（30%）の合計が軸で、"
-            f"守備補正（10%相当）も加算した結果 {score:.1f} が候補中最高となり、選出した。"
+            f"直近長打指数（7%）もシーズン補正長打率（3%）より重く評価し、"
+            f"守備補正（25%）も加算した結果 {score:.1f} が候補中最高となり、選出した。"
         )
         return sent1 + sent2 + sent3 + _reliability_note()
 
     elif role == "two_hole_bat":
-        # 2番スコア = recent_obp×25 + recent_iso×20 + season_obp×25 + season_iso×20 + defense×1
+        # 2番スコア = recent_obp×25 + recent_iso×25 + season_obp×25 + season_iso×15 + defense×10
         sent1 = (
             f"直近{window_games}試合の出塁率 {r_obp:.3f}（{rank_str('recent_obp')}）と"
             f"長打指数 {r_iso:.3f}（{rank_str('recent_iso')}）を兼備しており、"
             f"1番走者を進める「つなぎ」と自身の長打による得点機創出を両立できる。"
         )
         sent2 = (
-            f"2番スコアはOBP系（直近25%＋シーズン補正25%）とISO系（直近20%＋シーズン補正20%）を"
-            f"均等に評価する設計で、どちらか一方が突出するより両立している選手が高得点になる。"
-            f"この選手の総合スコア {score:.1f} はその均等評価で候補中最高と判定された。"
+            f"2番スコアはOBP系（直近25%＋シーズン補正25%）とISO系を評価する設計で、"
+            f"直近長打指数（25%）をシーズン補正長打率（15%）より重視している。"
+            f"この選手の総合スコア {score:.1f} が候補中最高と判定された。"
         )
         return sent1 + sent2 + _reliability_note()
 
     elif role == "three_hole_contact":
-        # 3番スコア = recent_obp×30 + recent_iso×20 + season_obp×25 + season_iso×20 + defense×0.5
+        # 3番スコア = recent_obp×30 + recent_iso×25 + season_obp×25 + season_iso×15 + defense×5
         sent1 = (
             f"直近{window_games}試合の出塁率 {r_obp:.3f}（{rank_str('recent_obp')}）と"
             f"長打指数 {r_iso:.3f}（{rank_str('recent_iso')}）を持ち、"
             f"クリーンアップ前の3番として出塁と長打の両方を要求するスロットに適合している。"
         )
         sent2 = (
-            f"3番スコアは直近OBP（30%）を最重視しつつISO系（直近20%＋シーズン補正20%）も加算する設計で、"
-            f"シーズン補正出塁率 {s_obp:.3f}・補正長打率 {s_iso:.3f} の中・長期的な安定感も含めた"
+            f"3番スコアは直近OBP（30%）を最重視しつつ、"
+            f"直近長打指数（25%）をシーズン補正長打率（15%）より重く評価する設計で、"
+            f"現在の長打力を特に重視している。"
+            f"シーズン補正出塁率 {s_obp:.3f}・補正長打率 {s_iso:.3f} も含めた"
             f"総合スコア {score:.1f} が候補中最高となり、選出した。"
         )
         return sent1 + sent2 + _reliability_note()
 
     elif role == "cleanup_power":
-        # 4番スコア = recent_obp×10 + recent_iso×35 + season_obp×10 + season_iso×40 + defense×0.5
-        # → ISOに75%の重みが集中。OBPは20%のみ
+        # 4番スコア = recent_obp×10 + recent_iso×42 + season_obp×10 + season_iso×33 + defense×5
+        # → ISO合計75%（直近42%がシーズン補正33%を上回る）。OBPは20%のみ
         sent1 = (
             f"4番スコアは長打指数（ISO）に重点を置いた設計で、"
-            f"直近ISO（ウェイト35%）とシーズン補正ISO（40%）が合計75%を占め、"
-            f"OBP系は残り20%に過ぎない。つまり「長打力が評価の大部分を決める」打順である。"
+            f"直近ISO（ウェイト42%）とシーズン補正ISO（33%）の合計75%が評価の中心だ。"
+            f"特に直近の長打力を最重視しており、OBP系は残り20%に過ぎない。"
         )
         # 直近ISOが低い場合とそうでない場合を分ける
         if r_iso < 0.100:
@@ -2295,9 +2298,9 @@ def _build_commentary(
             )
         else:
             sent2 = (
-                f"直近長打指数 {r_iso:.3f}（{rank_str('recent_iso')}）と"
-                f"シーズン補正長打率 {s_iso:.3f}（{rank_str('season_iso')}）の両ISOが"
-                f"ウェイト合計75%で積み上がり、スコア {score:.1f} が候補中最高となった。"
+                f"直近長打指数 {r_iso:.3f}（{rank_str('recent_iso')}）が最大ウェイト42%で評価され、"
+                f"シーズン補正長打率 {s_iso:.3f}（{rank_str('season_iso')}）の33%が加算された"
+                f"スコア {score:.1f} が候補中最高となった。"
             )
         sent3 = (
             f"出塁率 {r_obp:.3f} も一定の水準を保っており、"
@@ -2306,8 +2309,8 @@ def _build_commentary(
         return sent1 + sent2 + sent3 + _reliability_note()
 
     elif role == "five_hole_power":
-        # 5番スコア = recent_obp×15 + recent_iso×30 + season_obp×15 + season_iso×30 + defense×1
-        # → ISO系60%、OBP系30%
+        # 5番スコア = recent_obp×15 + recent_iso×35 + season_obp×15 + season_iso×25 + defense×10
+        # → ISO系60%（直近35%がシーズン補正25%を上回る）、OBP系30%
         if r_iso < 0.050:
             # 直近ISOがほぼゼロの場合：正直に説明
             sent1 = (
@@ -2315,7 +2318,7 @@ def _build_commentary(
                 f"本来5番に求める直近の長打力という観点では候補中で恵まれた数値ではない。"
             )
             sent2 = (
-                f"ただし5番スコアはISO系（直近30%＋シーズン補正30%）が合計60%を占め、"
+                f"ただし5番スコアはISO系（直近35%＋シーズン補正25%）が合計60%を占め、"
                 f"シーズン補正長打率 {s_iso:.3f}（{rank_str('season_iso')}）が直近不振を一定補完する。"
                 f"さらに出塁率とシーズン補正OBPを合わせた30%分も加算した結果、"
                 f"スコア {score:.1f} が残り候補の中で相対的に最高となり、繰り上がり選出となった。"
@@ -2326,43 +2329,45 @@ def _build_commentary(
                 f"現在の長打力が4番に次ぐ水準にある。"
             )
             sent2 = (
-                f"5番スコアはISO系（直近30%＋シーズン補正30%）が合計60%を占める設計で、"
+                f"5番スコアはISO系（直近35%＋シーズン補正25%）が合計60%を占める設計で、"
+                f"特に直近の長打力を重視している。"
                 f"シーズン補正長打率 {s_iso:.3f}（{rank_str('season_iso')}）も加算した"
                 f"スコア {score:.1f} が候補中最高となり、中軸5番として選出した。"
             )
         return sent1 + sent2 + _reliability_note()
 
     elif role == "six_hole_balance":
-        # 6番スコア = recent_obp×25 + recent_iso×20 + season_obp×25 + season_iso×20 + defense×1
+        # 6番スコア = recent_obp×25 + recent_iso×25 + season_obp×25 + season_iso×15 + defense×10
         sent1 = (
             f"直近{window_games}試合の出塁率 {r_obp:.3f}・長打指数 {r_iso:.3f} に加え、"
             f"シーズン補正出塁率 {s_obp:.3f}・補正長打率 {s_iso:.3f} の4指標で評価した。"
         )
         sent2 = (
-            f"6番スコアはOBP系（直近25%＋補正25%）とISO系（直近20%＋補正20%）が"
-            f"ほぼ等配分で、突出した指標がなくとも4指標を安定してカバーする選手が高得点になる設計だ。"
+            f"6番スコアはOBP系（直近25%＋補正25%）とISO系（直近25%＋補正15%）で構成され、"
+            f"直近長打指数をシーズン補正長打率より重視する設計だ。"
             f"この選手のスコア {score:.1f} が残り候補の中で最高となり、6番に配置した。"
         )
         return sent1 + sent2 + _reliability_note()
 
     elif role == "seven_hole_season":
-        # 7番スコア = recent_obp×15 + recent_iso×10 + season_obp×30 + season_iso×15 + defense×3
+        # 7番スコア = recent_obp×15 + recent_iso×13 + season_obp×30 + season_iso×12 + defense×30
         sent1 = (
             f"シーズン通算の補正出塁率 {s_obp:.3f}（{rank_str('season_obp')}）と"
             f"補正長打率 {s_iso:.3f}（{rank_str('season_iso')}）が7番評価の中心となる。"
         )
         sent2 = (
-            f"7番スコアはシーズン補正OBP（30%）と守備補正（30%相当）を重視する設計で、"
-            f"直近の状態より長いスパンの実力と守備貢献度で選手を選ぶ打順だ。"
+            f"7番スコアはシーズン補正OBP（30%）と守備補正（30%）を重視しつつ、"
+            f"ISO系では直近長打指数（13%）をシーズン補正長打率（12%）より若干重く評価する設計だ。"
             f"直近出塁率 {r_obp:.3f} に加え守備補正 {defense:+.3f} も含めたスコア {score:.1f} が"
             f"候補中最高となり、下位打線の安定役として選出した。"
         )
         return sent1 + sent2 + _reliability_note()
 
     elif role == "glove_bottom":
-        # 8番スコア = recent_obp×10 + recent_iso×5 + season_obp×20 + season_iso×10 + defense×5.5
+        # 8番スコア = recent_obp×10 + recent_iso×8 + season_obp×20 + season_iso×7 + defense×55
         sent1 = (
             f"8番スコアは守備補正が全ウェイトの55%を占め、守備力が選出の最大要因となる設計だ。"
+            f"ISO系では直近長打指数（8%）をシーズン補正長打率（7%）より重く評価している。"
         )
         if defense > 0:
             sent2 = (
@@ -2385,10 +2390,11 @@ def _build_commentary(
         return sent1 + sent2 + _reliability_note()
 
     elif role == "turnover_obp":
-        # 9番スコア = recent_obp×30 + recent_iso×10 + season_obp×35 + season_iso×10 + defense×1.5
+        # 9番スコア = recent_obp×30 + recent_iso×13 + season_obp×35 + season_iso×7 + defense×15
         sent1 = (
             f"9番スコアはシーズン補正OBP（35%）と直近OBP（30%）が合計65%を占め、"
             f"打線をつなぐ『出塁』が評価の最重要軸となる設計だ。"
+            f"ISO系では直近長打指数（13%）をシーズン補正長打率（7%）より重視している。"
         )
         sent2 = (
             f"シーズン補正出塁率 {s_obp:.3f}（{rank_str('season_obp')}）と"

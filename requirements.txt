@@ -6,3 +6,4 @@ sqlalchemy==2.0.43
 psycopg[binary]==3.2.9
 httpx==0.28.1
 beautifulsoup4==4.12.3
+tweepy==4.14.0

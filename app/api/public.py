@@ -2502,6 +2502,7 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
     }}
     .ad-unit {{
       width: 160px;
+      max-width: 100%;
       min-height: 600px;
       background: #0c1424;
       border: 1px dashed #1e2d50;
@@ -2533,10 +2534,18 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
       padding: 20px 20px 40px;
     }}
 
-    /* タブレット: サイド広告を1本に */
+    /* タブレット以下: 広告カラム非表示・1カラムレイアウト */
     @media (max-width: 1100px) {{
-      .page-layout {{ grid-template-columns: 0 1fr 0; }}
-      .ad-col {{ display: none; }}
+      .page-layout {{
+        display: block;  /* gridを解除して単純なblock */
+        max-width: 100%;
+      }}
+      .ad-col {{ display: none !important; }}
+      .content-col {{
+        border-left: none;
+        border-right: none;
+        width: 100%;
+      }}
     }}
 
     /* ── ページヘッダー ── */
@@ -2807,7 +2816,9 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
       .site-header-nav {{ display: none; }}
 
       /* ページ全体 */
-      .wrap {{ padding: 8px 8px 40px; }}
+      .wrap {{ padding: 8px 10px 40px; }}
+      .page-layout {{ display: block; width: 100%; overflow-x: hidden; }}
+      .content-col {{ width: 100%; min-width: 0; border: none; overflow-x: hidden; }}
 
       /* hero */
       .hero {{ border-radius: 10px; padding: 12px 12px 10px; margin-bottom: 12px; }}

@@ -1,15 +1,28 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 
 from app.api import public
 
-app = FastAPI(title="carp-lineup-api", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # ── 起動時: バックグラウンドでキャッシュをウォームアップ ──
+    public.warmup_cache()
+    yield
+    # ── シャットダウン時: 特に何もしない ──
+
+
+app = FastAPI(title="carp-lineup-api", version="0.1.0", lifespan=lifespan)
 
 app.include_router(public.router)
+
 
 @app.get("/", include_in_schema=False)
 def root():
     return RedirectResponse(url="/public/predicted-lineup?window_games=5&use_dh=true&view=html")
+
 
 @app.get("/health")
 def health():

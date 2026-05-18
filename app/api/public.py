@@ -3,10 +3,12 @@ from __future__ import annotations
 from functools import lru_cache
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import json
 import re
 import time
+import threading
 
 from html import escape, unescape
 from html.parser import HTMLParser
@@ -83,11 +85,11 @@ FARM_MIN_PA = 50
 FARM_DISCOUNT = 0.90
 PROMOTION_GRACE_DAYS = 7
 
-CACHE_TTL_PLAYER_DEFENSE = 60 * 60 * 12
-CACHE_TTL_SEASON_POSITION_BATTING = 60 * 60 * 6
-CACHE_TTL_RECENT_BATTING = 60 * 5
-CACHE_TTL_PREDICTED_LINEUP = 60 * 3
-CACHE_TTL_RISP = 60 * 10  # 得点圏打率キャッシュ: 10分
+CACHE_TTL_PLAYER_DEFENSE = 60 * 60 * 24      # 守備指標: 24時間（試合後も翌日まで有効）
+CACHE_TTL_SEASON_POSITION_BATTING = 60 * 60 * 12  # シーズン打撃成績: 12時間
+CACHE_TTL_RECENT_BATTING = 60 * 30           # 直近打撃成績: 30分（5分→30分）
+CACHE_TTL_PREDICTED_LINEUP = 60 * 20         # 予想打順: 20分（3分→20分）
+CACHE_TTL_RISP = 60 * 30                     # 得点圏打率キャッシュ: 30分（10分→30分）
 
 YAHOO_SCHEDULE_URL = "https://baseball.yahoo.co.jp/npb/schedule/first/all"
 YAHOO_GAME_TEXT_URL = "https://baseball.yahoo.co.jp/npb/game/{game_id}/text"
@@ -536,7 +538,7 @@ def _fetch_text(url: str) -> str:
             "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
         },
     )
-    with urlopen(req, timeout=20) as res:
+    with urlopen(req, timeout=10) as res:
         return res.read().decode("utf-8", errors="ignore")
 
 def _is_pitcher_for_display(name: str) -> bool:
@@ -698,20 +700,32 @@ def _build_season_position_batting_from_proran() -> dict:
     result = {}
     player_ids = _get_proran_player_ids()
 
+    # 対象プレイヤーと player_id のペアを収集
+    targets: list[tuple[str, str]] = []
     for player_name in PLAYER_PROFILE.keys():
         normalized_name = _normalize_player_name(player_name)
         player_id = player_ids.get(normalized_name)
-        if not player_id:
-            continue
+        if player_id:
+            targets.append((player_name, player_id))
 
+    # ThreadPoolExecutor で並列 fetch（最大 8 スレッド）
+    def _fetch_one(args: tuple[str, str]) -> tuple[str, dict]:
+        player_name, player_id = args
         try:
             position_stats = _fetch_proran_position_batting(player_name, player_id)
-            if position_stats:
-                result[normalized_name] = position_stats
-                result[player_name] = position_stats
+            return (player_name, position_stats or {})
         except Exception as e:
             print("DEBUG_PRORAN_BUILD_ERROR", player_name, str(e))
-            continue
+            return (player_name, {})
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {executor.submit(_fetch_one, t): t for t in targets}
+        for future in as_completed(futures):
+            player_name, position_stats = future.result()
+            if position_stats:
+                normalized_name = _normalize_player_name(player_name)
+                result[normalized_name] = position_stats
+                result[player_name] = position_stats
 
     return result
 
@@ -724,6 +738,26 @@ def _get_season_position_batting() -> dict:
         cached_value = cache_entry.get("value")
         if isinstance(cached_value, dict):
             return cached_value
+
+    # キャッシュ期限切れでも古いデータがあればすぐ返し、バックグラウンドで更新
+    stale = cache_entry.get("value") if cache_entry else None
+    if stale and isinstance(stale, dict) and stale:
+        def _bg_refresh():
+            try:
+                data = _build_season_position_batting_from_proran()
+                if data and isinstance(data, dict):
+                    global SEASON_POSITION_BATTING
+                    SEASON_POSITION_BATTING = data
+                    CACHE["season_position_batting"] = {
+                        "expires_at": _cache_now() + CACHE_TTL_SEASON_POSITION_BATTING,
+                        "value": data,
+                    }
+            except Exception as e:
+                print("DEBUG_SEASON_POSITION_BATTING_BG_ERROR", str(e))
+        # 一時的に60秒延長して2重更新を防ぐ
+        CACHE["season_position_batting"]["expires_at"] = _cache_now() + 60
+        threading.Thread(target=_bg_refresh, daemon=True, name="bg-season-batting").start()
+        return stale
 
     try:
         data = _build_season_position_batting_from_proran()
@@ -844,6 +878,25 @@ def _get_player_defense() -> dict[str, dict[str, float]]:
     cache_entry = CACHE.get("player_defense", {})
     if _cache_alive(cache_entry) and cache_entry.get("value"):
         return cache_entry["value"]
+
+    # キャッシュ期限切れでも古いデータがあればすぐ返し、バックグラウンドで更新
+    stale = cache_entry.get("value") if cache_entry else None
+    if stale and isinstance(stale, dict) and stale:
+        def _bg_refresh_defense():
+            try:
+                data = _build_player_defense_from_npbbasement()
+                if data:
+                    global PLAYER_DEFENSE
+                    PLAYER_DEFENSE = data
+                    CACHE["player_defense"] = {
+                        "expires_at": _cache_now() + CACHE_TTL_PLAYER_DEFENSE,
+                        "value": data,
+                    }
+            except Exception as e:
+                print("DEBUG_PLAYER_DEFENSE_BG_ERROR", str(e))
+        CACHE["player_defense"]["expires_at"] = _cache_now() + 60
+        threading.Thread(target=_bg_refresh_defense, daemon=True, name="bg-player-defense").start()
+        return stale
 
     try:
         data = _build_player_defense_from_npbbasement()
@@ -1710,7 +1763,27 @@ def _build_recent_batting_response(window_games: int) -> dict:
         if isinstance(cached_value, dict):
             return cached_value
 
+    # stale-while-revalidate
+    stale = cache_entry.get("value") if cache_entry else None
+    if stale and isinstance(stale, dict):
+        def _bg_rebuild_recent():
+            try:
+                # aggregateキャッシュをクリアして新規取得
+                agg_bucket = _cache_get_bucket("recent_batting")
+                agg_bucket.pop(f"aggregate:{window_games}", None)
+                aggregated = _aggregate_recent_batting_stats(window_games)
+                _do_build_recent_batting(window_games, aggregated, cache_bucket, cache_key)
+            except Exception as e:
+                print("DEBUG_RECENT_BATTING_BG_ERROR", str(e))
+        cache_bucket[cache_key] = {**cache_entry, "expires_at": _cache_now() + 60}
+        threading.Thread(target=_bg_rebuild_recent, daemon=True, name=f"bg-recent-{window_games}").start()
+        return stale
+
     aggregated = _aggregate_recent_batting_stats(window_games)
+    return _do_build_recent_batting(window_games, aggregated, cache_bucket, cache_key)
+
+
+def _do_build_recent_batting(window_games: int, aggregated: dict, cache_bucket: dict, cache_key: str) -> dict:
 
     rows = []
     for player_name, stats in aggregated.get("player_totals", {}).items():
@@ -2268,6 +2341,22 @@ def _build_simple_predicted_lineup(window_games: int, use_dh: bool) -> dict:
         if isinstance(cached_value, dict):
             return cached_value
 
+    # stale-while-revalidate: 古いキャッシュがあればすぐ返してバックグラウンドで更新
+    stale = cache_entry.get("value") if cache_entry else None
+    if stale and isinstance(stale, dict):
+        def _bg_rebuild():
+            try:
+                _do_build_predicted_lineup(window_games, use_dh, cache_bucket, cache_key)
+            except Exception as e:
+                print("DEBUG_PREDICTED_LINEUP_BG_ERROR", str(e))
+        cache_bucket[cache_key] = {**cache_entry, "expires_at": _cache_now() + 60}
+        threading.Thread(target=_bg_rebuild, daemon=True, name=f"bg-lineup-{cache_key}").start()
+        return stale
+
+    return _do_build_predicted_lineup(window_games, use_dh, cache_bucket, cache_key)
+
+
+def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: dict, cache_key: str) -> dict:
     slot_defs = DH_LINEUP_SLOTS if use_dh else NO_DH_LINEUP_SLOTS
     recent_map    = _recent_snapshot_map(window_games)
     defense_map   = _get_player_defense()
@@ -5941,4 +6030,67 @@ def public_terms(request: Request):
         body,
         description="鯉男の打席分析室の利用規約ページです。サービスの利用条件、禁止事項、免責事項について説明します。",
     )
+
+
+# ─────────────────────────────────────────────
+# 起動時ウォームアップ
+# ─────────────────────────────────────────────
+
+def warmup_cache() -> None:
+    """
+    サーバー起動直後にバックグラウンドスレッドでキャッシュを温める。
+    最初のユーザーリクエストが来る前にデータを用意することで初回表示を高速化する。
+    """
+    def _warmup():
+        try:
+            print("[warmup] start")
+
+            # ① 一軍登録選手（NPB公示ページ）
+            try:
+                _get_active_first_team_position_players()
+                print("[warmup] first_team OK")
+            except Exception as e:
+                print("[warmup] first_team error:", e)
+
+            # ② シーズン守備指標（npbbasement）
+            try:
+                _get_player_defense()
+                print("[warmup] player_defense OK")
+            except Exception as e:
+                print("[warmup] player_defense error:", e)
+
+            # ③ シーズン打撃成績（proran 全選手・並列）
+            try:
+                _get_season_position_batting()
+                print("[warmup] season_position_batting OK")
+            except Exception as e:
+                print("[warmup] season_position_batting error:", e)
+
+            # ④ 直近試合（NPB試合結果ページ）
+            try:
+                _fetch_recent_carp_games(limit=10)
+                print("[warmup] recent_games OK")
+            except Exception as e:
+                print("[warmup] recent_games error:", e)
+
+            # ⑤ 直近打撃成績集計（window=5）
+            try:
+                _aggregate_recent_batting_stats(window_games=5)
+                print("[warmup] recent_batting OK")
+            except Exception as e:
+                print("[warmup] recent_batting error:", e)
+
+            # ⑥ 予想打順（最も重いメイン処理）
+            try:
+                _build_simple_predicted_lineup(window_games=5, use_dh=True)
+                print("[warmup] predicted_lineup OK")
+            except Exception as e:
+                print("[warmup] predicted_lineup error:", e)
+
+            print("[warmup] all done")
+        except Exception as e:
+            print("[warmup] unexpected error:", e)
+
+    t = threading.Thread(target=_warmup, daemon=True, name="warmup-thread")
+    t.start()
 

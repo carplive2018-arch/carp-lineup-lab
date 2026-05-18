@@ -2803,6 +2803,9 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
       .site-logo span {{ display: none; }}
     }}
   </style>
+  <!-- Google AdSense -->
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9923885942831563"
+       crossorigin="anonymous"></script>
 </head>
 <body>
   <!-- サイトヘッダー -->
@@ -2823,10 +2826,12 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
     <!-- 左広告 -->
     <aside class="ad-col">
       <div class="ad-unit" id="ad-left-1">
-        <!-- Google AdSense / アフィリエイト広告をここに挿入 -->
-        <!-- 例: <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script> -->
-        <div class="ad-unit-label">Advertisement</div>
-        <div style="font-size:11px;color:#2a3a5a">160 × 600</div>
+        <ins class="adsbygoogle"
+             style="display:inline-block;width:160px;height:600px"
+             data-ad-client="ca-pub-9923885942831563"
+             data-ad-slot="auto"
+             data-ad-format="auto"></ins>
+        <script>(adsbygoogle = window.adsbygoogle || []).push({{}});</script>
       </div>
     </aside>
 
@@ -2855,9 +2860,12 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
     <!-- 右広告 -->
     <aside class="ad-col">
       <div class="ad-unit" id="ad-right-1">
-        <!-- Google AdSense / アフィリエイト広告をここに挿入 -->
-        <div class="ad-unit-label">Advertisement</div>
-        <div style="font-size:11px;color:#2a3a5a">160 × 600</div>
+        <ins class="adsbygoogle"
+             style="display:inline-block;width:160px;height:600px"
+             data-ad-client="ca-pub-9923885942831563"
+             data-ad-slot="auto"
+             data-ad-format="auto"></ins>
+        <script>(adsbygoogle = window.adsbygoogle || []).push({{}});</script>
       </div>
     </aside>
 

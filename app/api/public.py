@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import re
 import time
+import math
 import threading
 
 from html import escape, unescape
@@ -286,7 +287,7 @@ SEASON_OVERALL_BATTING = {
     "勝田 成": {"obp": 0.290, "iso": 0.070},
     "堂林 翔太": {"obp": 0.310, "iso": 0.150},
     "末包 昇大": {"obp": 0.310, "iso": 0.180},
-    "田村 俊介": {"obp": 0.320, "iso": 0.120},
+    "田村 俊介": {"obp": 0.310, "iso": 0.085},
     "中村 貴浩": {"obp": 0.300, "iso": 0.140},
     "名原 典彦": {"obp": 0.290, "iso": 0.090},
     "岸本 大希": {"obp": 0.290, "iso": 0.080},
@@ -317,12 +318,14 @@ DH_LINEUP_SLOTS = [
         "order": 4,
         "role": "cleanup_power",
         "weights": {"recent_obp": 0.10, "recent_iso": 0.42, "season_obp": 0.10, "season_iso": 0.33, "defense": 0.05},
+        "min_adj_iso": 0.100,  # adj_isoがこれ未満の選手は4番候補から除外
     },
     {
         # 5番：長打＋出塁（4番に次ぐ長打、直近ISO優先）
         "order": 5,
         "role": "five_hole_power",
         "weights": {"recent_obp": 0.15, "recent_iso": 0.35, "season_obp": 0.15, "season_iso": 0.25, "defense": 0.10},
+        "min_adj_iso": 0.085,  # adj_isoがこれ未満の選手は5番候補から除外
     },
     {
         # 6番：総合打撃（直近ISO優先）
@@ -374,12 +377,14 @@ NO_DH_LINEUP_SLOTS = [
         "order": 4,
         "role": "cleanup_power",
         "weights": {"recent_obp": 0.10, "recent_iso": 0.42, "season_obp": 0.10, "season_iso": 0.33, "defense": 0.05},
+        "min_adj_iso": 0.100,  # adj_isoがこれ未満の選手は4番候補から除外
     },
     {
         # 5番：長打＋出塁（直近ISO優先）
         "order": 5,
         "role": "five_hole_power",
         "weights": {"recent_obp": 0.15, "recent_iso": 0.35, "season_obp": 0.15, "season_iso": 0.25, "defense": 0.10},
+        "min_adj_iso": 0.085,  # adj_isoがこれ未満の選手は5番候補から除外
     },
     {
         # 6番：総合打撃（直近ISO優先）
@@ -2010,6 +2015,16 @@ def _slot_score(
     s_iso = float(season_pos.get("iso", 0.0) or 0.0) * 100
     defv  = defense * 10   # 守備補正を同スケールに
 
+    # ── min_adj_iso ハードカット ──
+    # 4番・5番など長打力必須スロットで、adj_isoが基準を下回る選手を除外する
+    # adj_iso は直近成績をベイズ収縮した値のため「priorに引き上げられた下駄」込み
+    # それでも基準未満 = 実質的に長打力がない選手
+    min_adj_iso = slot_def.get("min_adj_iso")
+    if min_adj_iso is not None:
+        actual_adj_iso = float(recent.get("adj_iso", recent.get("iso", 0.0)) or 0.0)
+        if actual_adj_iso < min_adj_iso:
+            return float("-inf"), recent, season_pos, defense
+
     weights = slot_def.get("weights", {})
     score = (
         float(weights.get("recent_obp",  0.0) or 0.0) * r_obp
@@ -2511,12 +2526,19 @@ def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: di
                 score, recent, season_pos, defense = _slot_score(
                     canonical_name, position, slot_def, recent_map, defense_map,
                 )
+                # -inf はハードカット（min_adj_iso 未達）→ このポジション/スロットは不適格
+                if math.isinf(score) and score < 0:
+                    continue
                 if best_pos_score is None or score > best_pos_score:
                     best_pos_score  = score
                     best_pos        = position
                     best_recent     = recent
                     best_season_pos = season_pos
                     best_defense    = defense
+
+            # 全ポジションがハードカットされた場合はこの選手をスキップ
+            if best_pos_score is None:
+                continue
 
             if best_pick is None or best_pos_score > best_pick["score"]:
                 best_pick = {

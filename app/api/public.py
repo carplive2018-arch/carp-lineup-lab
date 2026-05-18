@@ -2791,16 +2791,56 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
     .site-footer a:hover {{ color: #9db0d4; }}
     .footer-links {{ display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; margin-bottom: 8px; }}
 
+    /* ── タブレット ── */
+    @media (max-width: 860px) {{
+      .site-header-nav {{ gap: 10px; font-size: 11px; }}
+      .hero h1 {{ font-size: 20px; }}
+      .nav-label {{ min-width: 40px; font-size: 9px; }}
+    }}
+
     /* ── スマホ ── */
     @media (max-width: 600px) {{
-      .wrap {{ padding: 10px 10px 40px; }}
-      .hero {{ border-radius: 12px; padding: 14px 14px 12px; }}
-      .hero h1 {{ font-size: 20px; }}
-      .nav-btn {{ font-size: 11px; padding: 4px 9px; }}
-      th, td {{ padding: 7px 7px; }}
-      table {{ font-size: 12px; }}
-      .card {{ padding: 14px; border-radius: 10px; }}
+      /* ヘッダー */
+      .site-header {{ padding: 8px 12px; }}
+      .site-logo {{ font-size: 14px; }}
       .site-logo span {{ display: none; }}
+      .site-header-nav {{ display: none; }}
+
+      /* ページ全体 */
+      .wrap {{ padding: 8px 8px 40px; }}
+
+      /* hero */
+      .hero {{ border-radius: 10px; padding: 12px 12px 10px; margin-bottom: 12px; }}
+      .hero h1 {{ font-size: 18px; }}
+      .muted {{ font-size: 11px; }}
+
+      /* ナビ */
+      .nav-bar {{ margin-top: 10px; gap: 6px; padding-top: 10px; }}
+      .nav-section {{ gap: 6px; align-items: flex-start; flex-direction: column; }}
+      .nav-label {{ min-width: unset; font-size: 9px; margin-bottom: 2px; }}
+      .nav-group {{ gap: 4px; flex-wrap: wrap; }}
+      .nav-btn {{ font-size: 11px; padding: 4px 8px; border-radius: 5px; }}
+      .nav-divider {{ display: none; }}
+
+      /* カード */
+      .card {{ padding: 12px; border-radius: 10px; margin-top: 10px; }}
+      .card-title {{ font-size: 14px; }}
+
+      /* テーブル */
+      .table-wrap {{ border-radius: 6px; }}
+      th, td {{ padding: 6px 6px; }}
+      table {{ font-size: 11px; min-width: 480px; }}
+
+      /* 打順ページ */
+      .order {{ font-size: 18px; }}
+      .name  {{ font-size: 17px; }}
+      .reason {{ font-size: 13px; }}
+      .stats {{ grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 6px; }}
+      .stat .value {{ font-size: 15px; }}
+
+      /* フッター */
+      .site-footer {{ padding: 16px 12px; font-size: 10px; }}
+      .footer-links {{ gap: 12px; }}
     }}
   </style>
   <!-- Google AdSense -->

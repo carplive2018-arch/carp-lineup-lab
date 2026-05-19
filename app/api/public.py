@@ -2559,6 +2559,56 @@ def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: di
                     "role":       slot_def.get("role", ""),
                 }
 
+        # ── フォールバック：min_adj_iso ハードカットで全候補が弾かれた場合 ──
+        # min_adj_iso 制約を外して「最もISOが高い残り選手」を割り当てる
+        if best_pick is None and slot_def.get("min_adj_iso") is not None:
+            fallback_slot = {k: v for k, v in slot_def.items() if k != "min_adj_iso"}
+            for player_name in candidate_names:
+                canonical_name = _canonical_player_name(player_name)
+                if canonical_name in used_players:
+                    continue
+                eligible_positions = (
+                    (PLAYER_PROFILE.get(canonical_name) or {}).get("eligible_positions", [])
+                    or [POS_DH]
+                )
+                available_positions = [
+                    p for p in eligible_positions
+                    if p not in used_positions
+                    and (use_dh or p != POS_DH)
+                ]
+                if not available_positions:
+                    continue
+                best_pos_score  = None
+                best_pos        = available_positions[0]
+                best_recent     = {}
+                best_season_pos = {}
+                best_defense    = 0.0
+                for position in available_positions:
+                    score, recent, season_pos, defense = _slot_score(
+                        canonical_name, position, fallback_slot, recent_map, defense_map,
+                    )
+                    if math.isinf(score) and score < 0:
+                        continue
+                    if best_pos_score is None or score > best_pos_score:
+                        best_pos_score  = score
+                        best_pos        = position
+                        best_recent     = recent
+                        best_season_pos = season_pos
+                        best_defense    = defense
+                if best_pos_score is None:
+                    continue
+                if best_pick is None or best_pos_score > best_pick["score"]:
+                    best_pick = {
+                        "order":       int(slot_def.get("order", 0) or 0),
+                        "position":    best_pos,
+                        "player_name": canonical_name,
+                        "score":       round(best_pos_score, 3),
+                        "recent":      best_recent,
+                        "season_pos":  best_season_pos,
+                        "defense":     round(best_defense, 3),
+                        "role":        slot_def.get("role", ""),
+                    }
+
         if best_pick is None:
             continue
 
@@ -3241,6 +3291,27 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
     }});
   }})();
   </script>
+  <script>
+  // ── ホバー/タッチ時プリフェッチ（ナビ遷移を体感高速化）──
+  (function() {{
+    var prefetched = {{}};
+    function tryPrefetch(el) {{
+      if (!el) return;
+      var url = el.dataset && el.dataset.prefetch;
+      if (!url || prefetched[url]) return;
+      prefetched[url] = true;
+      var link = document.createElement('link');
+      link.rel = 'prefetch'; link.href = url;
+      document.head.appendChild(link);
+    }}
+    document.addEventListener('mouseover', function(e) {{
+      tryPrefetch(e.target.closest('[data-prefetch]'));
+    }}, {{passive: true}});
+    document.addEventListener('touchstart', function(e) {{
+      tryPrefetch(e.target.closest('[data-prefetch]'));
+    }}, {{passive: true}});
+  }})();
+  </script>
 </body>
 </html>"""
     )
@@ -3312,7 +3383,7 @@ def _common_nav(active_page: str = "", window_games: int = 5) -> str:
     """
     def _a(label: str, href: str, page_key: str) -> str:
         cls = " active" if active_page == page_key else ""
-        return f'<a class="nav-btn{cls}" href="{href}">{label}</a>'
+        return f'<a class="nav-btn{cls}" href="{href}" data-prefetch="{href}">{label}</a>'
 
     wg = window_games
     nav_html = f"""

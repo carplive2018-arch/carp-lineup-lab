@@ -3022,6 +3022,7 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
     /* ── テーブル共通 ── */
     .table-wrap {{
       overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
       margin-top: 4px;
       border-radius: 8px;
       border: 1px solid #1a2540;
@@ -3159,8 +3160,8 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
 
       /* ページ全体 */
       .wrap {{ padding: 8px 10px 40px; }}
-      .page-layout {{ display: block; width: 100%; overflow-x: hidden; }}
-      .content-col {{ width: 100%; min-width: 0; border: none; overflow-x: clip; }}
+      .page-layout {{ display: block; width: 100%; }}
+      .content-col {{ width: 100%; min-width: 0; border: none; }}
 
       /* hero */
       .hero {{ border-radius: 10px; padding: 12px 12px 10px; margin-bottom: 12px; }}
@@ -3180,7 +3181,7 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
       .card-title {{ font-size: 14px; }}
 
       /* テーブル */
-      .table-wrap {{ border-radius: 6px; }}
+      .table-wrap {{ border-radius: 6px; overflow-x: auto !important; -webkit-overflow-scrolling: touch; }}
       th, td {{ padding: 6px 6px; }}
       table {{ font-size: 11px; min-width: 480px; }}
 

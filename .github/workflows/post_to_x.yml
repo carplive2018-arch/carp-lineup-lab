@@ -1,0 +1,108 @@
+name: X (Twitter) Auto Post
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+    - cron: "5 0 * * *"
+    - cron: "30 13 * * *"
+  workflow_dispatch:
+    inputs:
+      post_mode:
+        description: "投稿モード (lineup / ranking / result)"
+        required: true
+        default: "lineup"
+        type: choice
+        options:
+          - lineup
+          - ranking
+          - result
+      dry_run:
+        description: "DRY RUN（実際には投稿しない）"
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+jobs:
+  post_lineup:
+    name: 予想スタメン投稿
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' && github.event.inputs.post_mode == 'lineup' ||
+      github.event.schedule == '0 0 * * *'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install tweepy==4.14.0 httpx==0.28.1
+      - name: Post lineup to X
+        env:
+          POST_MODE: lineup
+          DH_MODE: "true"
+          WINDOW_GAMES: "5"
+          SITE_URL: "https://recent-data-on-the-carp.site"
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run || 'false' }}
+        run: python scripts/post_to_x.py
+
+  post_ranking:
+    name: 成績ランキング投稿
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' && github.event.inputs.post_mode == 'ranking' ||
+      github.event.schedule == '5 0 * * *'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install tweepy==4.14.0 httpx==0.28.1
+      - name: Post ranking to X
+        env:
+          POST_MODE: ranking
+          WINDOW_GAMES: "5"
+          SITE_URL: "https://recent-data-on-the-carp.site"
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run || 'false' }}
+        run: python scripts/post_to_x.py
+
+  post_result:
+    name: 試合結果投稿
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' && github.event.inputs.post_mode == 'result' ||
+      github.event.schedule == '30 13 * * *'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install tweepy==4.14.0 httpx==0.28.1
+      - name: Post result to X
+        env:
+          POST_MODE: result
+          SITE_URL: "https://recent-data-on-the-carp.site"
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run || 'false' }}
+        run: python scripts/post_to_x.py

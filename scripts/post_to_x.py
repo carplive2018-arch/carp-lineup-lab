@@ -83,7 +83,7 @@ def _fetch_json(path: str, params: dict | None = None) -> dict:
     """サイト内部APIからJSONデータを取得"""
     url = f"{SITE_URL}{path}"
     try:
-        resp = httpx.get(url, params=params or {}, timeout=30.0)
+        resp = httpx.get(url, params=params or {}, timeout=30.0, verify=False)
         resp.raise_for_status()
         return resp.json()
     except Exception as e:

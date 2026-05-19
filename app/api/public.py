@@ -2833,6 +2833,22 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
       margin-top: 2px;
     }}
 
+    /* ── スティッキーナビバー（ページナビ固定用） ── */
+    .sticky-nav {{
+      position: sticky;
+      top: 57px;   /* site-header の高さ */
+      z-index: 90;
+      background: #070d1a;
+      border-bottom: 1px solid #1a2540;
+      padding: 6px 16px 8px;
+      margin: 0 -16px;  /* wrap の padding を打ち消して端まで広げる */
+    }}
+    .sticky-nav .nav-bar {{
+      margin-top: 0;
+      border-top: none;
+      padding-top: 0;
+    }}
+
     /* ── ナビゲーション ── */
     .nav-bar {{
       margin-top: 12px;
@@ -3490,6 +3506,8 @@ def _render_recent_batting_html(data: dict) -> HTMLResponse:
     <div class="hero">
       <h1>直近打撃成績</h1>
       <div class="muted">直近 {wg} 試合の打撃成績 ／ 列ヘッダをクリックでソート</div>
+    </div>
+    <div class="sticky-nav">
       <div class="nav-bar">
         <div class="nav-section">
           <span class="nav-label">期間</span>

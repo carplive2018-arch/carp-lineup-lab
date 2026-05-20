@@ -2980,12 +2980,11 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
       user-select: none;
       flex-shrink: 0;
     }}
-    .tip-wrap .tip-box {{
+    /* tip-box は JS で body 直下に移動・position:fixed で描画するため
+       ここでは共通スタイルのみ定義（display は JS 側で制御） */
+    #tip-floating {{
       display: none;
-      position: absolute;
-      bottom: calc(100% + 6px);
-      left: 50%;
-      transform: translateX(-50%);
+      position: fixed;
       background: #0e1a30;
       border: 1px solid #2a3e60;
       border-radius: 8px;
@@ -2996,39 +2995,13 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
       white-space: normal;
       min-width: 180px;
       max-width: 260px;
-      z-index: 200;
+      z-index: 99999;
       box-shadow: 0 4px 16px rgba(0,0,0,0.6);
       pointer-events: none;
       line-height: 1.6;
       text-align: left;
       letter-spacing: 0;
       text-transform: none;
-    }}
-    .tip-wrap .tip-box::after {{
-      content: '';
-      position: absolute;
-      top: 100%;
-      left: 50%;
-      transform: translateX(-50%);
-      border: 5px solid transparent;
-      border-top-color: #2a3e60;
-    }}
-    .tip-wrap.tip-open .tip-box,
-    .tip-wrap:hover .tip-box {{
-      display: block;
-    }}
-    /* 右端ツールチップのはみ出し防止 */
-    th:last-child .tip-wrap .tip-box,
-    th:nth-last-child(2) .tip-wrap .tip-box {{
-      left: auto;
-      right: 0;
-      transform: none;
-    }}
-    th:last-child .tip-wrap .tip-box::after,
-    th:nth-last-child(2) .tip-wrap .tip-box::after {{
-      left: auto;
-      right: 12px;
-      transform: none;
     }}
 
     /* ── カード ── */
@@ -3313,26 +3286,93 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
   <!-- ツールチップ: タップで開閉 -->
   <script>
   (function() {{
+    // ── フローティング tip-box を body に1つ作成 ──
+    var floatBox = document.getElementById('tip-floating');
+    if (!floatBox) {{
+      floatBox = document.createElement('div');
+      floatBox.id = 'tip-floating';
+      document.body.appendChild(floatBox);
+    }}
+
+    var hideTimer = null;
+
+    function showTip(text, anchorEl) {{
+      clearTimeout(hideTimer);
+      floatBox.textContent = text;
+      floatBox.style.display = 'block';
+      positionTip(anchorEl);
+    }}
+
+    function hideTip() {{
+      hideTimer = setTimeout(function() {{
+        floatBox.style.display = 'none';
+      }}, 80);
+    }}
+
+    function positionTip(anchorEl) {{
+      var rect = anchorEl.getBoundingClientRect();
+      var boxW = floatBox.offsetWidth  || 220;
+      var boxH = floatBox.offsetHeight || 60;
+      var margin = 8;
+
+      // アイコンの上に出す（デフォルト）
+      var top  = rect.top - boxH - margin;
+      var left = rect.left + rect.width / 2 - boxW / 2;
+
+      // 上に収まらない場合は下に出す
+      if (top < margin) top = rect.bottom + margin;
+
+      // 左右はみ出し防止
+      var vw = window.innerWidth;
+      if (left + boxW > vw - margin) left = vw - boxW - margin;
+      if (left < margin) left = margin;
+
+      floatBox.style.top  = top  + 'px';
+      floatBox.style.left = left + 'px';
+    }}
+
     document.addEventListener('DOMContentLoaded', function() {{
-      // タップ/クリックで tip-open をトグル
-      document.querySelectorAll('.tip-icon').forEach(function(icon) {{
-        icon.addEventListener('click', function(e) {{
-          e.stopPropagation();
-          var wrap = icon.closest('.tip-wrap');
-          if (!wrap) return;
-          var isOpen = wrap.classList.contains('tip-open');
-          // 他を全部閉じる
-          document.querySelectorAll('.tip-wrap.tip-open').forEach(function(w) {{
-            w.classList.remove('tip-open');
-          }});
-          if (!isOpen) wrap.classList.add('tip-open');
-        }});
+      // ── PC: hover で表示 ──
+      document.addEventListener('mouseover', function(e) {{
+        var icon = e.target.closest('.tip-icon');
+        if (!icon) return;
+        var wrap = icon.closest('.tip-wrap');
+        if (!wrap) return;
+        var box = wrap.querySelector('.tip-box');
+        var text = box ? box.textContent : (wrap.dataset.tip || '');
+        if (text) showTip(text, icon);
       }});
-      // 他の場所タップで全部閉じる
-      document.addEventListener('click', function() {{
-        document.querySelectorAll('.tip-wrap.tip-open').forEach(function(w) {{
-          w.classList.remove('tip-open');
-        }});
+      document.addEventListener('mouseout', function(e) {{
+        var icon = e.target.closest('.tip-icon');
+        if (!icon) return;
+        hideTip();
+      }});
+
+      // ── スマホ: タップでトグル ──
+      document.addEventListener('click', function(e) {{
+        var icon = e.target.closest('.tip-icon');
+        if (icon) {{
+          e.stopPropagation();
+          if (floatBox.style.display === 'block') {{
+            var wrap = icon.closest('.tip-wrap');
+            var box = wrap ? wrap.querySelector('.tip-box') : null;
+            var text = box ? box.textContent : (wrap ? wrap.dataset.tip || '' : '');
+            // 同じアイコンならトグル閉じ
+            if (floatBox.textContent === text) {{
+              floatBox.style.display = 'none';
+              return;
+            }}
+            if (text) showTip(text, icon);
+          }} else {{
+            var wrap = icon.closest('.tip-wrap');
+            var box = wrap ? wrap.querySelector('.tip-box') : null;
+            var text = box ? box.textContent : (wrap ? wrap.dataset.tip || '' : '');
+            if (text) showTip(text, icon);
+          }}
+          return;
+        }}
+        // アイコン以外タップで閉じる
+        floatBox.style.display = 'none';
       }});
     }});
   }})();
@@ -3416,7 +3456,7 @@ def _th_tip(label: str, col_class: str = "") -> str:
         f'<span class="tip-wrap">'
         f'{label}'
         f'<span class="tip-icon" role="button" aria-label="{escape(label)}の説明">?</span>'
-        f'<span class="tip-box">{safe_desc}</span>'
+        f'<span class="tip-box" style="display:none">{safe_desc}</span>'
         f'</span>'
     )
 

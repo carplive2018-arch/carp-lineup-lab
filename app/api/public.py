@@ -3913,10 +3913,9 @@ def _render_recent_batting_html(data: dict, show_season: bool = False) -> HTMLRe
     </div><!-- /#recent-content -->
 
     {_make_sort_script(["batting-table"])}
-    {'_season_card_' if show_season else ''}
     """
-    season_card = _render_season_stats_html("recent-batting", wg) if show_season else ""
-    body = body.replace("'_season_card_'", season_card)
+    if show_season:
+        body += _render_season_stats_html("recent-batting", wg)
     return _html_page("直近打撃成績", body)
 
 
@@ -6636,6 +6635,7 @@ def _render_risp_html(data: dict, window_games: int, show_season: bool = False) 
       {_common_nav("risp", window_games)}
     </div>
 
+    <div id="recent-content"{' style="display:none"' if show_season else ''}>
     <div class="card">
       <div class="card-title">直近 {games_found} 試合 打撃ランキング（一軍登録中）</div>
       <p style="font-size:11px;color:#5a6e94;margin:4px 0 14px">得点圏打率 = 二塁・三塁にランナーがいる打席 ／ 出塁率 = (安打+四球+死球)÷(打数+四球+死球+犠飛) ／ 打点はタイムリー・HR・犠飛等を集計</p>

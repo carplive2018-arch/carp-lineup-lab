@@ -3876,6 +3876,7 @@ def _render_recent_batting_html(data: dict, show_season: bool = False) -> HTMLRe
       {_common_nav("recent-batting", wg)}
     </div>
 
+    <div id="recent-content"{' style="display:none"' if show_season else ''}>
     <div class="two-col-layout">
       <div class="main-col">
         <div class="card">
@@ -3909,13 +3910,13 @@ def _render_recent_batting_html(data: dict, show_season: bool = False) -> HTMLRe
       </div>
 
     </div>
+    </div><!-- /#recent-content -->
 
     {_make_sort_script(["batting-table"])}
-    {'_season_' if show_season else ''}
+    {'_season_card_' if show_season else ''}
     """
-    # 通算カードを埋め込む
     season_card = _render_season_stats_html("recent-batting", wg) if show_season else ""
-    body = body.replace("'_season_'", season_card)
+    body = body.replace("'_season_card_'", season_card)
     return _html_page("直近打撃成績", body)
 
 
@@ -4702,6 +4703,7 @@ def _render_fielding_baserunning_html(rows: list[dict], show_season: bool = Fals
       {_common_nav("fielding")}
     </div>
 
+    <div id="recent-content"{' style="display:none"' if show_season else ''}>
     <div class="card">
       <div class="tab-bar">
         <button class="tab-btn active" data-tab="run">🏃 走塁指標</button>
@@ -4734,6 +4736,7 @@ def _render_fielding_baserunning_html(rows: list[dict], show_season: bool = Fals
         <div class="table-wrap">{fld_total_table}</div>
       </div>
     </div>
+    </div><!-- /#recent-content -->
 
     {_make_sort_script(["run-table","fld-pos-table","fld-total-table"])}
     <script>
@@ -4888,6 +4891,7 @@ def _render_war_ranking_html(rows: list[dict], show_season: bool = False) -> HTM
       {_common_nav("war")}
     </div>
 
+    <div id="recent-content"{' style="display:none"' if show_season else ''}>
     <!-- WAR バーチャート -->
     <div class="card">
       <div class="card-title">総合WAR ランキング</div>
@@ -4907,6 +4911,7 @@ def _render_war_ranking_html(rows: list[dict], show_season: bool = False) -> HTM
       </div>
       <div class="table-wrap">{war_table}</div>
     </div>
+    </div><!-- /#recent-content -->
 
     {_make_sort_script(["war-table"])}
     """
@@ -5534,6 +5539,7 @@ def _render_hot_batters_html(data: dict, show_season: bool = False) -> HTMLRespo
         {_common_nav("", wg)}
       </div>
 
+      <div id="recent-content"{' style="display:none"' if show_season else ''}>
       <!-- ── 3枚ヒーローカード ── -->
       <div class="hero-cards">
         {card_avg}
@@ -5574,6 +5580,7 @@ def _render_hot_batters_html(data: dict, show_season: bool = False) -> HTMLRespo
           </div>
         </div>
       </div>
+      </div><!-- /#recent-content -->
     </div>
 
     {_make_sort_script(["all-table"])}
@@ -6659,6 +6666,7 @@ def _render_risp_html(data: dict, window_games: int, show_season: bool = False) 
         </div>
       </div>
     </div>
+    </div><!-- /#recent-content -->
     """
     if show_season:
         body += _render_season_stats_html("risp", window_games)

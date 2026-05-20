@@ -2696,7 +2696,7 @@ def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: di
 def _wants_html(request: Request, view: str | None) -> bool:
     if view == "json":
         return False
-    if view == "html":
+    if view in ("html", "season"):
         return True
 
     accept = (request.headers.get("accept") or "").lower()
@@ -4964,7 +4964,7 @@ def _make_sort_script(table_ids: list[str]) -> str:
 def public_fielding_baserunning(request: Request, view: str | None = None):
     try:
         rows = _get_advanced_stats_rows()
-        if _wants_html(request, view) or view == "season":
+        if _wants_html(request, view):
             show_season = (view == "season")
             return _render_fielding_baserunning_html(rows, show_season=show_season)
         return _no_cache_json({"players": rows})
@@ -4983,7 +4983,7 @@ def public_fielding_baserunning(request: Request, view: str | None = None):
 def public_war_ranking(request: Request, view: str | None = None):
     try:
         rows = _get_advanced_stats_rows()
-        if _wants_html(request, view) or view == "season":
+        if _wants_html(request, view):
             show_season = (view == "season")
             return _render_war_ranking_html(rows, show_season=show_season)
         return _no_cache_json({"players": rows})
@@ -6671,7 +6671,7 @@ def public_risp(request: Request, window_games: int = 5, view: str | None = None
     try:
         window_games = max(1, min(window_games, 10))
         data = _build_risp_data(window_games)
-        if _wants_html(request, view) or view == "season":
+        if _wants_html(request, view):
             show_season = (view == "season")
             return _render_risp_html(data, window_games, show_season=show_season)
         return _no_cache_json(data)

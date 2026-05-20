@@ -296,9 +296,10 @@ SEASON_OVERALL_BATTING = {
 
 DH_LINEUP_SLOTS = [
     {
-        # 1番：出塁最重視＋守備
+        # 1番：出塁最重視 → adj_obp 最高の選手を補正なしで選出
         "order": 1,
         "role": "lead_obp_glove",
+        "leadoff": True,  # このフラグがある場合は adj_obp 単独で選出
         "weights": {"recent_obp": 0.35, "recent_iso": 0.07, "season_obp": 0.30, "season_iso": 0.03, "defense": 0.25},
     },
     {
@@ -355,9 +356,10 @@ DH_LINEUP_SLOTS = [
 
 NO_DH_LINEUP_SLOTS = [
     {
-        # 1番：出塁最重視＋守備
+        # 1番：出塁最重視 → adj_obp 最高の選手を補正なしで選出
         "order": 1,
         "role": "lead_obp_glove",
+        "leadoff": True,  # このフラグがある場合は adj_obp 単独で選出
         "weights": {"recent_obp": 0.35, "recent_iso": 0.07, "season_obp": 0.30, "season_iso": 0.03, "defense": 0.25},
     },
     {
@@ -2016,11 +2018,28 @@ def _slot_score(
     # ── スコア計算はベイズ収縮済み値を使用 ──
     # adj_obp/adj_iso: 打席数が少ない場合はシーズン期待値に引き寄せられた補正値
     # これにより「5試合2打席でOBP=1.000」のような過大評価を防ぐ
-    r_obp = float(recent.get("adj_obp", recent.get("obp", 0.0)) or 0.0) * 100
-    r_iso = float(recent.get("adj_iso", recent.get("iso", 0.0)) or 0.0) * 100
+    adj_obp_val = float(recent.get("adj_obp", recent.get("obp", 0.0)) or 0.0)
+    adj_iso_val = float(recent.get("adj_iso", recent.get("iso", 0.0)) or 0.0)
+    raw_obp_val = float(recent.get("obp", 0.0) or 0.0)
+
+    r_obp = adj_obp_val * 100
+    r_iso = adj_iso_val * 100
     s_obp = float(season_pos.get("obp", 0.0) or 0.0) * 100
     s_iso = float(season_pos.get("iso", 0.0) or 0.0) * 100
     defv  = defense * 10   # 守備補正を同スケールに
+
+    # ── leadoff スロット専用：adj_obp をそのままスコアとして返す ──
+    # 補正なし・純粋に出塁率最高の選手を1番に起用する
+    if slot_def.get("leadoff"):
+        return adj_obp_val * 100, recent, season_pos, defense
+
+    # ── OBP=0.000 ペナルティ ──
+    # 直近の生OBPが 0.000（ヒット・四球・死球いずれもなし）の場合は
+    # 「出塁ゼロ」として最低評価のペナルティを付与する
+    # ベイズ収縮で adj_obp が prior に引き上げられても実態は0なので補正する
+    if raw_obp_val == 0.0 and int(recent.get("pa", 0) or 0) > 0:
+        # adj_obp を強制的に 0 に戻す（prior による下駄を剥ぐ）
+        r_obp = 0.0
 
     # ── min_adj_iso ハードカット ──
     # 4番・5番など長打力必須スロットで、adj_isoが基準を下回る選手を除外する
@@ -2256,19 +2275,18 @@ def _build_commentary(
 
     # ── role別に解説文テンプレートを分岐 ──
     if role == "lead_obp_glove":
-        # 1番スコア = recent_obp×35 + recent_iso×7 + season_obp×30 + season_iso×3 + defense×25
+        # 1番 = ベイズ補正済み出塁率（adj_obp）が候補中最高の選手を補正なしで選出
         sent1 = (
-            f"直近{window_games}試合の出塁率 {r_obp:.3f} は{rank_str('recent_obp')}であり、"
-            f"打線の起点となる出塁能力を備えている。"
+            f"1番打者はウェイト計算を使わず、"
+            f"直近{window_games}試合のベイズ補正済み出塁率（adj_obp）が候補中最高の選手を選出する。"
         )
         sent2 = (
-            f"シーズン通算でも{position}守備での補正出塁率 {s_obp:.3f} を維持しており、"
-            f"短期スランプに左右されない安定した出塁が期待できる。"
+            f"この選手の adj_obp は {adj_obp:.3f}（{rank_str('recent_obp')}）で、"
+            f"候補の中で最も出塁能力が高く、打線の起点として最適と判断した。"
         )
         sent3 = (
-            f"1番スコアは直近OBP（ウェイト35%）とシーズン補正OBP（30%）の合計が軸で、"
-            f"直近長打指数（7%）もシーズン補正長打率（3%）より重く評価し、"
-            f"守備補正（25%）も加算した結果 {score:.1f} が候補中最高となり、選出した。"
+            f"シーズン通算の{position}補正出塁率は {s_obp:.3f} で、"
+            f"直近の数値と合わせて安定した出塁が期待できる。"
         )
         return sent1 + sent2 + sent3 + _reliability_note()
 
@@ -2324,10 +2342,21 @@ def _build_commentary(
                 f"シーズン補正長打率 {s_iso:.3f}（{rank_str('season_iso')}）の33%が加算された"
                 f"スコア {score:.1f} が候補中最高となった。"
             )
-        sent3 = (
-            f"出塁率 {r_obp:.3f} も一定の水準を保っており、"
-            f"残り20%のOBP評価も大きく足を引っ張らなかった点も選出の後押しとなっている。"
-        )
+        if r_obp == 0.0 and int(recent.get("pa", 0) or 0) > 0:
+            sent3 = (
+                f"ただし直近出塁率は {r_obp:.3f}（ヒット・四球・死球なし）と最低評価であり、"
+                f"残り20%のOBP評価がスコアの足を引っ張っている点は留意が必要だ。"
+            )
+        elif r_obp < 0.200:
+            sent3 = (
+                f"直近出塁率 {r_obp:.3f} はやや低調で、"
+                f"残り20%のOBP評価はスコアを押し下げているが、長打力の優位性が上回った。"
+            )
+        else:
+            sent3 = (
+                f"出塁率 {r_obp:.3f} も一定の水準を保っており、"
+                f"残り20%のOBP評価も大きく足を引っ張らなかった点も選出の後押しとなっている。"
+            )
         return sent1 + sent2 + sent3 + _reliability_note()
 
     elif role == "five_hole_power":

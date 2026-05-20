@@ -3461,6 +3461,286 @@ def _th_tip(label: str, col_class: str = "") -> str:
     )
 
 
+def _render_season_stats_html(active_page: str = "", window_games: int = 5) -> str:
+    """今シーズン通算成績テーブルHTML（全ページ共通カード）。
+
+    active_page に応じて表示するテーブルを切り替える：
+      'recent-batting' / 'risp' → 打撃通算テーブル（proran）
+      'fielding'                 → 走塁・守備通算テーブル
+      'war'                      → WAR通算テーブル
+    """
+
+    def _fv(v, fmt=".3f", plus=False) -> str:
+        """値を整形。Noneなら —"""
+        if v is None:
+            return '<span style="color:#555">—</span>'
+        s = format(float(v), fmt)
+        if plus and float(v) > 0:
+            s = "+" + s
+        return s
+
+    # ── 打撃通算（recent-batting / risp 用）──
+    if active_page in ("recent-batting", "risp"):
+        season_data = _get_season_position_batting()
+        adv_rows    = _get_advanced_stats_rows()
+
+        # 選手ごとに「全ポジション中で最もPAが多い打撃成績」を集約
+        seen: dict[str, dict] = {}
+        for player_name in PLAYER_PROFILE.keys():
+            cname = _canonical_player_name(player_name)
+            if cname in seen:
+                continue
+            pdata = (
+                season_data.get(cname)
+                or season_data.get(_normalize_player_name(cname))
+                or {}
+            )
+            if pdata.get("__empty__") or not pdata:
+                continue
+
+            # ポジション別データから最もPAが多いものを選ぶ
+            best: dict = {}
+            best_pa = -1
+            for pos_key, pos_val in pdata.items():
+                if not isinstance(pos_val, dict):
+                    continue
+                pa = int(pos_val.get("pa", 0) or 0)
+                if pa > best_pa:
+                    best_pa = pa
+                    best = pos_val
+
+            if best_pa <= 0:
+                continue
+
+            # WAR/wOBAは advanced_stats から補完
+            adv = next((r for r in adv_rows if r["player_name"] == cname), {})
+
+            seen[cname] = {
+                "player_name": cname,
+                "pa":    best_pa,
+                "obp":   float(best.get("obp", 0.0) or 0.0),
+                "iso":   float(best.get("iso", 0.0) or 0.0),
+                "woba":  adv.get("bat_woba"),
+                "wraa":  adv.get("bat_wraa"),
+                "bat_war": adv.get("bat_war"),
+            }
+
+        rows = sorted(seen.values(), key=lambda r: -r["pa"])
+
+        rows_html = []
+        for r in rows:
+            rows_html.append(
+                f'<tr>'
+                f'<td data-val="{escape(r["player_name"])}">{escape(r["player_name"])}</td>'
+                f'<td data-val="{r["pa"]}">{r["pa"]}</td>'
+                f'<td data-val="{r["obp"]:.3f}" style="color:#56cff8">{r["obp"]:.3f}</td>'
+                f'<td data-val="{r["iso"]:.3f}">{r["iso"]:.3f}</td>'
+                f'<td data-val="{r["woba"] if r["woba"] is not None else -1}" style="color:#56cff8;font-weight:700">{_fv(r["woba"])}</td>'
+                f'<td data-val="{r["wraa"] if r["wraa"] is not None else -99}">{_fv(r["wraa"], ".2f", plus=True)}</td>'
+                f'<td data-val="{r["bat_war"] if r["bat_war"] is not None else -99}">{_fv(r["bat_war"], ".2f", plus=True)}</td>'
+                f'</tr>'
+            )
+        tbody = "".join(rows_html) or '<tr><td colspan="7" class="empty">データがありません</td></tr>'
+
+        return f"""
+        <div class="card" style="margin-top:14px">
+          <div class="card-title">今シーズン通算 打撃成績</div>
+          <div class="table-wrap">
+            <table id="season-bat-table" class="sortable-table">
+              <thead><tr>
+                <th class="sortable" data-col="0">選手</th>
+                <th class="sortable" data-col="1">打席</th>
+                <th class="sortable" data-col="2">{_th_tip("出塁率")}</th>
+                <th class="sortable" data-col="3">{_th_tip("長打指数")}</th>
+                <th class="sortable" data-col="4">{_th_tip("wOBA")}</th>
+                <th class="sortable" data-col="5">{_th_tip("wRAA")}</th>
+                <th class="sortable" data-col="6">{_th_tip("打撃WAR")}</th>
+              </tr></thead>
+              <tbody>{tbody}</tbody>
+            </table>
+          </div>
+        </div>
+        {_make_sort_script(["season-bat-table"])}
+        """
+
+    # ── 走塁・守備通算（fielding 用）──
+    if active_page == "fielding":
+        adv_rows = _get_advanced_stats_rows()
+        rows_html = []
+        for r in adv_rows:
+            ubr = r.get("ubr"); wsb = r.get("wsb"); rw = r.get("runn_war")
+            tzr = r.get("tzr_total"); fw = r.get("fld_war"); inn = r.get("def_inn")
+            rows_html.append(
+                f'<tr>'
+                f'<td>{escape(r["player_name"])}</td>'
+                f'<td data-val="{r["pa"]}">{r["pa"]}</td>'
+                f'<td data-val="{ubr if ubr is not None else -99}" style="color:#56cff8">{_fv(ubr, ".2f", plus=True)}</td>'
+                f'<td data-val="{wsb if wsb is not None else -99}">{_fv(wsb, ".2f", plus=True)}</td>'
+                f'<td data-val="{rw  if rw  is not None else -99}">{_fv(rw,  ".2f", plus=True)}</td>'
+                f'<td data-val="{inn if inn is not None else -99}">{_fv(inn, ".1f")}</td>'
+                f'<td data-val="{tzr if tzr is not None else -99}" style="color:#56cff8;font-weight:700">{_fv(tzr, ".2f", plus=True)}</td>'
+                f'<td data-val="{fw  if fw  is not None else -99}">{_fv(fw,  ".2f", plus=True)}</td>'
+                f'</tr>'
+            )
+        tbody = "".join(rows_html) or '<tr><td colspan="8" class="empty">データがありません</td></tr>'
+        return f"""
+        <div class="card" style="margin-top:14px">
+          <div class="card-title">今シーズン通算 走塁・守備指標</div>
+          <div class="table-wrap">
+            <table id="season-fld-table" class="sortable-table">
+              <thead><tr>
+                <th class="sortable" data-col="0">選手</th>
+                <th class="sortable" data-col="1">打席</th>
+                <th class="sortable" data-col="2">{_th_tip("UBR")}</th>
+                <th class="sortable" data-col="3">{_th_tip("wSB")}</th>
+                <th class="sortable" data-col="4">{_th_tip("走塁WAR")}</th>
+                <th class="sortable" data-col="5">守備回</th>
+                <th class="sortable" data-col="6">{_th_tip("TZR")}</th>
+                <th class="sortable" data-col="7">{_th_tip("守備WAR")}</th>
+              </tr></thead>
+              <tbody>{tbody}</tbody>
+            </table>
+          </div>
+        </div>
+        {_make_sort_script(["season-fld-table"])}
+        """
+
+    # ── ホットバッター通算（hot-batters 用）──
+    if active_page == "hot-batters":
+        season_data = _get_season_position_batting()
+        adv_rows    = _get_advanced_stats_rows()
+
+        seen: dict[str, dict] = {}
+        for player_name in PLAYER_PROFILE.keys():
+            cname = _canonical_player_name(player_name)
+            if cname in seen:
+                continue
+            pdata = (
+                season_data.get(cname)
+                or season_data.get(_normalize_player_name(cname))
+                or {}
+            )
+            if pdata.get("__empty__") or not pdata:
+                continue
+
+            best: dict = {}
+            best_pa = -1
+            for pos_key, pos_val in pdata.items():
+                if not isinstance(pos_val, dict):
+                    continue
+                pa = int(pos_val.get("pa", 0) or 0)
+                if pa > best_pa:
+                    best_pa = pa
+                    best = pos_val
+
+            if best_pa <= 0:
+                continue
+
+            adv = next((r for r in adv_rows if r["player_name"] == cname), {})
+
+            seen[cname] = {
+                "player_name": cname,
+                "pa":      best_pa,
+                "avg":     float(best.get("avg", 0.0) or 0.0),
+                "obp":     float(best.get("obp", 0.0) or 0.0),
+                "slg":     float(best.get("slg", 0.0) or 0.0),
+                "ops":     float(best.get("ops", 0.0) or 0.0),
+                "hr":      int(best.get("homeruns", 0) or 0),
+                "woba":    adv.get("bat_woba"),
+                "wraa":    adv.get("bat_wraa"),
+                "bat_war": adv.get("bat_war"),
+            }
+
+        rows = sorted(seen.values(), key=lambda r: -(r["obp"] or 0))
+
+        rows_html = []
+        for r in rows:
+            rows_html.append(
+                f'<tr>'
+                f'<td data-val="{escape(r["player_name"])}">{escape(r["player_name"])}</td>'
+                f'<td data-val="{r["pa"]}">{r["pa"]}</td>'
+                f'<td data-val="{r["avg"]:.3f}" style="color:#ffd54a;font-weight:700">{r["avg"]:.3f}</td>'
+                f'<td data-val="{r["obp"]:.3f}" style="color:#56cff8">{r["obp"]:.3f}</td>'
+                f'<td data-val="{r["slg"]:.3f}">{r["slg"]:.3f}</td>'
+                f'<td data-val="{r["ops"]:.3f}">{r["ops"]:.3f}</td>'
+                f'<td data-val="{r["hr"]}">{r["hr"]}</td>'
+                f'<td data-val="{r["woba"] if r["woba"] is not None else -1}" style="color:#56cff8;font-weight:700">{_fv(r["woba"])}</td>'
+                f'<td data-val="{r["wraa"] if r["wraa"] is not None else -99}">{_fv(r["wraa"], ".2f", plus=True)}</td>'
+                f'<td data-val="{r["bat_war"] if r["bat_war"] is not None else -99}">{_fv(r["bat_war"], ".2f", plus=True)}</td>'
+                f'</tr>'
+            )
+        tbody = "".join(rows_html) or '<tr><td colspan="10" class="empty">データがありません</td></tr>'
+
+        return f"""
+        <div class="card" style="margin-top:14px">
+          <div class="card-title">今シーズン通算 打撃成績</div>
+          <div class="table-wrap">
+            <table id="season-hb-table" class="sortable-table">
+              <thead><tr>
+                <th class="sortable" data-col="0">選手</th>
+                <th class="sortable" data-col="1">打席</th>
+                <th class="sortable" data-col="2">{_th_tip("打率")}</th>
+                <th class="sortable" data-col="3">{_th_tip("出塁率")}</th>
+                <th class="sortable" data-col="4">{_th_tip("長打率")}</th>
+                <th class="sortable" data-col="5">{_th_tip("OPS")}</th>
+                <th class="sortable" data-col="6">HR</th>
+                <th class="sortable" data-col="7">{_th_tip("wOBA")}</th>
+                <th class="sortable" data-col="8">{_th_tip("wRAA")}</th>
+                <th class="sortable" data-col="9">{_th_tip("打撃WAR")}</th>
+              </tr></thead>
+              <tbody>{tbody}</tbody>
+            </table>
+          </div>
+        </div>
+        {_make_sort_script(["season-hb-table"])}
+        """
+
+    # ── WAR通算（war 用）──
+    if active_page == "war":
+        adv_rows = _get_advanced_stats_rows()
+        rows_html = []
+        for r in adv_rows:
+            tw = r.get("total_war"); bw = r.get("bat_war")
+            rw = r.get("runn_war"); fw = r.get("fld_war")
+            woba = r.get("bat_woba"); wraa = r.get("bat_wraa")
+            rows_html.append(
+                f'<tr>'
+                f'<td>{escape(r["player_name"])}</td>'
+                f'<td data-val="{r["pa"]}">{r["pa"]}</td>'
+                f'<td data-val="{woba if woba is not None else -1}">{_fv(woba, ".3f")}</td>'
+                f'<td data-val="{wraa if wraa is not None else -99}">{_fv(wraa, ".2f", plus=True)}</td>'
+                f'<td data-val="{bw   if bw   is not None else -99}">{_fv(bw,   ".2f", plus=True)}</td>'
+                f'<td data-val="{rw   if rw   is not None else -99}">{_fv(rw,   ".2f", plus=True)}</td>'
+                f'<td data-val="{fw   if fw   is not None else -99}">{_fv(fw,   ".2f", plus=True)}</td>'
+                f'<td data-val="{tw   if tw   is not None else -99}" style="color:#ffd54a;font-weight:700">{_fv(tw, ".2f", plus=True)}</td>'
+                f'</tr>'
+            )
+        tbody = "".join(rows_html) or '<tr><td colspan="8" class="empty">データがありません</td></tr>'
+        return f"""
+        <div class="card" style="margin-top:14px">
+          <div class="card-title">今シーズン通算 WAR</div>
+          <div class="table-wrap">
+            <table id="season-war-table" class="sortable-table">
+              <thead><tr>
+                <th class="sortable" data-col="0">選手</th>
+                <th class="sortable" data-col="1">打席</th>
+                <th class="sortable" data-col="2">{_th_tip("wOBA")}</th>
+                <th class="sortable" data-col="3">{_th_tip("wRAA")}</th>
+                <th class="sortable" data-col="4">{_th_tip("打撃WAR")}</th>
+                <th class="sortable" data-col="5">{_th_tip("走塁WAR")}</th>
+                <th class="sortable" data-col="6">{_th_tip("守備WAR")}</th>
+                <th class="sortable" data-col="7">{_th_tip("総合WAR")}</th>
+              </tr></thead>
+              <tbody>{tbody}</tbody>
+            </table>
+          </div>
+        </div>
+        {_make_sort_script(["season-war-table"])}
+        """
+
+    return ""
+
+
 def _common_nav(active_page: str = "", window_games: int = 5) -> str:
     """全ページ共通ナビゲーションバー HTML を返す。
     active_page: 'recent-batting' / 'risp' / 'fielding' / 'war' /
@@ -3507,7 +3787,7 @@ def _common_nav(active_page: str = "", window_games: int = 5) -> str:
     return nav_html
 
 
-def _render_recent_batting_html(data: dict) -> HTMLResponse:
+def _render_recent_batting_html(data: dict, show_season: bool = False) -> HTMLResponse:
     rows_html = []
 
     for row in data.get("players", []):
@@ -3585,6 +3865,13 @@ def _render_recent_batting_html(data: dict) -> HTMLResponse:
             <a class="nav-btn{_rb_cls(10)}" href="/public/recent-batting?window_games=10">直近 10試合</a>
           </div>
         </div>
+        <div class="nav-section">
+          <span class="nav-label">表示</span>
+          <div class="nav-group">
+            <a class="nav-btn{'' if show_season else ' active'}" href="/public/recent-batting?window_games={wg}">直近</a>
+            <a class="nav-btn{' active' if show_season else ''}" href="/public/recent-batting?window_games={wg}&view=season">通算</a>
+          </div>
+        </div>
       </div>
       {_common_nav("recent-batting", wg)}
     </div>
@@ -3624,7 +3911,11 @@ def _render_recent_batting_html(data: dict) -> HTMLResponse:
     </div>
 
     {_make_sort_script(["batting-table"])}
+    {'_season_' if show_season else ''}
     """
+    # 通算カードを埋め込む
+    season_card = _render_season_stats_html("recent-batting", wg) if show_season else ""
+    body = body.replace("'_season_'", season_card)
     return _html_page("直近打撃成績", body)
 
 
@@ -4061,7 +4352,8 @@ def public_recent_batting(request: Request, window_games: int = 5, view: str | N
         data = _build_recent_batting_response(window_games)
 
         if _wants_html(request, view):
-            return _render_recent_batting_html(data)
+            show_season = (view == "season")
+            return _render_recent_batting_html(data, show_season=show_season)
 
         return _no_cache_json(data)
     except Exception as e:
@@ -4251,7 +4543,7 @@ def _fmt(v: float | None, fmt: str = ".2f", plus: bool = False) -> str:
     return f'<span style="color:{color}">{s}</span>' if color else s
 
 
-def _render_fielding_baserunning_html(rows: list[dict]) -> HTMLResponse:
+def _render_fielding_baserunning_html(rows: list[dict], show_season: bool = False) -> HTMLResponse:
 
     # ── 走塁テーブル行 ──
     run_rows_html = []
@@ -4396,6 +4688,17 @@ def _render_fielding_baserunning_html(rows: list[dict]) -> HTMLResponse:
     <div class="hero">
       <h1>走塁・守備指標 <span style="font-size:13px;color:#4a5878;font-weight:400">今シーズン通算</span></h1>
       <div class="muted">出所：NPB Basement（TZR ベース） ／ 列ヘッダをクリックでソート</div>
+    </div>
+    <div class="sticky-nav">
+      <div class="nav-bar">
+        <div class="nav-section">
+          <span class="nav-label">表示</span>
+          <div class="nav-group">
+            <a class="nav-btn{'' if show_season else ' active'}" href="/public/fielding-baserunning">直近</a>
+            <a class="nav-btn{' active' if show_season else ''}" href="/public/fielding-baserunning?view=season">通算</a>
+          </div>
+        </div>
+      </div>
       {_common_nav("fielding")}
     </div>
 
@@ -4447,6 +4750,8 @@ def _render_fielding_baserunning_html(rows: list[dict]) -> HTMLResponse:
     }})();
     </script>
     """
+    if show_season:
+        body += _render_season_stats_html("fielding")
     return _html_page("走塁・守備指標", body)
 
 
@@ -4480,7 +4785,7 @@ def _war_chart_html(rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _render_war_ranking_html(rows: list[dict]) -> HTMLResponse:
+def _render_war_ranking_html(rows: list[dict], show_season: bool = False) -> HTMLResponse:
 
     war_rows_html = []
     for r in rows:
@@ -4569,6 +4874,17 @@ def _render_war_ranking_html(rows: list[dict]) -> HTMLResponse:
     <div class="hero">
       <h1>WAR一覧 <span style="font-size:13px;color:#4a5878;font-weight:400">今シーズン通算</span></h1>
       <div class="muted">出所：NPB Basement ／ 列ヘッダをクリックでソート</div>
+    </div>
+    <div class="sticky-nav">
+      <div class="nav-bar">
+        <div class="nav-section">
+          <span class="nav-label">表示</span>
+          <div class="nav-group">
+            <a class="nav-btn{'' if show_season else ' active'}" href="/public/war-ranking">直近</a>
+            <a class="nav-btn{' active' if show_season else ''}" href="/public/war-ranking?view=season">通算</a>
+          </div>
+        </div>
+      </div>
       {_common_nav("war")}
     </div>
 
@@ -4594,6 +4910,8 @@ def _render_war_ranking_html(rows: list[dict]) -> HTMLResponse:
 
     {_make_sort_script(["war-table"])}
     """
+    if show_season:
+        body += _render_season_stats_html("war")
     return _html_page("WAR一覧", body)
 
 
@@ -4646,8 +4964,9 @@ def _make_sort_script(table_ids: list[str]) -> str:
 def public_fielding_baserunning(request: Request, view: str | None = None):
     try:
         rows = _get_advanced_stats_rows()
-        if _wants_html(request, view):
-            return _render_fielding_baserunning_html(rows)
+        if _wants_html(request, view) or view == "season":
+            show_season = (view == "season")
+            return _render_fielding_baserunning_html(rows, show_season=show_season)
         return _no_cache_json({"players": rows})
     except Exception as e:
         return JSONResponse(
@@ -4664,8 +4983,9 @@ def public_fielding_baserunning(request: Request, view: str | None = None):
 def public_war_ranking(request: Request, view: str | None = None):
     try:
         rows = _get_advanced_stats_rows()
-        if _wants_html(request, view):
-            return _render_war_ranking_html(rows)
+        if _wants_html(request, view) or view == "season":
+            show_season = (view == "season")
+            return _render_war_ranking_html(rows, show_season=show_season)
         return _no_cache_json({"players": rows})
     except Exception as e:
         return JSONResponse(
@@ -4889,7 +5209,7 @@ def _build_hot_batters_data(window_games: int = 5) -> dict:
     return result
 
 
-def _render_hot_batters_html(data: dict) -> HTMLResponse:
+def _render_hot_batters_html(data: dict, show_season: bool = False) -> HTMLResponse:
     wg          = int(data.get("window_games", 5))
     avg_top     = data.get("avg_top")  or {}
     obp_top     = data.get("obp_top")  or {}
@@ -5203,6 +5523,13 @@ def _render_hot_batters_html(data: dict) -> HTMLResponse:
               <a class="nav-btn{_wg_cls(10)}" href="/public/hot-batters?window_games=10">直近 10試合</a>
             </div>
           </div>
+          <div class="nav-section">
+            <span class="nav-label">表示</span>
+            <div class="nav-group">
+              <a class="nav-btn{'' if show_season else ' active'}" href="/public/hot-batters?window_games={wg}">直近</a>
+              <a class="nav-btn{' active' if show_season else ''}" href="/public/hot-batters?window_games={wg}&view=season">通算</a>
+            </div>
+          </div>
         </div>
         {_common_nav("", wg)}
       </div>
@@ -5251,6 +5578,10 @@ def _render_hot_batters_html(data: dict) -> HTMLResponse:
 
     {_make_sort_script(["all-table"])}
     """
+
+    if show_season:
+        body += _render_season_stats_html("hot-batters", wg)
+
     return _html_page("ホットバッター", body)
 
 
@@ -5260,7 +5591,8 @@ def public_hot_batters(request: Request, window_games: int = 5, view: str | None
         window_games = max(1, min(window_games, 10))
         data = _build_hot_batters_data(window_games)
         if _wants_html(request, view):
-            return _render_hot_batters_html(data)
+            show_season = (view == "season")
+            return _render_hot_batters_html(data, show_season=show_season)
         return _no_cache_json(data)
     except Exception as e:
         return JSONResponse(
@@ -6049,7 +6381,7 @@ def _fmt_avg(val) -> str:
     return str(val)
 
 
-def _render_risp_html(data: dict, window_games: int) -> HTMLResponse:
+def _render_risp_html(data: dict, window_games: int, show_season: bool = False) -> HTMLResponse:
     """得点圏打率ページのHTML生成 — 3カラムランキング（得点圏打率・出塁率・打点）"""
     players    = data.get("players", [])
     games_found = data.get("games_found", 0)
@@ -6286,6 +6618,13 @@ def _render_risp_html(data: dict, window_games: int) -> HTMLResponse:
             <a class="nav-btn {'active' if window_games==10 else ''}" href="/public/risp?window_games=10&view=html">直近10試合</a>
           </div>
         </div>
+        <div class="nav-section">
+          <span class="nav-label">表示</span>
+          <div class="nav-group">
+            <a class="nav-btn{'' if show_season else ' active'}" href="/public/risp?window_games={window_games}&view=html">直近</a>
+            <a class="nav-btn{' active' if show_season else ''}" href="/public/risp?window_games={window_games}&view=season">通算</a>
+          </div>
+        </div>
       </div>
       {_common_nav("risp", window_games)}
     </div>
@@ -6321,6 +6660,8 @@ def _render_risp_html(data: dict, window_games: int) -> HTMLResponse:
       </div>
     </div>
     """
+    if show_season:
+        body += _render_season_stats_html("risp", window_games)
     return _html_page("得点圏・出塁・打点", body)
 
 
@@ -6330,8 +6671,9 @@ def public_risp(request: Request, window_games: int = 5, view: str | None = None
     try:
         window_games = max(1, min(window_games, 10))
         data = _build_risp_data(window_games)
-        if _wants_html(request, view):
-            return _render_risp_html(data, window_games)
+        if _wants_html(request, view) or view == "season":
+            show_season = (view == "season")
+            return _render_risp_html(data, window_games, show_season=show_season)
         return _no_cache_json(data)
     except Exception as e:
         return JSONResponse(

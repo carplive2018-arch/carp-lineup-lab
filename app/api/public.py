@@ -3931,17 +3931,11 @@ def _render_recent_batting_html(data: dict, show_season: bool = False) -> HTMLRe
               <td data-val="{escape(str(row.get("player_name", "")))}">{escape(str(row.get("player_name", "")))}</td>
               <td data-val="{int(row.get("games", 0) or 0)}">{int(row.get("games", 0) or 0)}</td>
               <td data-val="{int(row.get("pa", 0) or 0)}">{int(row.get("pa", 0) or 0)}</td>
-              <td data-val="{int(row.get("ab", 0) or 0)}">{int(row.get("ab", 0) or 0)}</td>
-              <td data-val="{int(row.get("hits", 0) or 0)}">{int(row.get("hits", 0) or 0)}</td>
               <td data-val="{float(row.get("avg", 0.0) or 0.0):.3f}">{float(row.get("avg", 0.0) or 0.0):.3f}</td>
               <td data-val="{float(row.get("obp", 0.0) or 0.0):.3f}">{float(row.get("obp", 0.0) or 0.0):.3f}</td>
-              <td data-val="{float(row.get("slg", 0.0) or 0.0):.3f}">{float(row.get("slg", 0.0) or 0.0):.3f}</td>
-              <td data-val="{float(row.get("ops", 0.0) or 0.0):.3f}" class="ops-col"><strong>{float(row.get("ops", 0.0) or 0.0):.3f}</strong></td>
-              <td data-val="{float(row.get("iso", 0.0) or 0.0):.3f}">{float(row.get("iso", 0.0) or 0.0):.3f}</td>
+              <td data-val="{float(row.get("ops", 0.0) or 0.0):.3f}"><strong>{float(row.get("ops", 0.0) or 0.0):.3f}</strong></td>
               <td data-val="{int(row.get("homeruns", 0) or 0)}">{int(row.get("homeruns", 0) or 0)}</td>
-              <td data-val="{int(row.get("walks", 0) or 0)}">{int(row.get("walks", 0) or 0)}</td>
-              <td data-val="{int(row.get("strikeouts", 0) or 0)}">{int(row.get("strikeouts", 0) or 0)}</td>
-              <td data-val="{float(row.get("woba", 0.0) or 0.0):.3f}" class="woba-col">{float(row.get("woba", 0.0) or 0.0):.3f}</td>
+              <td data-val="{float(row.get("woba", 0.0) or 0.0):.3f}">{float(row.get("woba", 0.0) or 0.0):.3f}</td>
             </tr>
             """
         )
@@ -4025,21 +4019,15 @@ def _render_recent_batting_html(data: dict, show_season: bool = False) -> HTMLRe
                   <th class="sortable" data-col="0">選手</th>
                   <th class="sortable" data-col="1">試合</th>
                   <th class="sortable" data-col="2">打席</th>
-                  <th class="sortable" data-col="3">打数</th>
-                  <th class="sortable" data-col="4">安打</th>
-                  <th class="sortable col-avg" data-col="5">{_th_tip("打率")}</th>
-                  <th class="sortable col-woba" data-col="6">{_th_tip("出塁率")}</th>
-                  <th class="sortable" data-col="7">{_th_tip("長打率")}</th>
-                  <th class="sortable col-ops" data-col="8">{_th_tip("OPS")}</th>
-                  <th class="sortable" data-col="9">{_th_tip("長打指数")}</th>
-                  <th class="sortable" data-col="10">本塁打</th>
-                  <th class="sortable" data-col="11">四球</th>
-                  <th class="sortable" data-col="12">三振</th>
-                  <th class="sortable col-woba" data-col="13">{_th_tip("wOBA")}</th>
+                  <th class="sortable col-avg" data-col="3">{_th_tip("打率")}</th>
+                  <th class="sortable col-woba" data-col="4">{_th_tip("出塁率")}</th>
+                  <th class="sortable col-ops" data-col="5">{_th_tip("OPS")}</th>
+                  <th class="sortable" data-col="6">HR</th>
+                  <th class="sortable col-woba" data-col="7">{_th_tip("wOBA")}</th>
                 </tr>
               </thead>
               <tbody>
-                {''.join(rows_html) if rows_html else '<tr><td colspan="14" class="empty">データがありません</td></tr>'}
+                {''.join(rows_html) if rows_html else '<tr><td colspan="8" class="empty">データがありません</td></tr>'}
               </tbody>
             </table>
           </div>

@@ -3091,12 +3091,17 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
     .legend b {{ color: #7a90b8; }}
 
     /* ── テーブル共通 ── */
+    /* ── テーブルラッパー: card の padding(20px) を打ち消して左右端まで広げる ── */
     .table-wrap {{
       overflow-x: auto;
       -webkit-overflow-scrolling: touch;
       margin-top: 4px;
-      border-radius: 8px;
-      border: 1px solid #1a2540;
+      margin-left: -20px;
+      margin-right: -20px;
+      padding-left: 0;
+      padding-right: 0;
+      border-radius: 0 0 14px 14px;
+      border-top: 1px solid #1a2540;
     }}
     table {{
       width: 100%;
@@ -3115,10 +3120,12 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
       white-space: nowrap;
       user-select: none;
     }}
+    /* sticky: table-wrap が card-padding 分だけ左にはみ出しているので
+       left に同量のオフセットを加えて card 左端に揃える */
     th:first-child {{
       text-align: left;
       position: sticky;
-      left: 0;
+      left: 20px;
       background: #0a1020;
       z-index: 2;
     }}
@@ -3134,7 +3141,7 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
       font-weight: 600;
       color: #c8d8f4;
       position: sticky;
-      left: 0;
+      left: 20px;
       background: #0c1424;
       z-index: 1;
     }}
@@ -3257,8 +3264,13 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
       .card {{ padding: 12px; border-radius: 10px; margin-top: 10px; }}
       .card-title {{ font-size: 14px; }}
 
-      /* テーブル */
-      .table-wrap {{ border-radius: 6px; overflow-x: auto !important; -webkit-overflow-scrolling: touch; }}
+      /* テーブル: スマホの card padding(12px) に合わせてネガティブマージンも調整 */
+      .table-wrap {{
+        margin-left: -12px;
+        margin-right: -12px;
+        border-radius: 0 0 10px 10px;
+      }}
+      th:first-child, td:first-child {{ left: 12px; }}
       th, td {{ padding: 6px 6px; }}
       table {{ font-size: 11px; min-width: 480px; }}
 

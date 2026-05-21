@@ -3188,6 +3188,12 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
       gap: 14px;
       align-items: start;
     }}
+    /* grid の 1fr アイテムが子要素の幅に引きずられてオーバーフローしないよう min-width:0 を設定 */
+    .main-col {{
+      min-width: 0;
+      /* overflow:clip はスクロールコンテキストを作らず子要素の横スクロールを妨げない */
+      overflow-x: clip;
+    }}
     @media (max-width: 860px) {{
       .two-col-layout {{ grid-template-columns: 1fr; }}
       .sidebar-col {{ order: -1; }}
@@ -3255,6 +3261,7 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
       /* ページ全体 */
       .wrap {{ padding: 8px 10px 40px; }}
       .page-layout {{ display: block; width: 100%; }}
+      /* overflow-x:clip のまま維持する（visible にすると sticky left:0 の基準がずれる） */
       .content-col {{ width: 100%; min-width: 0; border: none; }}
 
       /* hero */
@@ -3970,10 +3977,11 @@ def _render_recent_batting_html(data: dict, show_season: bool = False) -> HTMLRe
 
     body = f"""
     <style>
+      /* 列: 選手(1) 試合(2) 打席(3) 打率(4) 出塁率(5) OPS(6) HR(7) wOBA(8) */
+      #batting-table td:nth-child(4)  {{ color: #ffd54a; font-weight:700; }}
+      #batting-table td:nth-child(5)  {{ color: #56cff8; }}
       #batting-table td:nth-child(6)  {{ color: #ffd54a; font-weight:700; }}
-      #batting-table td:nth-child(7)  {{ color: #56cff8; }}
-      #batting-table td:nth-child(9)  {{ color: #ffd54a; font-weight:700; }}
-      #batting-table td:nth-child(14) {{ color: #56cff8; font-weight:700; }}
+      #batting-table td:nth-child(8)  {{ color: #56cff8; font-weight:700; }}
       th.col-ops  {{ color: #ffd54a !important; }}
       th.col-woba {{ color: #56cff8 !important; }}
       th.col-avg  {{ color: #ffd54a !important; }}
@@ -6393,6 +6401,223 @@ def public_game_recap(request: Request, view: str | None = None):
         )
 
 
+def _build_season_risp_data() -> dict:
+    """今シーズン全試合の得点圏打率データを構築（通算ランキング用）。
+
+    直近版と同じ `_fetch_risp_for_game` を使い、チームスケジュールの
+    全完了試合を集計する。計算コストが高いため6時間キャッシュ。
+    """
+    cache_bucket = _cache_get_bucket("risp")
+    cache_key = "season_risp"
+    cache_entry = cache_bucket.get(cache_key)
+    if _cache_alive(cache_entry):
+        cached = cache_entry.get("value")
+        if isinstance(cached, dict):
+            return cached
+
+    all_finished = _fetch_carp_finished_game_ids_from_team_schedule()
+    if not all_finished:
+        result = {"games_found": 0, "players": [], "generated_at": _now_jst().isoformat()}
+        cache_bucket[cache_key] = {"value": result, "expires_at": _cache_now() + 60 * 30}
+        return result
+
+    player_stats: dict[str, dict] = {}
+    games_found = 0
+
+    for gid in all_finished:
+        try:
+            at_bats = _fetch_risp_for_game(gid)
+        except Exception:
+            continue
+
+        if not at_bats:
+            continue
+
+        games_found += 1
+        for ab in at_bats:
+            pname = ab["player"]
+            if pname not in player_stats:
+                player_stats[pname] = {
+                    "risp_ab": 0, "risp_hit": 0,
+                    "total_ab": 0, "total_hit": 0,
+                    "bb": 0, "hbp": 0, "sf": 0, "rbi": 0,
+                }
+            ps = player_stats[pname]
+            ab_type = ab["ab_type"]
+            is_risp = ab["is_risp"]
+            result_text = ab.get("result", "")
+
+            if ab_type in ("hit", "out"):
+                ps["total_ab"] += 1
+                if ab_type == "hit":
+                    ps["total_hit"] += 1
+
+            if is_risp and ab_type in ("hit", "out"):
+                ps["risp_ab"] += 1
+                if ab_type == "hit":
+                    ps["risp_hit"] += 1
+
+            if ab_type == "no_ab":
+                if re.search(r"四球|フォアボール", result_text):
+                    ps["bb"] += 1
+                elif re.search(r"死球|デッドボール", result_text):
+                    ps["hbp"] += 1
+
+            if re.search(r"犠牲フライ|サクリファイスフライ", result_text):
+                ps["sf"] += 1
+
+            if re.search(r"タイムリー|本塁打|ホームラン|犠牲フライ|サクリファイスフライ|犠飛", result_text):
+                m = re.search(r"(\d+)[点本].*(?:タイムリー|打点)", result_text)
+                m2 = re.search(r"(\d+)ラン", result_text)
+                if m:
+                    ps["rbi"] += int(m.group(1))
+                elif m2:
+                    ps["rbi"] += int(m2.group(1))
+                else:
+                    ps["rbi"] += 1
+
+    rows = []
+    for pname, ps in player_stats.items():
+        risp_avg  = (ps["risp_hit"] / ps["risp_ab"]) if ps["risp_ab"] > 0 else None
+        obp_denom = ps["total_ab"] + ps["bb"] + ps["hbp"] + ps["sf"]
+        obp       = ((ps["total_hit"] + ps["bb"] + ps["hbp"]) / obp_denom) if obp_denom > 0 else None
+        rows.append({
+            "player":    pname,
+            "risp_ab":   ps["risp_ab"],
+            "risp_hit":  ps["risp_hit"],
+            "risp_avg":  round(risp_avg, 3) if risp_avg is not None else None,
+            "total_ab":  ps["total_ab"],
+            "total_hit": ps["total_hit"],
+            "bb": ps["bb"], "hbp": ps["hbp"], "sf": ps["sf"], "rbi": ps["rbi"],
+            "obp": round(obp, 3) if obp is not None else None,
+        })
+
+    rows.sort(key=lambda r: (-r["risp_ab"], r["player"]))
+    result = {"games_found": games_found, "players": rows, "generated_at": _now_jst().isoformat()}
+    # 通算は6時間キャッシュ（試合ごとに大きく変わらない）
+    cache_bucket[cache_key] = {"value": result, "expires_at": _cache_now() + 60 * 60 * 6}
+    return result
+
+
+def _render_season_risp_html(window_games: int) -> str:
+    """通算得点圏ランキング HTML（得点圏打率・出塁率・打点の3カラム）。
+
+    直近版 `_render_risp_html` と同じUIで、今シーズン全試合の通算データを表示。
+    最低出場要件: 得点圏打数 >= 5 / OBP は打席数 >= 15
+    """
+    data = _build_season_risp_data()
+    players    = data.get("players", [])
+    games_found = data.get("games_found", 0)
+    generated_at = data.get("generated_at", "")
+
+    MIN_RISP_AB = 5   # 得点圏打数の最低ライン
+    MIN_PA      = 15  # 出塁率・打点の最低打席数
+
+    def _enough_pa(r: dict) -> bool:
+        pa = r.get("total_ab", 0) + r.get("bb", 0) + r.get("hbp", 0) + r.get("sf", 0)
+        return pa >= MIN_PA
+
+    # ─── 列1: 得点圏打率（risp_ab >= MIN_RISP_AB）───
+    risp_ranked = sorted(
+        [r for r in players if r.get("risp_ab", 0) >= MIN_RISP_AB and r.get("risp_avg") is not None],
+        key=lambda r: (-(r.get("risp_avg") or 0.0), -r.get("risp_hit", 0)),
+    )[:7]
+
+    # ─── 列2: 出塁率（pa >= MIN_PA）───
+    obp_ranked = sorted(
+        [r for r in players if _enough_pa(r) and r.get("obp") is not None],
+        key=lambda r: (-(r.get("obp") or 0.0), -r.get("total_ab", 0)),
+    )[:7]
+
+    # ─── 列3: 打点（rbi >= 1 & pa >= MIN_PA）───
+    rbi_ranked = sorted(
+        [r for r in players if _enough_pa(r) and r.get("rbi", 0) >= 1],
+        key=lambda r: (-r.get("rbi", 0), -(r.get("obp") or 0.0)),
+    )[:7]
+
+    RANK_COLORS = {1: "#ffd54a", 2: "#b0c4de", 3: "#cd8f5a", 4: "#7a8fb8", 5: "#7a8fb8", 6: "#7a8fb8", 7: "#7a8fb8"}
+
+    def _rank_badge(rank: int) -> str:
+        color = RANK_COLORS.get(rank, "#7a8fb8")
+        return f'<span class="rc-rank" style="color:{color}">{rank}</span>'
+
+    def _avg_color(val: float) -> str:
+        if val >= 0.500: return "#ffd54a"
+        if val >= 0.400: return "#ff9e4a"
+        if val >= 0.333: return "#4ade80"
+        if val >= 0.250: return "#60a5fa"
+        return "#c8d8f4"
+
+    def _col_risp(ranked: list) -> str:
+        rows_html = ""
+        for rank, r in enumerate(ranked, 1):
+            avg = r.get("risp_avg") or 0.0
+            color = _avg_color(avg)
+            ab = r.get("risp_ab", 0); hit = r.get("risp_hit", 0)
+            rows_html += f"""
+            <div class="rc-row">
+              {_rank_badge(rank)}
+              <span class="rc-name">{escape(r['player'])}</span>
+              <span class="rc-val" style="color:{color}">{_fmt_avg(avg)}</span>
+              <span class="rc-sub">{hit}/{ab}</span>
+            </div>"""
+        return rows_html or '<div class="rc-empty">データなし</div>'
+
+    def _col_obp(ranked: list) -> str:
+        rows_html = ""
+        for rank, r in enumerate(ranked, 1):
+            obp = r.get("obp") or 0.0
+            color = _avg_color(obp)
+            pa = r.get("total_ab", 0) + r.get("bb", 0) + r.get("hbp", 0) + r.get("sf", 0)
+            rows_html += f"""
+            <div class="rc-row">
+              {_rank_badge(rank)}
+              <span class="rc-name">{escape(r['player'])}</span>
+              <span class="rc-val" style="color:{color}">{_fmt_avg(obp)}</span>
+              <span class="rc-sub">{pa}打席</span>
+            </div>"""
+        return rows_html or '<div class="rc-empty">データなし</div>'
+
+    def _col_rbi(ranked: list) -> str:
+        rows_html = ""
+        for rank, r in enumerate(ranked, 1):
+            rbi = r.get("rbi", 0)
+            pa  = r.get("total_ab", 0) + r.get("bb", 0) + r.get("hbp", 0) + r.get("sf", 0)
+            rows_html += f"""
+            <div class="rc-row">
+              {_rank_badge(rank)}
+              <span class="rc-name">{escape(r['player'])}</span>
+              <span class="rc-val rc-rbi-val">{rbi}</span>
+              <span class="rc-sub">{pa}打席</span>
+            </div>"""
+        return rows_html or '<div class="rc-empty">データなし</div>'
+
+    return f"""
+    <div id="season-content">
+    <div class="card" style="margin-top:14px">
+      <div class="card-title">今シーズン通算 得点圏・出塁・打点ランキング</div>
+      <p style="font-size:11px;color:#5a6e94;margin:4px 0 14px">
+        対象: 得点圏打数{MIN_RISP_AB}以上 / 打席数{MIN_PA}以上 ／ {games_found}試合集計 ／ 生成 {generated_at[:16]}
+      </p>
+      <div class="rc-grid">
+        <div class="rc-col">
+          <div class="rc-col-header"><div class="rc-col-title">得点圏打率</div></div>
+          <div class="rc-col-body">{_col_risp(risp_ranked)}</div>
+        </div>
+        <div class="rc-col">
+          <div class="rc-col-header"><div class="rc-col-title">出塁率</div></div>
+          <div class="rc-col-body">{_col_obp(obp_ranked)}</div>
+        </div>
+        <div class="rc-col">
+          <div class="rc-col-header"><div class="rc-col-title">打点</div></div>
+          <div class="rc-col-body">{_col_rbi(rbi_ranked)}</div>
+        </div>
+      </div>
+    </div>
+    </div><!-- /#season-content -->
+    """
+
+
 def _build_risp_data(window_games: int = 5) -> dict:
     """直近 window_games 試合の得点圏打率データを構築"""
     cache_bucket = _cache_get_bucket("risp")
@@ -6802,7 +7027,7 @@ def _render_risp_html(data: dict, window_games: int, show_season: bool = False) 
     </div><!-- /#recent-content -->
     """
     if show_season:
-        body += _render_season_stats_html("risp", window_games)
+        body += _render_season_risp_html(window_games)
     return _html_page("得点圏・出塁・打点", body)
 
 

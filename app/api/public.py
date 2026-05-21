@@ -3115,7 +3115,13 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
       white-space: nowrap;
       user-select: none;
     }}
-    th:first-child {{ text-align: left; }}
+    th:first-child {{
+      text-align: left;
+      position: sticky;
+      left: 0;
+      background: #0a1020;
+      z-index: 2;
+    }}
     td {{
       padding: 9px 10px;
       text-align: right;
@@ -3903,6 +3909,10 @@ def _render_recent_batting_html(data: dict, show_season: bool = False) -> HTMLRe
       th.col-ops  {{ color: #ffd54a !important; }}
       th.col-woba {{ color: #56cff8 !important; }}
       th.col-avg  {{ color: #ffd54a !important; }}
+      /* 選手名列（1列目）のsticky固定 ── 偶数行・hover 背景もつぶす */
+      #batting-table tbody tr:nth-child(even) td:first-child {{ background: #0a1120; }}
+      #batting-table tbody tr:hover td:first-child {{ background: #132040 !important; }}
+      #batting-table thead th:first-child {{ background: #0a1020; }}
     </style>
 
     <div class="hero">

@@ -254,6 +254,7 @@ CACHE = {
     "recent_batting": {},
     "predicted_lineup": {},
     "risp": {},  # 得点圏打率キャッシュ
+    "player_profile": {"value": None, "expires_at": 0},  # proran.jp 自動生成プロフィール
 }
 
 SEASON_POSITION_BATTING: dict[str, dict] = {}
@@ -430,6 +431,222 @@ def _clean_text(value: str) -> str:
     value = value.replace("\u3000", " ")
     value = re.sub(r"\s+", " ", value).strip()
     return value
+
+
+# ---------------------------------------------------------------------------
+# proran.jp PLAYER_PROFILE 自動生成
+# ---------------------------------------------------------------------------
+
+_PRORAN_POS_MAP = {
+    "捕手": "C", "一塁手": "1B", "二塁手": "2B", "三塁手": "3B",
+    "遊撃手": "SS", "左翼手": "LF", "中堅手": "CF", "右翼手": "RF", "指名打者": "DH",
+}
+
+# npb.jp roster の粗ポジション → 守備ポジション別成績が無い場合のフォールバック
+_NPB_POS_FALLBACK = {
+    "投手": ["P"],
+    "捕手": ["C"],
+    "内野手": ["1B", "2B", "3B", "SS"],
+    "外野手": ["LF", "CF", "RF"],
+}
+
+
+def _fetch_proran_player_map() -> dict[str, int]:
+    """proran.jp の player_ranking_b.php から {選手名: proran_id} マップを返す。
+    全球団・全登録野手を含む。24時間キャッシュ。
+    """
+    cache = CACHE.setdefault("_proran_player_map", {"value": None, "expires_at": 0})
+    if _cache_alive(cache) and cache.get("value"):
+        return cache["value"]
+
+    try:
+        html = _fetch_text("https://proran.jp/player_ranking_b.php")
+    except Exception:
+        return cache.get("value") or {}
+
+    # player_data = [["球団名", "選手名", proran_id, ...], ...]
+    # 括弧カウントで JSON 配列の正確な終端を見つける
+    idx = html.find("player_data =")
+    if idx < 0:
+        return cache.get("value") or {}
+    start = html.find("[", idx)
+    if start < 0:
+        return cache.get("value") or {}
+    depth = 0
+    end_pos = -1
+    for ci in range(start, min(start + 300000, len(html))):
+        c = html[ci]
+        if c == "[":
+            depth += 1
+        elif c == "]":
+            depth -= 1
+            if depth == 0:
+                end_pos = ci + 1
+                break
+    if end_pos < 0:
+        return cache.get("value") or {}
+    json_str = html[start:end_pos]
+    try:
+        data = json.loads(json_str)
+    except Exception:
+        return cache.get("value") or {}
+
+    result: dict[str, int] = {}
+    for row in data:
+        if len(row) >= 3:
+            name = str(row[1]).strip()
+            pid = int(row[2])
+            result[name] = pid
+
+    cache["value"] = result
+    cache["expires_at"] = _cache_now() + 60 * 60 * 24  # 24時間
+    return result
+
+
+def _fetch_player_positions_from_proran(proran_id: int) -> list[str]:
+    """proran.jp の守備ポジション別成績から打数 >= 1 のポジションリストを返す。
+    取得失敗時は空リストを返す。
+    """
+    try:
+        url = f"https://proran.jp/player_detail_more.php?id={proran_id}"
+        html = _fetch_text(url)
+    except Exception:
+        return []
+
+    # 「守備ポジション別成績」セクションを抽出
+    m = re.search(r"<h1[^>]*>守備ポジション別成績</h1>(.*?)(?=<h1[^>]*>|$)", html, re.DOTALL)
+    if not m:
+        return []
+    section = m.group(1)
+
+    # 行ラベル（ポジション名）
+    pos_labels = re.findall(
+        r'player_detail_more_ba[^"]*bg_c_th[^>]*>(.*?)</div>', section
+    )
+    if not pos_labels:
+        return []
+
+    # fixed_l ブロック（ラベル列）を除去してデータ列だけ残す
+    section_data = re.sub(
+        r'<div class="flex_box fixed_l[^>]*>.*?</div>\s*</div>', "", section, flags=re.DOTALL
+    )
+    data_vals = re.findall(r'class="player_detail_more_ba[^"]*">(.*?)</div>', section_data)
+
+    n_pos = len(pos_labels)
+    if n_pos == 0 or len(data_vals) < n_pos:
+        return []
+
+    # 先頭の n_pos 個が「打数」列
+    eligible = []
+    for row_i, pos_ja in enumerate(pos_labels):
+        ab_str = data_vals[row_i]  # 打数列（最初の列）
+        try:
+            if int(ab_str) >= 1:
+                pos_en = _PRORAN_POS_MAP.get(pos_ja)
+                if pos_en:
+                    eligible.append(pos_en)
+        except (ValueError, TypeError):
+            pass
+
+    return eligible
+
+
+def _build_player_profiles_from_npb(team_code: str = "広島") -> dict[str, dict]:
+    """npb.jp roster + proran.jp 守備ポジション別成績を組み合わせて
+    {選手名: {"eligible_positions": [...]}} を返す。
+    投手は除外。結果は 6時間キャッシュ。
+    """
+    cache = CACHE["player_profile"]
+    if _cache_alive(cache) and cache.get("value"):
+        return cache.get("value", {})
+
+    # --- Step 1: npb.jp roster から選手名・粗ポジション を取得 ---
+    roster: list[dict] = []  # [{"name": "小園 海斗", "npb_pos": "内野手"}, ...]
+    try:
+        html = _fetch_text("https://npb.jp/announcement/roster/")
+        sections = re.split(r"(<h5[^>]*>.*?</h5>)", html, flags=re.DOTALL)
+        for i, s in enumerate(sections):
+            if team_code in s and "<h5" in s:
+                if i + 1 < len(sections):
+                    block = sections[i + 1]
+                    rows = re.findall(r"<tr[^>]*>(.*?)</tr>", block, re.DOTALL)
+                    for row in rows:
+                        cells = re.findall(r"<td[^>]*>(.*?)</td>", row, re.DOTALL)
+                        cells_clean = [re.sub(r"<[^>]+>", "", c).strip() for c in cells]
+                        if len(cells_clean) >= 3:
+                            # cells_clean = [pos, number, name]
+                            npb_pos = cells_clean[0]
+                            name_raw = cells_clean[2].replace("\u3000", " ").strip()
+                            roster.append({"name": name_raw, "npb_pos": npb_pos})
+                break
+    except Exception:
+        pass
+
+    if not roster:
+        # フォールバック: キャッシュ済みがあればそれを返す
+        return cache.get("value") or {}
+
+    # --- Step 2: proran.jp player_map を取得 ---
+    proran_map = _fetch_proran_player_map()
+
+    # 姓のみ → proran_id マップも作成（外国人選手向け）
+    # 例: "Ｅ．モンテロ" → "モンテロ" でマッチ
+    def _resolve_proran_id(name: str) -> int | None:
+        # 完全一致
+        pid = proran_map.get(name)
+        if pid:
+            return pid
+        # 空白除去
+        pid = proran_map.get(name.replace(" ", ""))
+        if pid:
+            return pid
+        # 全角ピリオド・文字を除去して末尾カタカナ部分だけ試す
+        # 例: "Ｅ．モンテロ" → "モンテロ"
+        name_stripped = re.sub(r"^[Ａ-Ｚa-zA-Z]+[．.]\s*", "", name).strip()
+        if name_stripped and name_stripped != name:
+            pid = proran_map.get(name_stripped)
+            if pid:
+                return pid
+        return None
+
+    # --- Step 3: 各選手のポジションを決定 ---
+    result: dict[str, dict] = {}
+    for player in roster:
+        name = player["name"]
+        npb_pos = player["npb_pos"]
+
+        # 投手はスキップ
+        if npb_pos == "投手":
+            continue
+
+        # proran ID を選手名から引く（複数パターン試行）
+        proran_id = _resolve_proran_id(name)
+
+        if proran_id:
+            positions = _fetch_player_positions_from_proran(proran_id)
+            # 1打数以上出場のポジションが得られた場合
+            if positions:
+                result[name] = {"eligible_positions": positions}
+                continue
+
+        # proran で取れない/出場ゼロ → npb 粗ポジションからフォールバック
+        fallback = _NPB_POS_FALLBACK.get(npb_pos, [])
+        if fallback:
+            result[name] = {"eligible_positions": list(fallback)}
+
+    cache["value"] = result
+    cache["expires_at"] = _cache_now() + 60 * 60 * 6  # 6時間
+    return result
+
+
+def _get_player_profile(team_code: str = "広島") -> dict[str, dict]:
+    """PLAYER_PROFILE を返す。npb.jp+proran.jp 自動生成版を優先し、
+    失敗時はハードコード PLAYER_PROFILE にフォールバックする。
+    """
+    auto = _build_player_profiles_from_npb(team_code)
+    if auto:
+        return auto
+    return PLAYER_PROFILE
 
 
 def _normalize_player_name(name: str) -> str:

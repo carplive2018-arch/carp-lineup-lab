@@ -3158,6 +3158,11 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
       padding-right: 20px;
       transition: color 0.15s;
     }}
+    /* th.sortable の position:relative が th:first-child の sticky を上書きするため
+       詳細度を上げて sticky を再適用 */
+    th.sortable:first-child {{
+      position: sticky;
+    }}
     th.sortable::after {{ content: "⇅"; position: absolute; right: 5px; opacity: 0.3; font-size: 9px; }}
     th.sortable.asc::after  {{ content: "▲"; opacity: 0.9; color: #ffd54a; }}
     th.sortable.desc::after {{ content: "▼"; opacity: 0.9; color: #ffd54a; }}

@@ -595,48 +595,98 @@ def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]
         print("DEBUG_PRORAN_POSITION_EMPTY_HTML")
         return result
 
-    def _clean_label(text: str) -> str:
-        text = _clean_text(text or "")
-        text = re.sub(r"[（(].*?[）)]", "", text).strip()
-        return text
+    def _clean(t: str) -> str:
+        t = re.sub(r"<[^>]+>", "", t or "")
+        t = t.replace("\u3000", "").replace("　", "").strip()
+        return t
 
     def _to_float(text: str) -> float:
-        text = _clean_text(text or "")
-        if not text:
+        text = _clean(text)
+        if not text or text == "---":
             return 0.0
         m = re.search(r"([0-9]*\.[0-9]+|[0-9]+)", text)
         return float(m.group(1)) if m else 0.0
 
-    th_matches = re.findall(
-        r'<div class="player_detail_more_th">(.*?)</div>',
-        html_text,
-        flags=re.S | re.I,
+    # ── 「守備ポジション別成績」セクションを切り出す ──
+    # 次の <h1 で終わる（対球団別成績などの直前まで）
+    start_m = re.search(r"守備ポジション別成績", html_text)
+    if start_m is None:
+        print("DEBUG_PRORAN_POSITION_SECTION_NOT_FOUND")
+        return result
+    next_h1 = re.search(r"<h1", html_text[start_m.start() + 1:])
+    start = start_m.start()
+    end   = start + next_h1.start() + 1 if next_h1 else start + 6000
+    section = html_text[start:end]
+
+    # ── ポジション名リスト（左固定列：bg_c_th クラスのba） ──
+    # 例: <div class="player_detail_more_ba border_t bg_c_th">捕手</div>
+    pos_names_raw = re.findall(
+        r'<div class="player_detail_more_ba[^"]*bg_c_th[^"]*">(.*?)</div>',
+        section, re.S | re.I
     )
-    ba_matches = re.findall(
-        r'<div class="player_detail_more_ba">(.*?)</div>',
-        html_text,
-        flags=re.S | re.I,
+    pos_names = [_clean(p) for p in pos_names_raw]
+    n_pos = len(pos_names)  # 通常9（捕手〜指名打者）
+    if n_pos == 0:
+        print("DEBUG_PRORAN_POSITION_NO_POSITIONS")
+        return result
+
+    # ── 列ヘッダー（player_detail_more_th） ──
+    th_raw = re.findall(
+        r'<div class="player_detail_more_th[^"]*">(.*?)</div>',
+        section, re.S | re.I
     )
+    col_headers = [_clean(t) for t in th_raw]
 
-    raw_labels = [_clean_label(x) for x in th_matches if _clean_label(x)]
-    raw_values = [_clean_label(x) for x in ba_matches]
+    # ── 値セル（bg_c_th でない ba） ──
+    ba_all = re.findall(
+        r'<div class="player_detail_more_ba[^"]*?(?:right|center)[^"]*?">(.*?)</div>',
+        section, re.S | re.I
+    )
+    val_cells = [_clean(v) for v in ba_all]
 
-    row_size = 5
+    # col_headers: ['', '打数', '打率', '出塁率', 'ＯＰＳ', '安打', '本塁打', '三振率']
+    # 最初の列（空）はポジション名列なのでスキップ、実データは2列目以降
+    # val_cells は各列 n_pos 個ずつ並ぶ
+    # 全列数 = len(col_headers)、先頭1列（空/ポジション名）はスキップ
+    n_stat_cols = len(col_headers) - 1  # 空列を除いた統計列数
+    # val_cells の前 n_pos 個は最初の空列のダミー（ないケースも）、残りが統計値
+    # 実際は val_cells = 打数列9 + 打率列9 + 出塁率列9 + OPS列9 + ...
+    expected = n_stat_cols * n_pos
+    if len(val_cells) < expected:
+        # フォールバック: val_cells がそのまま並んでいると仮定
+        pass
 
-    for i, raw_label in enumerate(raw_labels):
-        position = POSITION_LABEL_TO_CODE.get(raw_label, "")
-        if not position:
+    # ヘッダー名 → インデックスのマップを作る（全角文字対応）
+    def _norm_header(s: str) -> str:
+        return s.replace("　", "").replace("\u3000", "").replace("\n", "").replace("<br>", "")
+
+    header_map: dict[str, int] = {}
+    for idx, h in enumerate(col_headers[1:]):  # 空列スキップ
+        key = _norm_header(h)
+        header_map[key] = idx  # 0始まり（val_cells内のオフセット用）
+
+    # 各ポジションの打数・打率・出塁率・OPS を取り出す
+    # val_cells[col_idx * n_pos + pos_idx]
+    def _get_val(col_name_candidates: list[str], pos_idx: int) -> float:
+        for cand in col_name_candidates:
+            for key, col_idx in header_map.items():
+                if cand in key or key in cand:
+                    cell_idx = col_idx * n_pos + pos_idx
+                    if cell_idx < len(val_cells):
+                        return _to_float(val_cells[cell_idx])
+        return 0.0
+
+    for pos_idx, pos_label in enumerate(pos_names):
+        pos_code = POSITION_LABEL_TO_CODE.get(pos_label, "")
+        if not pos_code:
             continue
 
-        base = i * row_size
-        row = raw_values[base:base + row_size]
-        if len(row) < 5:
-            continue
-
-        ab = _to_float(row[1])
-        avg = _to_float(row[2])
-        obp = _to_float(row[3])
-        ops = _to_float(row[4])
+        ab  = _get_val(["打数"],       pos_idx)
+        avg = _get_val(["打率"],       pos_idx)
+        obp = _get_val(["出塁率"],     pos_idx)
+        ops = _get_val(["ＯＰＳ", "OPS"], pos_idx)
+        hr  = _get_val(["本塁打"],     pos_idx)
+        hits = _get_val(["安打"],      pos_idx)
 
         if ab <= 0 and obp <= 0 and ops <= 0:
             continue
@@ -644,13 +694,16 @@ def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]
         slg = max(0.0, ops - obp)
         iso = max(0.0, slg - avg)
 
-        result[position] = {
-            "pa": ab,
-            "ab": ab,
+        result[pos_code] = {
+            "pa":  ab,
+            "ab":  ab,
             "avg": round(avg, 3),
             "obp": round(obp, 3),
+            "slg": round(slg, 3),
             "ops": round(ops, 3),
             "iso": round(iso, 3),
+            "hr":  int(hr),
+            "hits": int(hits),
         }
 
     print("DEBUG_PRORAN_POSITION_RESULT", result)

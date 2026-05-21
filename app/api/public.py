@@ -2861,6 +2861,8 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
     /* コンテンツカラム */
     .content-col {{
       min-width: 0;
+      /* overflow:clip は sticky を壊さずに子要素の横溢れだけをクリップする */
+      overflow-x: clip;
       border-left: 1px solid #0f1829;
       border-right: 1px solid #0f1829;
     }}
@@ -3062,8 +3064,20 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
       background: #0c1424;
       border: 1px solid #1a2540;
       border-radius: 14px;
-      padding: 20px;
+      /* 左右 padding は 0 にして、内部コンテンツ側で padding を持つ */
+      /* これにより .table-wrap が card 幅いっぱいに広がり left:0 の sticky が正確に機能する */
+      padding: 20px 0;
       margin-top: 14px;
+      /* テーブルの横溢れを card 内部に閉じ込めることでページ全体の横スクロールを防ぐ */
+      overflow: hidden;
+      /* box-sizing で border 辺を含めた幅 100% に収める */
+      box-sizing: border-box;
+      width: 100%;
+    }}
+    /* card 内の直接子要素（table-wrap 以外）に左右 padding を付ける */
+    .card > *:not(.table-wrap) {{
+      padding-left: 20px;
+      padding-right: 20px;
     }}
     .card-title {{
       font-size: 16px;
@@ -3091,16 +3105,11 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
     .legend b {{ color: #7a90b8; }}
 
     /* ── テーブル共通 ── */
-    /* ── テーブルラッパー: card の padding(20px) を打ち消して左右端まで広げる ── */
+    /* .table-wrap は card の padding-left/right:0 の恩恵でそのまま幅いっぱいに広がる */
     .table-wrap {{
       overflow-x: auto;
       -webkit-overflow-scrolling: touch;
       margin-top: 4px;
-      margin-left: -20px;
-      margin-right: -20px;
-      padding-left: 0;
-      padding-right: 0;
-      border-radius: 0 0 14px 14px;
       border-top: 1px solid #1a2540;
     }}
     table {{
@@ -3120,12 +3129,10 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
       white-space: nowrap;
       user-select: none;
     }}
-    /* sticky: table-wrap が card-padding 分だけ左にはみ出しているので
-       left に同量のオフセットを加えて card 左端に揃える */
     th:first-child {{
       text-align: left;
       position: sticky;
-      left: 20px;
+      left: 0;
       background: #0a1020;
       z-index: 2;
     }}
@@ -3141,7 +3148,7 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
       font-weight: 600;
       color: #c8d8f4;
       position: sticky;
-      left: 20px;
+      left: 0;
       background: #0c1424;
       z-index: 1;
     }}
@@ -3158,10 +3165,8 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
       padding-right: 20px;
       transition: color 0.15s;
     }}
-    /* th.sortable の position:relative が th:first-child の sticky を上書きするため
-       詳細度を上げて sticky を再適用 */
     th.sortable:first-child {{
-      position: sticky;
+      position: sticky;  /* relative の上書きを防ぐ */
     }}
     th.sortable::after {{ content: "⇅"; position: absolute; right: 5px; opacity: 0.3; font-size: 9px; }}
     th.sortable.asc::after  {{ content: "▲"; opacity: 0.9; color: #ffd54a; }}
@@ -3265,17 +3270,13 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
       .nav-btn {{ font-size: 10.5px; padding: 3px 7px; border-radius: 4px; }}
       .nav-divider {{ display: none; }}
 
-      /* カード */
-      .card {{ padding: 12px; border-radius: 10px; margin-top: 10px; }}
+      /* カード：左右 padding は 0 のまま維持（table-wrap の sticky left:0 を壊さないため） */
+      .card {{ padding: 14px 0; border-radius: 10px; margin-top: 10px; }}
+      .card > *:not(.table-wrap) {{ padding-left: 12px; padding-right: 12px; }}
       .card-title {{ font-size: 14px; }}
 
-      /* テーブル: スマホの card padding(12px) に合わせてネガティブマージンも調整 */
-      .table-wrap {{
-        margin-left: -12px;
-        margin-right: -12px;
-        border-radius: 0 0 10px 10px;
-      }}
-      th:first-child, td:first-child {{ left: 12px; }}
+      /* テーブル */
+      .table-wrap {{ margin-top: 2px; }}
       th, td {{ padding: 6px 6px; }}
       table {{ font-size: 11px; min-width: 480px; }}
 
@@ -3574,9 +3575,12 @@ def _render_season_stats_html(active_page: str = "", window_games: int = 5) -> s
             if pdata.get("__empty__") or not pdata:
                 continue
 
-            # ポジション別データから最もPAが多いものを選ぶ
+            # ポジション別データから最もPAが多いものを選ぶ（全ポジション合算ABも計算）
             best: dict = {}
             best_pa = -1
+            total_ab = 0
+            total_hits = 0
+            total_hr = 0
             for pos_key, pos_val in pdata.items():
                 if not isinstance(pos_val, dict):
                     continue
@@ -3584,53 +3588,106 @@ def _render_season_stats_html(active_page: str = "", window_games: int = 5) -> s
                 if pa > best_pa:
                     best_pa = pa
                     best = pos_val
+                total_ab   += int(pos_val.get("ab", 0) or 0)
+                total_hits += int(pos_val.get("hits", 0) or 0)
+                total_hr   += int(pos_val.get("hr", 0) or 0)
 
             if best_pa <= 0:
                 continue
 
-            # WAR/wOBAは advanced_stats から補完
+            # advanced_stats から PA・wOBA・BB%・K% を補完
             adv = next((r for r in adv_rows if r["player_name"] == cname), {})
+            pa_adv   = int(adv.get("bat_pa", 0) or 0)
+            bb_pct   = adv.get("bb_pct")   # 0〜1 の小数
+            k_pct    = adv.get("k_pct")
+            pa_use   = pa_adv if pa_adv > 0 else best_pa
+
+            # 四球・三振の実数（PA × 率）
+            bb_count = round(pa_use * bb_pct) if bb_pct is not None else None
+            k_count  = round(pa_use * k_pct)  if k_pct  is not None else None
+
+            # 打率・出塁率・長打率・OPS・長打指数（best = 最多PA守備位置）
+            avg = float(best.get("avg", 0.0) or 0.0)
+            obp = float(best.get("obp", 0.0) or 0.0)
+            slg = float(best.get("slg", 0.0) or 0.0)
+            ops = float(best.get("ops", 0.0) or 0.0)
+            iso = float(best.get("iso", 0.0) or 0.0)
 
             seen[cname] = {
                 "player_name": cname,
-                "pa":    best_pa,
-                "obp":   float(best.get("obp", 0.0) or 0.0),
-                "iso":   float(best.get("iso", 0.0) or 0.0),
+                "pa":    pa_use,
+                "ab":    total_ab,
+                "hits":  total_hits,
+                "hr":    total_hr,
+                "avg":   avg,
+                "obp":   obp,
+                "slg":   slg,
+                "ops":   ops,
+                "iso":   iso,
+                "bb":    bb_count,
+                "k":     k_count,
                 "woba":  adv.get("bat_woba"),
-                "wraa":  adv.get("bat_wraa"),
-                "bat_war": adv.get("bat_war"),
             }
 
         rows = sorted(seen.values(), key=lambda r: -r["pa"])
 
         rows_html = []
         for r in rows:
+            avg_v = r["avg"]; obp_v = r["obp"]; slg_v = r["slg"]
+            ops_v = r["ops"]; iso_v = r["iso"]; woba_v = r["woba"]
+            bb_v  = r["bb"];  k_v   = r["k"]
             rows_html.append(
                 f'<tr>'
                 f'<td data-val="{escape(r["player_name"])}">{escape(r["player_name"])}</td>'
                 f'<td data-val="{r["pa"]}">{r["pa"]}</td>'
-                f'<td data-val="{r["obp"]:.3f}" style="color:#56cff8">{r["obp"]:.3f}</td>'
-                f'<td data-val="{r["iso"]:.3f}">{r["iso"]:.3f}</td>'
-                f'<td data-val="{r["woba"] if r["woba"] is not None else -1}" style="color:#56cff8;font-weight:700">{_fv(r["woba"])}</td>'
-                f'<td data-val="{r["wraa"] if r["wraa"] is not None else -99}">{_fv(r["wraa"], ".2f", plus=True)}</td>'
-                f'<td data-val="{r["bat_war"] if r["bat_war"] is not None else -99}">{_fv(r["bat_war"], ".2f", plus=True)}</td>'
+                f'<td data-val="{r["ab"]}">{r["ab"]}</td>'
+                f'<td data-val="{r["hits"]}">{r["hits"]}</td>'
+                f'<td data-val="{avg_v:.3f}" class="s-avg">{avg_v:.3f}</td>'
+                f'<td data-val="{obp_v:.3f}" class="s-obp">{obp_v:.3f}</td>'
+                f'<td data-val="{slg_v:.3f}">{slg_v:.3f}</td>'
+                f'<td data-val="{ops_v:.3f}" class="s-ops"><strong>{ops_v:.3f}</strong></td>'
+                f'<td data-val="{iso_v:.3f}">{iso_v:.3f}</td>'
+                f'<td data-val="{r["hr"]}">{r["hr"]}</td>'
+                f'<td data-val="{bb_v if bb_v is not None else -1}">{bb_v if bb_v is not None else _fv(None)}</td>'
+                f'<td data-val="{k_v  if k_v  is not None else -1}">{k_v  if k_v  is not None else _fv(None)}</td>'
+                f'<td data-val="{woba_v if woba_v is not None else -1}" class="s-woba">{_fv(woba_v)}</td>'
                 f'</tr>'
             )
-        tbody = "".join(rows_html) or '<tr><td colspan="7" class="empty">データがありません</td></tr>'
+        tbody = "".join(rows_html) or '<tr><td colspan="13" class="empty">データがありません</td></tr>'
 
         return f"""
+        <style>
+          #season-bat-table td.s-avg  {{ color: #ffd54a; font-weight: 700; }}
+          #season-bat-table td.s-obp  {{ color: #56cff8; }}
+          #season-bat-table td.s-ops  {{ color: #ffd54a; font-weight: 700; }}
+          #season-bat-table td.s-woba {{ color: #56cff8; font-weight: 700; }}
+          #season-bat-table th.col-avg  {{ color: #ffd54a !important; }}
+          #season-bat-table th.col-obp  {{ color: #56cff8 !important; }}
+          #season-bat-table th.col-ops  {{ color: #ffd54a !important; }}
+          #season-bat-table th.col-woba {{ color: #56cff8 !important; }}
+          #season-bat-table tbody tr:nth-child(even) td:first-child {{ background: #0a1120; }}
+          #season-bat-table tbody tr:hover td:first-child {{ background: #132040 !important; }}
+          #season-bat-table thead th:first-child {{ background: #0a1020; }}
+        </style>
         <div class="card" style="margin-top:14px">
           <div class="card-title">今シーズン通算 打撃成績</div>
+          <div class="legend">打率・出塁率・長打率は守備ポジション別最多打席時の値。四球・三振は打席数×率から算出。</div>
           <div class="table-wrap">
             <table id="season-bat-table" class="sortable-table">
               <thead><tr>
                 <th class="sortable" data-col="0">選手</th>
                 <th class="sortable" data-col="1">打席</th>
-                <th class="sortable" data-col="2">{_th_tip("出塁率")}</th>
-                <th class="sortable" data-col="3">{_th_tip("長打指数")}</th>
-                <th class="sortable" data-col="4">{_th_tip("wOBA")}</th>
-                <th class="sortable" data-col="5">{_th_tip("wRAA")}</th>
-                <th class="sortable" data-col="6">{_th_tip("打撃WAR")}</th>
+                <th class="sortable" data-col="2">打数</th>
+                <th class="sortable" data-col="3">安打</th>
+                <th class="sortable col-avg" data-col="4">{_th_tip("打率")}</th>
+                <th class="sortable col-obp" data-col="5">{_th_tip("出塁率")}</th>
+                <th class="sortable" data-col="6">{_th_tip("長打率")}</th>
+                <th class="sortable col-ops" data-col="7">{_th_tip("OPS")}</th>
+                <th class="sortable" data-col="8">{_th_tip("長打指数")}</th>
+                <th class="sortable" data-col="9">本塁打</th>
+                <th class="sortable" data-col="10">四球</th>
+                <th class="sortable" data-col="11">三振</th>
+                <th class="sortable col-woba" data-col="12">{_th_tip("wOBA")}</th>
               </tr></thead>
               <tbody>{tbody}</tbody>
             </table>
@@ -4559,6 +4616,12 @@ def _build_advanced_stats_rows() -> list[dict]:
         bat_woba = _f(bat_obj, "wOBA") if isinstance(bat_obj, dict) else None
         bat_wraa = _f(bat_obj, "wRAA") if isinstance(bat_obj, dict) else None
         bat_war  = _f(war_obj, "batWAR")
+        # 四球率・三振率（npbbasement は 0〜100 のパーセント値で格納）
+        bb_pct_raw = bat_obj.get("BB%") if isinstance(bat_obj, dict) else None
+        k_pct_raw  = bat_obj.get("K%")  if isinstance(bat_obj, dict) else None
+        # 0〜1 に正規化して保存（小数値で四球数・三振数の計算に使う）
+        bb_pct = round(float(bb_pct_raw) / 100, 4) if bb_pct_raw is not None else None
+        k_pct  = round(float(k_pct_raw)  / 100, 4) if k_pct_raw  is not None else None
 
         # 総合 WAR
         total_war = _f(war_obj, "WAR")
@@ -4585,6 +4648,8 @@ def _build_advanced_stats_rows() -> list[dict]:
             "bat_woba": bat_woba,
             "bat_wraa": bat_wraa,
             "bat_war":  bat_war,
+            "bb_pct":   bb_pct,
+            "k_pct":    k_pct,
             # 総合
             "total_war": total_war,
         })

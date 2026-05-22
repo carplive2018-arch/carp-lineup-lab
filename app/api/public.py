@@ -675,12 +675,40 @@ def _build_player_profiles_from_npb(team_code: str = "広島") -> dict[str, dict
     return result
 
 
+def _update_player_name_aliases(profile: dict[str, dict]) -> None:
+    """profile のキー（正式選手名）から PLAYER_NAME_ALIASES を自動補完する。
+
+    追加するエイリアス:
+    1. スペース除去版 → 正式名
+       例: "小園 海斗" → {"小園海斗": "小園 海斗"}
+    2. 外国人選手の姓のみ版 → 正式名
+       例: "Ｅ．モンテロ" → {"モンテロ": "Ｅ．モンテロ", "Ｅ．モンテロ": "Ｅ．モンテロ"}
+
+    既存の手書きエントリは上書きしない（手書き優先）。
+    """
+    for full_name in profile:
+        # 1) スペース除去 → 正式名
+        no_space = _normalize_player_name(full_name)  # 例: "小園海斗"
+        if no_space and no_space not in PLAYER_NAME_ALIASES:
+            PLAYER_NAME_ALIASES[no_space] = full_name
+
+        # 2) 外国人選手: "Ｅ．モンテロ" → "モンテロ" (姓のみ)
+        surname_only = re.sub(r"^[Ａ-Ｚa-zA-Z]+[．.]\s*", "", full_name).strip()
+        if surname_only and surname_only != full_name:
+            # スペース除去版も登録（"Ｅ．モンテロ" の場合は full_name と同じ）
+            surname_norm = _normalize_player_name(surname_only)
+            if surname_norm and surname_norm not in PLAYER_NAME_ALIASES:
+                PLAYER_NAME_ALIASES[surname_norm] = full_name
+
+
 def _get_player_profile(team_code: str = "広島") -> dict[str, dict]:
     """PLAYER_PROFILE を返す。npb.jp+proran.jp 自動生成版を優先し、
     失敗時はハードコード PLAYER_PROFILE にフォールバックする。
+    取得成功時は PLAYER_NAME_ALIASES を自動補完する。
     """
     auto = _build_player_profiles_from_npb(team_code)
     if auto:
+        _update_player_name_aliases(auto)
         return auto
     return PLAYER_PROFILE
 
@@ -6328,7 +6356,7 @@ def _shorten_team(name: str) -> str:
     return _TEAM_SHORT.get(name.strip(), name.strip())
 
 
-def _build_game_recap(game_id: str, date_str: str, html: str) -> dict:
+def _build_game_recap(game_id: str, date_str: str, html: str, team_code: str = "広島") -> dict:
     """テキスト速報HTMLから試合要約を生成"""
     # タイトルから対戦チーム
     title_m = re.search(r"(\d{4})年(\d{1,2})月(\d{1,2})日\s+(.+?)vs\.(.+?)\s+試合", html)
@@ -6336,13 +6364,13 @@ def _build_game_recap(game_id: str, date_str: str, html: str) -> dict:
         team1 = _shorten_team(title_m.group(4))
         team2 = _shorten_team(title_m.group(5))
     else:
-        team1, team2 = "?", "広島"
+        team1, team2 = "?", team_code
 
-    # 広島が先攻か後攻かを判定
-    is_home = bool(re.search(r"後攻:広島|ホーム:広島", html))
+    # 対象チームが先攻か後攻かを判定
+    is_home = bool(re.search(rf"後攻:{re.escape(team_code)}|ホーム:{re.escape(team_code)}", html))
     away_team = team2 if is_home else team1
     home_team = team1 if is_home else team2
-    carp_team = "広島"
+    carp_team = team_code
     opp_team  = away_team if carp_team == home_team else home_team
 
     # 最終スコア（最後のスコア表記）
@@ -6351,11 +6379,12 @@ def _build_game_recap(game_id: str, date_str: str, html: str) -> dict:
     opp_score: int | None = None
     if score_all:
         last = score_all[-1]
-        # どちらが広島？
+        # どちらが対象チーム？（team_code の先頭1文字 or 完全一致で判定）
         s1, n1, n2, s2 = last
-        if "広" in s1 or "広島" in s1:
+        tc1 = team_code[0] if team_code else "广"
+        if tc1 in s1 or team_code in s1:
             carp_score, opp_score = int(n1), int(n2)
-        elif "広" in s2 or "広島" in s2:
+        elif tc1 in s2 or team_code in s2:
             carp_score, opp_score = int(n2), int(n1)
         else:
             # 先攻/後攻で判定
@@ -6369,7 +6398,7 @@ def _build_game_recap(game_id: str, date_str: str, html: str) -> dict:
         result = "?"
 
     # 打席データ
-    at_bats = _parse_text_report(html)
+    at_bats = _parse_text_report(html, team_code)
 
     # ハイライト: タイムリー・本塁打・犠牲フライ
     hr_players: list[str] = []
@@ -6394,9 +6423,10 @@ def _build_game_recap(game_id: str, date_str: str, html: str) -> dict:
     multi_hit = [p for p, c in sorted(hit_counts.items(), key=lambda x: -x[1]) if c >= 2]
 
     # 先発投手
-    starter_m = re.search(r"広島が([^\s、」<]{2,8})(?:が|は|の)?(?:先発|登板|マウンド)", html)
+    tc_esc = re.escape(team_code)
+    starter_m = re.search(rf"{tc_esc}が([^\s、」<]{{2,8}})(?:が|は|の)?(?:先発|登板|マウンド)", html)
     if not starter_m:
-        starter_m = re.search(r"先発ピッチャーは.*?広島が([^\s、」<]{2,8})", html)
+        starter_m = re.search(rf"先発ピッチャーは.*?{tc_esc}が([^\s、」<]{{2,8}})", html)
     starter = starter_m.group(1) if starter_m else None
 
     # 要約文を生成
@@ -6434,9 +6464,9 @@ def _build_game_recap(game_id: str, date_str: str, html: str) -> dict:
     # 安打ゼロ・僅少
     total_hits = sum(hit_counts.values())
     if total_hits == 0:
-        summary_parts.append("広島打線はノーヒット。")
+        summary_parts.append(f"{team_code}打線はノーヒット。")
     elif total_hits <= 3:
-        summary_parts.append(f"広島の安打は{total_hits}本に終わった。")
+        summary_parts.append(f"{team_code}の安打は{total_hits}本に終わった。")
 
     if not summary_parts:
         summary_parts.append("試合データを取得しました。")
@@ -6457,27 +6487,29 @@ def _build_game_recap(game_id: str, date_str: str, html: str) -> dict:
     }
 
 
-def _build_game_recap_data(num_games: int = 10) -> dict:
+def _build_game_recap_data(num_games: int = 10, team_code: str = "広島") -> dict:
     """直近 num_games 試合の要約データを構築（キャッシュ10分）"""
     cache_bucket = _cache_get_bucket("risp")
-    cache_key    = f"game_recap:{num_games}"
+    cache_key    = f"game_recap:{num_games}:{team_code}"
     cache_entry  = cache_bucket.get(cache_key)
     if _cache_alive(cache_entry):
         cached = cache_entry.get("value")
         if isinstance(cached, dict):
             return cached
 
-    all_finished = _fetch_carp_finished_game_ids_from_team_schedule()
+    yahoo_id     = YAHOO_TEAM_ID.get(team_code, CARP_TEAM_ID)
+    team_class   = f"bb-liveText__head--npbTeam{yahoo_id}"
+    all_finished = _fetch_carp_finished_game_ids_from_team_schedule(team_code)
     games: list[dict] = []
     for gid in reversed(all_finished):
         if len(games) >= num_games:
             break
         try:
             html = _fetch_html(YAHOO_GAME_TEXT_URL.format(game_id=gid))
-            if "bb-liveText__head--npbTeam6" not in html:
+            if team_class not in html:
                 continue
             date_str = _get_game_date_from_text_page(gid, html)
-            recap = _build_game_recap(gid, date_str, html)
+            recap = _build_game_recap(gid, date_str, html, team_code)
             games.append(recap)
         except Exception as e:
             print(f"DEBUG_RECAP_ERROR {gid}: {e}")
@@ -6651,10 +6683,10 @@ def _render_game_recap_html(data: dict) -> HTMLResponse:
 
 
 @router.get("/public/game-recap")
-def public_game_recap(request: Request, view: str | None = None):
-    """広島の直近試合一覧と要約"""
+def public_game_recap(request: Request, team: str = "広島", view: str | None = None):
+    """指定球団の直近試合一覧と要約"""
     try:
-        data = _build_game_recap_data(num_games=10)
+        data = _build_game_recap_data(num_games=10, team_code=team)
         if _wants_html(request, view):
             return _render_game_recap_html(data)
         return _no_cache_json(data)
@@ -7464,57 +7496,95 @@ def warmup_cache() -> None:
     """
     サーバー起動直後にバックグラウンドスレッドでキャッシュを温める。
     最初のユーザーリクエストが来る前にデータを用意することで初回表示を高速化する。
-    """
-    def _warmup():
-        try:
-            print("[warmup] start")
 
-            # ① 一軍登録選手（NPB公示ページ）
+    方針:
+    - 広島は優先スレッドで ①〜⑥ を順番に実行（既存動作を維持）
+    - 残り11球団はチームごとに独立したデーモンスレッドで並列実行
+      各スレッドは player_profile → recent_games → recent_batting → predicted_lineup の順
+      1チームの失敗が他チームに影響しないよう try/except を独立させている
+    - 共有リソース（_get_active_first_team_position_players, _get_player_defense,
+      _get_season_position_batting）は広島スレッドのみで実行（チーム非依存なので1回で十分）
+    """
+
+    # --- チーム別ウォームアップ（全球団共通処理） ---
+    def _warmup_team(tc: str) -> None:
+        """1球団分の team_code 依存キャッシュをプリフェッチする。"""
+        try:
+            # player_profile（proran.jp スクレイピング）
+            _get_player_profile(tc)
+            print(f"[warmup:{tc}] player_profile OK")
+        except Exception as e:
+            print(f"[warmup:{tc}] player_profile error:", e)
+
+        try:
+            # 直近試合リスト（NPB試合結果ページ）
+            _fetch_recent_carp_games(limit=10, team_code=tc)
+            print(f"[warmup:{tc}] recent_games OK")
+        except Exception as e:
+            print(f"[warmup:{tc}] recent_games error:", e)
+
+        try:
+            # 直近打撃成績集計（window=5）
+            _aggregate_recent_batting_stats(window_games=5, team_code=tc)
+            print(f"[warmup:{tc}] recent_batting OK")
+        except Exception as e:
+            print(f"[warmup:{tc}] recent_batting error:", e)
+
+        try:
+            # 予想打順（最も重いメイン処理）
+            _build_simple_predicted_lineup(window_games=5, use_dh=True, team_code=tc)
+            print(f"[warmup:{tc}] predicted_lineup OK")
+        except Exception as e:
+            print(f"[warmup:{tc}] predicted_lineup error:", e)
+
+        print(f"[warmup:{tc}] done")
+
+    # --- 広島優先スレッド（①〜⑥ を順番に実行） ---
+    def _warmup_carp() -> None:
+        try:
+            print("[warmup] start (広島優先)")
+
+            # ① 一軍登録選手（NPB公示ページ・チーム非依存）
             try:
                 _get_active_first_team_position_players()
                 print("[warmup] first_team OK")
             except Exception as e:
                 print("[warmup] first_team error:", e)
 
-            # ② シーズン守備指標（npbbasement）
+            # ② シーズン守備指標（npbbasement・チーム非依存）
             try:
                 _get_player_defense()
                 print("[warmup] player_defense OK")
             except Exception as e:
                 print("[warmup] player_defense error:", e)
 
-            # ③ シーズン打撃成績（proran 全選手・並列）
+            # ③ シーズン打撃成績（proran 全選手・チーム非依存）
             try:
                 _get_season_position_batting()
                 print("[warmup] season_position_batting OK")
             except Exception as e:
                 print("[warmup] season_position_batting error:", e)
 
-            # ④ 直近試合（NPB試合結果ページ）
-            try:
-                _fetch_recent_carp_games(limit=10)
-                print("[warmup] recent_games OK")
-            except Exception as e:
-                print("[warmup] recent_games error:", e)
+            # ④〜⑥ 広島分を _warmup_team で実行
+            _warmup_team("広島")
 
-            # ⑤ 直近打撃成績集計（window=5）
-            try:
-                _aggregate_recent_batting_stats(window_games=5)
-                print("[warmup] recent_batting OK")
-            except Exception as e:
-                print("[warmup] recent_batting error:", e)
+            print("[warmup] 広島 all done")
 
-            # ⑥ 予想打順（最も重いメイン処理）
-            try:
-                _build_simple_predicted_lineup(window_games=5, use_dh=True)
-                print("[warmup] predicted_lineup OK")
-            except Exception as e:
-                print("[warmup] predicted_lineup error:", e)
+            # 残り11球団を並列バックグラウンドスレッドで実行
+            # 広島スレッドが ①〜③ のキャッシュを温めた後に起動することで
+            # 共有リソースの競合を最小化する
+            other_teams = [tc for tc in YAHOO_TEAM_ID if tc != "広島"]
+            for tc in other_teams:
+                threading.Thread(
+                    target=_warmup_team,
+                    args=(tc,),
+                    daemon=True,
+                    name=f"warmup-{tc}",
+                ).start()
 
-            print("[warmup] all done")
         except Exception as e:
             print("[warmup] unexpected error:", e)
 
-    t = threading.Thread(target=_warmup, daemon=True, name="warmup-thread")
+    t = threading.Thread(target=_warmup_carp, daemon=True, name="warmup-広島")
     t.start()
 

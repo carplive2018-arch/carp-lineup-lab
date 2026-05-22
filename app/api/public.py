@@ -254,7 +254,7 @@ CACHE = {
     "recent_batting": {},
     "predicted_lineup": {},
     "risp": {},  # 得点圏打率キャッシュ
-    "player_profile": {"value": None, "expires_at": 0},  # proran.jp 自動生成プロフィール
+    "player_profile": {},  # team_code -> {"value": ..., "expires_at": ...}
 }
 
 SEASON_POSITION_BATTING: dict[str, dict] = {}
@@ -554,11 +554,12 @@ def _fetch_player_positions_from_proran(proran_id: int) -> list[str]:
 def _build_player_profiles_from_npb(team_code: str = "広島") -> dict[str, dict]:
     """npb.jp roster + proran.jp 守備ポジション別成績を組み合わせて
     {選手名: {"eligible_positions": [...]}} を返す。
-    投手は除外。結果は 6時間キャッシュ。
+    投手は除外。結果は team_code 別に 6時間キャッシュ。
     """
-    cache = CACHE["player_profile"]
-    if _cache_alive(cache) and cache.get("value"):
-        return cache.get("value", {})
+    # team_code ごとにサブエントリを持つ辞書として管理
+    team_cache = CACHE["player_profile"].setdefault(team_code, {"value": None, "expires_at": 0})
+    if _cache_alive(team_cache) and team_cache.get("value"):
+        return team_cache["value"]
 
     # --- Step 1: npb.jp roster から選手名・粗ポジション を取得 ---
     roster: list[dict] = []  # [{"name": "小園 海斗", "npb_pos": "内野手"}, ...]
@@ -584,7 +585,7 @@ def _build_player_profiles_from_npb(team_code: str = "広島") -> dict[str, dict
 
     if not roster:
         # フォールバック: キャッシュ済みがあればそれを返す
-        return cache.get("value") or {}
+        return team_cache.get("value") or {}
 
     # --- Step 2: proran.jp player_map を取得 ---
     proran_map = _fetch_proran_player_map()
@@ -634,8 +635,8 @@ def _build_player_profiles_from_npb(team_code: str = "広島") -> dict[str, dict
         if fallback:
             result[name] = {"eligible_positions": list(fallback)}
 
-    cache["value"] = result
-    cache["expires_at"] = _cache_now() + 60 * 60 * 6  # 6時間
+    team_cache["value"] = result
+    team_cache["expires_at"] = _cache_now() + 60 * 60 * 6  # 6時間
     return result
 
 
@@ -667,12 +668,13 @@ def _canonical_player_name(name: str) -> str:
     if normalized in PLAYER_NAME_ALIASES:
         return PLAYER_NAME_ALIASES[normalized]
 
-    for full_name in PLAYER_PROFILE.keys():
+    _profile = _get_player_profile()
+    for full_name in _profile.keys():
         if _normalize_player_name(full_name) == normalized:
             return full_name
 
     surname_matches = []
-    for full_name in PLAYER_PROFILE.keys():
+    for full_name in _profile.keys():
         parts = [p for p in full_name.replace("　", " ").split(" ") if p]
         if not parts:
             continue
@@ -775,7 +777,7 @@ def _fetch_text(url: str) -> str:
 def _is_pitcher_for_display(name: str) -> bool:
     canonical = _canonical_player_name(name)
 
-    profile = PLAYER_PROFILE.get(canonical, {}) if "PLAYER_PROFILE" in globals() else {}
+    profile = _get_player_profile().get(canonical, {})
 
     for key in ("position", "primary_position", "main_position", "pos"):
         value = str(profile.get(key, "")).strip().upper()
@@ -986,7 +988,7 @@ def _build_season_position_batting_from_proran() -> dict:
 
     # 対象プレイヤーと player_id のペアを収集
     targets: list[tuple[str, str]] = []
-    for player_name in PLAYER_PROFILE.keys():
+    for player_name in _get_player_profile().keys():
         normalized_name = _normalize_player_name(player_name)
         player_id = player_ids.get(normalized_name)
         if player_id:
@@ -1141,7 +1143,7 @@ def _build_player_defense_from_npbbasement() -> dict:
 
     normalized_profile_names = {
         _normalize_player_name(name): name
-        for name in PLAYER_PROFILE.keys()
+        for name in _get_player_profile().keys()
     }
 
     for player in players:
@@ -1480,7 +1482,7 @@ def _fetch_current_first_team_position_players() -> set[str]:
         # PLAYER_PROFILE 登録済み選手と広島ブロック内でマッチング
         # 姓のみ（2文字以下）のエイリアスは他球団選手との誤マッチ防止のためスキップ
         result: set[str] = set()
-        for name in PLAYER_PROFILE.keys():
+        for name in _get_player_profile().keys():
             for alias in _name_aliases(name):
                 n = _normalize_name(alias)
                 if len(n) <= 2:
@@ -2196,7 +2198,7 @@ def _recent_snapshot_map(window_games: int) -> dict[str, dict]:
     return result
 
 
-def _get_prediction_candidate_names(now: datetime | None = None) -> list[str]:
+def _get_prediction_candidate_names(now: datetime | None = None, team_code: str = "広島") -> list[str]:
     """打順予測の候補選手リストを返す。
 
     一軍候補:
@@ -2734,9 +2736,9 @@ def _build_commentary(
         ) + _reliability_note()
 
 
-def _build_simple_predicted_lineup(window_games: int, use_dh: bool) -> dict:
+def _build_simple_predicted_lineup(window_games: int, use_dh: bool, team_code: str = "広島") -> dict:
     cache_bucket = _cache_get_bucket("predicted_lineup")
-    cache_key = f"w{window_games}:dh{int(use_dh)}"
+    cache_key = f"w{window_games}:dh{int(use_dh)}:{team_code}"
     cache_entry = cache_bucket.get(cache_key)
 
     if _cache_alive(cache_entry):
@@ -2749,21 +2751,21 @@ def _build_simple_predicted_lineup(window_games: int, use_dh: bool) -> dict:
     if stale and isinstance(stale, dict):
         def _bg_rebuild():
             try:
-                _do_build_predicted_lineup(window_games, use_dh, cache_bucket, cache_key)
+                _do_build_predicted_lineup(window_games, use_dh, cache_bucket, cache_key, team_code)
             except Exception as e:
                 print("DEBUG_PREDICTED_LINEUP_BG_ERROR", str(e))
         cache_bucket[cache_key] = {**cache_entry, "expires_at": _cache_now() + 60}
         threading.Thread(target=_bg_rebuild, daemon=True, name=f"bg-lineup-{cache_key}").start()
         return stale
 
-    return _do_build_predicted_lineup(window_games, use_dh, cache_bucket, cache_key)
+    return _do_build_predicted_lineup(window_games, use_dh, cache_bucket, cache_key, team_code)
 
 
-def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: dict, cache_key: str) -> dict:
+def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: dict, cache_key: str, team_code: str = "広島") -> dict:
     slot_defs = DH_LINEUP_SLOTS if use_dh else NO_DH_LINEUP_SLOTS
     recent_map    = _recent_snapshot_map(window_games)
     defense_map   = _get_player_defense()
-    candidate_names = _get_prediction_candidate_names()
+    candidate_names = _get_prediction_candidate_names(team_code=team_code)
 
     # ── 全候補の指標を事前集計してランキングを作る ──
     all_stats_for_rank: list[dict] = []
@@ -2774,7 +2776,7 @@ def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: di
             "adj_obp": NPB_LEAGUE_AVG_OBP, "adj_iso": NPB_LEAGUE_AVG_ISO,
         })
         def_val  = _defense_value_for(cname, "", defense_map)
-        eligible = (PLAYER_PROFILE.get(cname) or {}).get("eligible_positions", [])
+        eligible = (_get_player_profile(team_code).get(cname) or {}).get("eligible_positions", [])
         best_s_obp, best_s_iso = 0.0, 0.0
         for pos in eligible:
             sp = _get_adjusted_position_batting(cname, pos)
@@ -2809,7 +2811,7 @@ def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: di
             # ただし used_positions に含まれないポジションのみ候補とする
             # PLAYER_PROFILE 未登録の場合は DH のみ（守備位置不明なため）
             eligible_positions = (
-                (PLAYER_PROFILE.get(canonical_name) or {}).get("eligible_positions", [])
+                (_get_player_profile(team_code).get(canonical_name) or {}).get("eligible_positions", [])
                 or [POS_DH]
             )
             # まだ使われていないポジションに絞る
@@ -2867,7 +2869,7 @@ def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: di
                 if canonical_name in used_players:
                     continue
                 eligible_positions = (
-                    (PLAYER_PROFILE.get(canonical_name) or {}).get("eligible_positions", [])
+                    (_get_player_profile(team_code).get(canonical_name) or {}).get("eligible_positions", [])
                     or [POS_DH]
                 )
                 available_positions = [
@@ -3787,7 +3789,7 @@ def _render_season_stats_html(active_page: str = "", window_games: int = 5) -> s
 
         # 選手ごとに「全ポジション中で最もPAが多い打撃成績」を集約
         seen: dict[str, dict] = {}
-        for player_name in PLAYER_PROFILE.keys():
+        for player_name in _get_player_profile().keys():
             cname = _canonical_player_name(player_name)
             if cname in seen:
                 continue
@@ -3968,7 +3970,7 @@ def _render_season_stats_html(active_page: str = "", window_games: int = 5) -> s
         adv_rows    = _get_advanced_stats_rows()
 
         seen: dict[str, dict] = {}
-        for player_name in PLAYER_PROFILE.keys():
+        for player_name in _get_player_profile().keys():
             cname = _canonical_player_name(player_name)
             if cname in seen:
                 continue
@@ -4721,11 +4723,12 @@ def public_predicted_lineup(
     request: Request,
     window_games: int = 5,
     use_dh: bool = True,
+    team: str = "広島",
     view: str | None = None,
 ):
     try:
         window_games = max(1, min(window_games, 10))
-        data = _build_simple_predicted_lineup(window_games=window_games, use_dh=use_dh)
+        data = _build_simple_predicted_lineup(window_games=window_games, use_dh=use_dh, team_code=team)
 
         if _wants_html(request, view):
             return _render_predicted_lineup_html(data)
@@ -4753,7 +4756,7 @@ def _build_advanced_stats_rows() -> list[dict]:
     PLAYER_PROFILE に登録済みの野手のみ対象。
     """
     players = _load_npbbasement_players()
-    profile_names = set(PLAYER_PROFILE.keys())
+    profile_names = set(_get_player_profile().keys())
 
     # normalized_name -> canonical_profile_name のマップ
     norm_to_profile: dict[str, str] = {
@@ -5528,7 +5531,7 @@ def _build_hot_batters_data(window_games: int = 5) -> dict:
 
     # フルネームに変換（canonical → PLAYER_PROFILE キー）
     def _profile_name(cname: str) -> str:
-        for pname in PLAYER_PROFILE:
+        for pname in _get_player_profile():
             if _canonical_player_name(pname) == cname:
                 return pname
         return cname

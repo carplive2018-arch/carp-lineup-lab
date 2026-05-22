@@ -103,6 +103,41 @@ YAHOO_SCHEDULE_URL = "https://baseball.yahoo.co.jp/npb/schedule/first/all"
 YAHOO_GAME_TEXT_URL = "https://baseball.yahoo.co.jp/npb/game/{game_id}/text"
 CARP_TEAM_ID = 6   # Yahoo baseball 広島東洋カープのチームID
 
+# Yahoo Baseball チームID マッピング（team_name → Yahoo team_id）
+YAHOO_TEAM_ID: dict[str, int] = {
+    "広島":       6,
+    "阪神":       2,
+    "巨人":       1,
+    "DeNA":       3,
+    "中日":       5,
+    "ヤクルト":   4,
+    "ソフトバンク": 11,
+    "西武":       7,
+    "楽天":       12,
+    "ロッテ":     8,
+    "オリックス": 10,
+    "日本ハム":   9,
+}
+
+# NPB.jp 試合結果URLのチームコード（team_name → npb code）
+NPB_RESULTS_TEAM_CODE: dict[str, str] = {
+    "広島":       "c",
+    "阪神":       "t",
+    "巨人":       "g",
+    "DeNA":       "db",
+    "中日":       "d",
+    "ヤクルト":   "s",
+    "ソフトバンク": "h",
+    "西武":       "l",
+    "楽天":       "e",
+    "ロッテ":     "m",
+    "オリックス": "b",
+    "日本ハム":   "f",
+}
+
+# NPB.jp 二軍打撃成績URLのチームコード（広島と同じ形式）
+NPB_FARM_STATS_CODE: dict[str, str] = NPB_RESULTS_TEAM_CODE  # 同じコード体系
+
 LAST_FIXED_FIRST_TEAM_POSITION_PLAYERS = {
     "坂倉 将吾",
     "石原 貴規",
@@ -1620,10 +1655,12 @@ def _extract_year_from_results_page(html: str) -> str:
     return m.group(1) if m else str(CURRENT_SEASON_YEAR)
 
 
-def _extract_previous_results_page_url(html: str) -> str | None:
-    links = re.findall(r'href="([^"]*results_c[^"]*\.html)"', html)
+def _extract_previous_results_page_url(html: str, team_npb_code: str = "c") -> str | None:
+    index_name = f"results_{team_npb_code}_index.html"
+    pattern = rf'href="([^"]*results_{re.escape(team_npb_code)}[^"]*.html)"'
+    links = re.findall(pattern, html)
     for link in links:
-        if "results_c_index.html" in link:
+        if index_name in link:
             continue
         if link.startswith("http://") or link.startswith("https://"):
             return link
@@ -1732,8 +1769,10 @@ def _parse_result_rows_to_games(rows: list[list[str]], year: str) -> list[dict]:
 
 
 @lru_cache(maxsize=4)
-def _fetch_recent_carp_games(limit: int) -> list[dict]:
-    current_html = _fetch_html(CURRENT_RESULTS_URL)
+def _fetch_recent_carp_games(limit: int, team_code: str = "広島") -> list[dict]:
+    npb_code = NPB_RESULTS_TEAM_CODE.get(team_code, "c")
+    results_url = f"https://npb.jp/bis/teams/results_{npb_code}_index.html"
+    current_html = _fetch_html(results_url)
     year = _extract_year_from_results_page(current_html)
 
     all_games: list[dict] = []
@@ -1741,7 +1780,7 @@ def _fetch_recent_carp_games(limit: int) -> list[dict]:
     current_rows = _extract_result_rows_from_html(current_html)
     all_games.extend(_parse_result_rows_to_games(current_rows, year))
 
-    previous_url = _extract_previous_results_page_url(current_html)
+    previous_url = _extract_previous_results_page_url(current_html, npb_code)
     if previous_url:
         try:
             previous_html = _fetch_html(previous_url)
@@ -1806,8 +1845,8 @@ def _analyze_plate_results(result_cells: list[str]) -> dict:
     return stats
 
 
-@lru_cache(maxsize=32)
-def _parse_carp_batting_rows(box_url: str) -> list[dict]:
+@lru_cache(maxsize=128)
+def _parse_carp_batting_rows(box_url: str, team_code: str = "広島") -> list[dict]:
     html = _fetch_html(box_url)
     tables = _extract_tables(html)
 
@@ -1815,7 +1854,8 @@ def _parse_carp_batting_rows(box_url: str) -> list[dict]:
     if len(batting_tables) < 2:
         raise ValueError(f"打撃表を見つけられませんでした: {box_url}")
 
-    carp_is_home = bool(re.search(r"/scores/\d{4}/\d{4}/c-[a-z]{1,2}-\d{2}/box\.html", box_url))
+    npb_code = NPB_RESULTS_TEAM_CODE.get(team_code, "c")
+    carp_is_home = bool(re.search(rf"/scores/\d{{4}}/\d{{4}}/{re.escape(npb_code)}-[a-z]{{1,2}}-\d{{2}}/box\.html", box_url))
     carp_table = batting_tables[1] if carp_is_home else batting_tables[0]
 
     header = carp_table[0]
@@ -1869,9 +1909,9 @@ def _parse_carp_batting_rows(box_url: str) -> list[dict]:
     return rows
 
 
-def _aggregate_recent_batting_stats(window_games: int) -> dict:
+def _aggregate_recent_batting_stats(window_games: int, team_code: str = "広島") -> dict:
     cache_bucket = _cache_get_bucket("recent_batting")
-    cache_key = f"aggregate:{window_games}"
+    cache_key = f"aggregate:{window_games}:{team_code}"
     cache_entry = cache_bucket.get(cache_key)
 
     if _cache_alive(cache_entry):
@@ -1879,7 +1919,7 @@ def _aggregate_recent_batting_stats(window_games: int) -> dict:
         if isinstance(cached_value, dict):
             return cached_value
 
-    games = _fetch_recent_carp_games(window_games)
+    games = _fetch_recent_carp_games(window_games, team_code)
 
     player_totals: dict[str, dict] = {}
     team_totals = {
@@ -1919,7 +1959,7 @@ def _aggregate_recent_batting_stats(window_games: int) -> dict:
 
     for game in games:
         try:
-            rows = _parse_carp_batting_rows(game["box_url"])
+            rows = _parse_carp_batting_rows(game["box_url"], team_code)
         except Exception as e:
             print("DEBUG_RECENT_GAME_PARSE_ERROR", game.get("box_url"), str(e))
             continue
@@ -2046,9 +2086,9 @@ def _calc_war_batting(stats: dict, pa: int, defense_bonus: float) -> float:
     return round(war, 2)
 
 
-def _build_recent_batting_response(window_games: int) -> dict:
+def _build_recent_batting_response(window_games: int, team_code: str = "広島") -> dict:
     cache_bucket = _cache_get_bucket("recent_batting")
-    cache_key = f"response:{window_games}"
+    cache_key = f"response:{window_games}:{team_code}"
     cache_entry = cache_bucket.get(cache_key)
 
     if _cache_alive(cache_entry):
@@ -2063,16 +2103,16 @@ def _build_recent_batting_response(window_games: int) -> dict:
             try:
                 # aggregateキャッシュをクリアして新規取得
                 agg_bucket = _cache_get_bucket("recent_batting")
-                agg_bucket.pop(f"aggregate:{window_games}", None)
-                aggregated = _aggregate_recent_batting_stats(window_games)
+                agg_bucket.pop(f"aggregate:{window_games}:{team_code}", None)
+                aggregated = _aggregate_recent_batting_stats(window_games, team_code)
                 _do_build_recent_batting(window_games, aggregated, cache_bucket, cache_key)
             except Exception as e:
                 print("DEBUG_RECENT_BATTING_BG_ERROR", str(e))
         cache_bucket[cache_key] = {**cache_entry, "expires_at": _cache_now() + 60}
-        threading.Thread(target=_bg_rebuild_recent, daemon=True, name=f"bg-recent-{window_games}").start()
+        threading.Thread(target=_bg_rebuild_recent, daemon=True, name=f"bg-recent-{window_games}-{team_code}").start()
         return stale
 
-    aggregated = _aggregate_recent_batting_stats(window_games)
+    aggregated = _aggregate_recent_batting_stats(window_games, team_code)
     return _do_build_recent_batting(window_games, aggregated, cache_bucket, cache_key)
 
 
@@ -2144,7 +2184,7 @@ def _do_build_recent_batting(window_games: int, aggregated: dict, cache_bucket: 
     return result
 
 
-def _recent_snapshot_map(window_games: int) -> dict[str, dict]:
+def _recent_snapshot_map(window_games: int, team_code: str = "広島") -> dict[str, dict]:
     """直近 window_games 試合の打撃スナップショットを選手名→dict で返す。
 
     各エントリに生の観測値 (obp/iso) に加え、ベイズ収縮済み値 (adj_obp/adj_iso) を格納する。
@@ -2155,7 +2195,7 @@ def _recent_snapshot_map(window_games: int) -> dict[str, dict]:
         adj = (pa × raw + PRIOR_PA × prior_val) / (pa + PRIOR_PA)
     prior_val は SEASON_OVERALL_BATTING の個人値、なければ NPB リーグ平均。
     """
-    aggregated = _aggregate_recent_batting_stats(window_games)
+    aggregated = _aggregate_recent_batting_stats(window_games, team_code)
     result: dict[str, dict] = {}
 
     for player_name, stats in aggregated.get("player_totals", {}).items():
@@ -2763,7 +2803,7 @@ def _build_simple_predicted_lineup(window_games: int, use_dh: bool, team_code: s
 
 def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: dict, cache_key: str, team_code: str = "広島") -> dict:
     slot_defs = DH_LINEUP_SLOTS if use_dh else NO_DH_LINEUP_SLOTS
-    recent_map    = _recent_snapshot_map(window_games)
+    recent_map    = _recent_snapshot_map(window_games, team_code)
     defense_map   = _get_player_defense()
     candidate_names = _get_prediction_candidate_names(team_code=team_code)
 
@@ -4698,10 +4738,10 @@ def _no_cache_json(data: dict) -> JSONResponse:
 
 
 @router.get("/public/recent-batting")
-def public_recent_batting(request: Request, window_games: int = 5, view: str | None = None):
+def public_recent_batting(request: Request, window_games: int = 5, team: str = "広島", view: str | None = None):
     try:
         window_games = max(1, min(window_games, 10))
-        data = _build_recent_batting_response(window_games)
+        data = _build_recent_batting_response(window_games, team_code=team)
 
         if _wants_html(request, view):
             show_season = (view == "season")
@@ -5368,8 +5408,8 @@ def public_war_ranking(request: Request, view: str | None = None):
 # /public/hot-batters
 # ─────────────────────────────────────────────
 
-@lru_cache(maxsize=16)
-def _parse_carp_batting_risp(box_url: str) -> dict[str, dict]:
+@lru_cache(maxsize=64)
+def _parse_carp_batting_risp(box_url: str, team_code: str = "広島") -> dict[str, dict]:
     """
     ボックスコアの生HTML を直接パースしてカープ選手の
     ・得点圏安打数 (rbi_hits)  ← class="hit Red rbi"
@@ -5401,7 +5441,8 @@ def _parse_carp_batting_risp(box_url: str) -> dict[str, dict]:
     if len(batting_raw) < 2:
         return {}
 
-    carp_is_home = bool(re.search(r"/scores/\d{4}/\d{4}/c-[a-z]{1,2}-\d{2}/box\.html", box_url))
+    npb_code = NPB_RESULTS_TEAM_CODE.get(team_code, "c")
+    carp_is_home = bool(re.search(rf"/scores/\d{{4}}/\d{{4}}/{re.escape(npb_code)}-[a-z]{{1,2}}-\d{{2}}/box\.html", box_url))
     carp_rows_raw, header = batting_raw[1] if carp_is_home else batting_raw[0]
 
     idx_map = {name: i for i, name in enumerate(header)}
@@ -5472,17 +5513,17 @@ def _parse_carp_batting_risp(box_url: str) -> dict[str, dict]:
     return result
 
 
-def _build_hot_batters_data(window_games: int = 5) -> dict:
+def _build_hot_batters_data(window_games: int = 5, team_code: str = "広島") -> dict:
     """
     直近 window_games 試合の 打率・出塁率・チャンス打率 TOP選手を算出。
     """
-    cache_key = f"hot_batters:{window_games}"
+    cache_key = f"hot_batters:{window_games}:{team_code}"
     cache_entry = CACHE.get(cache_key, {})
     if _cache_alive(cache_entry) and cache_entry.get("value"):
         return cache_entry["value"]
 
     # ── 打率・出塁率は既存の集計を再利用 ──
-    recent_data  = _build_recent_batting_response(window_games)
+    recent_data  = _build_recent_batting_response(window_games, team_code)
     players      = recent_data.get("players", [])
     games_list   = recent_data.get("games", [])
 
@@ -5503,7 +5544,7 @@ def _build_hot_batters_data(window_games: int = 5) -> dict:
         if not box_url:
             continue
         try:
-            risp = _parse_carp_batting_risp(box_url)
+            risp = _parse_carp_batting_risp(box_url, team_code)
         except Exception:
             continue
         for raw_name, s in risp.items():
@@ -5953,10 +5994,10 @@ def _render_hot_batters_html(data: dict, show_season: bool = False) -> HTMLRespo
 
 
 @router.get("/public/hot-batters")
-def public_hot_batters(request: Request, window_games: int = 5, view: str | None = None):
+def public_hot_batters(request: Request, window_games: int = 5, team: str = "広島", view: str | None = None):
     try:
         window_games = max(1, min(window_games, 10))
-        data = _build_hot_batters_data(window_games)
+        data = _build_hot_batters_data(window_games, team_code=team)
         if _wants_html(request, view):
             show_season = (view == "season")
             return _render_hot_batters_html(data, show_season=show_season)
@@ -6072,10 +6113,10 @@ def _classify_at_bat(result_text: str) -> str:
 
 
 def _parse_text_report(html: str, carp_team_name: str = "広島") -> list[dict]:
-    """テキスト速報HTMLを解析し、広島打者の全打席を返す。
+    """テキスト速報HTMLを解析し、指定チーム打者の全打席を返す。
 
     Yahoo Baseball テキスト速報の HTML 構造:
-      <header class="bb-liveText__head bb-liveText__head--npbTeam6"> → 広島の攻撃イニング
+      <header class="bb-liveText__head bb-liveText__head--npbTeam{N}"> → 当該チームの攻撃イニング
       <li class="bb-liveText__item"> → 各打席
         bb-liveText__order: 「N番」「代打」
         bb-liveText__player: 選手名
@@ -6092,6 +6133,9 @@ def _parse_text_report(html: str, carp_team_name: str = "広島") -> list[dict]:
             "inning": int,       # 回
         }
     """
+    yahoo_id = YAHOO_TEAM_ID.get(carp_team_name, CARP_TEAM_ID)
+    team_class = f"bb-liveText__head--npbTeam{yahoo_id}"
+
     def _strip(s: str) -> str:
         s = re.sub(r"<[^>]+>", " ", s)
         return re.sub(r"\s+", " ", s).strip()
@@ -6103,8 +6147,8 @@ def _parse_text_report(html: str, carp_team_name: str = "広島") -> list[dict]:
     sections = re.split(r"(?=<header\s[^>]*bb-liveText__head)", html)
 
     for sec in sections:
-        # 広島のイニングのみ対象（bb-liveText__head--npbTeam6）
-        if "bb-liveText__head--npbTeam6" not in sec:
+        # 指定チームのイニングのみ対象
+        if team_class not in sec:
             continue
 
         # イニング番号・表裏
@@ -6149,10 +6193,10 @@ def _parse_text_report(html: str, carp_team_name: str = "広島") -> list[dict]:
     return at_bats
 
 
-def _fetch_risp_for_game(game_id: str) -> list[dict]:
-    """1試合分のテキスト速報から広島打者の打席データを取得（キャッシュ付き）"""
+def _fetch_risp_for_game(game_id: str, team_code: str = "広島") -> list[dict]:
+    """1試合分のテキスト速報から指定チーム打者の打席データを取得（キャッシュ付き）"""
     cache_bucket = _cache_get_bucket("risp")
-    cache_key = f"game:{game_id}"
+    cache_key = f"game:{game_id}:{team_code}"
     cache_entry = cache_bucket.get(cache_key)
     if _cache_alive(cache_entry):
         return cache_entry.get("value", [])
@@ -6160,31 +6204,32 @@ def _fetch_risp_for_game(game_id: str) -> list[dict]:
     url = YAHOO_GAME_TEXT_URL.format(game_id=game_id)
     try:
         html = _fetch_html(url)
-        at_bats = _parse_text_report(html)
+        at_bats = _parse_text_report(html, team_code)
         cache_bucket[cache_key] = {"value": at_bats, "expires_at": _cache_now() + CACHE_TTL_RISP}
-        print(f"DEBUG_RISP_GAME {game_id}: {len(at_bats)} at-bats parsed")
+        print(f"DEBUG_RISP_GAME[{team_code}] {game_id}: {len(at_bats)} at-bats parsed")
         return at_bats
     except Exception as e:
         print(f"DEBUG_RISP_GAME_ERROR {game_id}: {e}")
         return []
 
 
-def _fetch_carp_finished_game_ids_from_team_schedule() -> list[str]:
-    """広島チーム専用スケジュールページから「試合終了」のゲームIDを古い順で返す。
+def _fetch_carp_finished_game_ids_from_team_schedule(team_code: str = "広島") -> list[str]:
+    """指定チームのスケジュールページから「試合終了」のゲームIDを古い順で返す。
 
-    URL: https://baseball.yahoo.co.jp/npb/teams/6/schedule
-    このページには広島の試合のみが含まれるため teams/6 フィルタ不要。
+    URL: https://baseball.yahoo.co.jp/npb/teams/{yahoo_team_id}/schedule
+    このページには当該チームの試合のみが含まれる。
     「試合終了」テキストを持つリンクのゲームIDを順に抽出する。
     重複除去・順序維持（古い順）で返す。
     """
-    url = f"https://baseball.yahoo.co.jp/npb/teams/{CARP_TEAM_ID}/schedule"
+    yahoo_id = YAHOO_TEAM_ID.get(team_code, CARP_TEAM_ID)
+    url = f"https://baseball.yahoo.co.jp/npb/teams/{yahoo_id}/schedule"
     try:
         html = _fetch_html(url)
     except Exception as e:
         print(f"DEBUG_RISP_TEAM_SCHEDULE_ERROR: {e}")
         return []
 
-    # /npb/game/(ID)/index">試合終了 パターンで抽出（広島試合のみ含まれる）
+    # /npb/game/(ID)/index">試合終了 パターンで抽出
     raw_ids = re.findall(r'/npb/game/(\d+)/index[^"]*">\s*試合終了', html)
 
     # 重複除去（順序維持）
@@ -6195,7 +6240,7 @@ def _fetch_carp_finished_game_ids_from_team_schedule() -> list[str]:
             seen.add(gid)
             unique_ids.append(gid)
 
-    print(f"DEBUG_RISP_TEAM_SCHEDULE: {len(unique_ids)} finished games found")
+    print(f"DEBUG_RISP_TEAM_SCHEDULE[{team_code}]: {len(unique_ids)} finished games found")
     return unique_ids  # 古い順
 
 
@@ -6211,31 +6256,32 @@ def _get_game_date_from_text_page(game_id: str, html: str) -> str:
     return ""
 
 
-def _get_recent_carp_game_ids(num_games: int = 5) -> list[tuple[str, str]]:
+def _get_recent_carp_game_ids(num_games: int = 5, team_code: str = "広島") -> list[tuple[str, str]]:
     """直近 num_games 試合の (game_id, date_str) リストを返す（新しい順）。
 
-    広島チームスケジュールページから「試合終了」ゲームIDを取得し、
-    テキスト速報ページに広島攻撃イニング (bb-liveText__head--npbTeam6) が
-    存在するものだけを広島試合として採用する。
+    指定チームのスケジュールページから「試合終了」ゲームIDを取得し、
+    テキスト速報ページに当該チームの攻撃イニングが存在するものだけを採用する。
     各試合の日付はテキスト速報ページ本文内「YYYY年M月D日」から取得する。
 
     Returns:
         [(game_id, 'YYYY-MM-DD'), ...] 新しい順
     """
     cache_bucket = _cache_get_bucket("risp")
-    cache_key = f"game_ids:{num_games}"
+    cache_key = f"game_ids:{num_games}:{team_code}"
     cache_entry = cache_bucket.get(cache_key)
     if _cache_alive(cache_entry):
         return cache_entry.get("value", [])
 
+    yahoo_id = YAHOO_TEAM_ID.get(team_code, CARP_TEAM_ID)
+    team_class = f"bb-liveText__head--npbTeam{yahoo_id}"
+
     # チームスケジュールから完了試合IDを取得（古い順）
-    all_finished = _fetch_carp_finished_game_ids_from_team_schedule()
+    all_finished = _fetch_carp_finished_game_ids_from_team_schedule(team_code)
 
     if not all_finished:
         return []
 
-    # 新しい順（末尾から）に走査し、広島出場確認済みの num_games 件を収集
-    # スケジュールページに他球団試合が混入する場合があるため npbTeam6 でフィルタ
+    # 新しい順（末尾から）に走査し、当該チーム出場確認済みの num_games 件を収集
     found: list[tuple[str, str]] = []
     for gid in reversed(all_finished):
         if len(found) >= num_games:
@@ -6243,13 +6289,13 @@ def _get_recent_carp_game_ids(num_games: int = 5) -> list[tuple[str, str]]:
         url = YAHOO_GAME_TEXT_URL.format(game_id=gid)
         try:
             html = _fetch_html(url)
-            # 広島の攻撃イニングが存在する試合のみ採用
-            if "bb-liveText__head--npbTeam6" not in html:
-                print(f"DEBUG_RISP_SKIP {gid}: no Carp inning found, skipping")
+            # 当該チームの攻撃イニングが存在する試合のみ採用
+            if team_class not in html:
+                print(f"DEBUG_RISP_SKIP {gid}: no {team_code} inning found, skipping")
                 continue
             date_str = _get_game_date_from_text_page(gid, html)
             found.append((gid, date_str))
-            print(f"DEBUG_RISP_GAME_ID {gid}: date={date_str}")
+            print(f"DEBUG_RISP_GAME_ID[{team_code}] {gid}: date={date_str}")
         except Exception as e:
             print(f"DEBUG_RISP_GAME_ID_ERROR {gid}: {e}")
 
@@ -6838,17 +6884,17 @@ def _render_season_risp_html(window_games: int) -> str:
     """
 
 
-def _build_risp_data(window_games: int = 5) -> dict:
+def _build_risp_data(window_games: int = 5, team_code: str = "広島") -> dict:
     """直近 window_games 試合の得点圏打率データを構築"""
     cache_bucket = _cache_get_bucket("risp")
-    cache_key = f"risp:{window_games}"
+    cache_key = f"risp:{window_games}:{team_code}"
     cache_entry = cache_bucket.get(cache_key)
     if _cache_alive(cache_entry):
         cached = cache_entry.get("value")
         if isinstance(cached, dict):
             return cached
 
-    game_list = _get_recent_carp_game_ids(window_games)
+    game_list = _get_recent_carp_game_ids(window_games, team_code)
 
     # 選手別集計
     # player_name → {risp_ab, risp_hit, total_ab, total_hit, bb, hbp, sf, rbi}
@@ -6856,7 +6902,7 @@ def _build_risp_data(window_games: int = 5) -> dict:
     game_details: list[dict] = []
 
     for game_id, date_str in game_list:
-        at_bats = _fetch_risp_for_game(game_id)
+        at_bats = _fetch_risp_for_game(game_id, team_code)
         game_risp_count = 0
         game_at_bats = []
 
@@ -7252,11 +7298,11 @@ def _render_risp_html(data: dict, window_games: int, show_season: bool = False) 
 
 
 @router.get("/public/risp")
-def public_risp(request: Request, window_games: int = 5, view: str | None = None):
-    """広島の直近N試合の得点圏打率をYahoo Baseballテキスト速報から算出"""
+def public_risp(request: Request, window_games: int = 5, team: str = "広島", view: str | None = None):
+    """指定チームの直近N試合の得点圏打率をYahoo Baseballテキスト速報から算出"""
     try:
         window_games = max(1, min(window_games, 10))
-        data = _build_risp_data(window_games)
+        data = _build_risp_data(window_games, team_code=team)
         if _wants_html(request, view):
             show_season = (view == "season")
             return _render_risp_html(data, window_games, show_season=show_season)

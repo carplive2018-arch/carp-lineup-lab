@@ -4312,9 +4312,23 @@ def _common_nav(active_page: str = "", window_games: int = 5, team_code: str = "
           <select id="team-selector" class="team-select">
             {options_html}
           </select>
-          <button class="nav-btn" style="background:#ffd54a;color:#06100a;border-color:#ffd54a;font-weight:800;cursor:pointer;" onclick="(function(){{var u=new URL(window.location.href);u.searchParams.set('team',document.getElementById('team-selector').value);window.location.href=u.toString()}})()">切替</button>
+          <button id="team-switch-btn" class="nav-btn" style="background:#ffd54a;color:#06100a;border-color:#ffd54a;font-weight:800;cursor:pointer;">切替</button>
         </div>
-      </div>"""
+      </div>
+      <script>
+      (function() {{
+        var btn = document.getElementById('team-switch-btn');
+        if (btn) {{
+          btn.addEventListener('click', function() {{
+            var sel = document.getElementById('team-selector');
+            if (!sel) return;
+            var u = new URL(window.location.href);
+            u.searchParams.set('team', sel.value);
+            window.location.href = u.toString();
+          }});
+        }}
+      }})();
+      </script>"""
 
     nav_html = f"""
     <nav class="nav-bar">

@@ -3373,6 +3373,29 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
     .nav-divider {{
       display: none;
     }}
+    .team-select {{
+      display: inline-flex;
+      align-items: center;
+      color: #d8e4f8;
+      background: #0d1628;
+      border: 1px solid #2e4070;
+      border-radius: 5px;
+      padding: 4px 8px;
+      font-weight: 700;
+      font-size: 12px;
+      cursor: pointer;
+      flex-shrink: 0;
+      appearance: none;
+      -webkit-appearance: none;
+    }}
+    .team-select:hover {{
+      background: #172038;
+      border-color: #4a6090;
+    }}
+    .team-select option {{
+      background: #0d1628;
+      color: #d8e4f8;
+    }}
 
     /* ── ツールチップ（指標説明） ── */
     .tip-wrap {{
@@ -4242,7 +4265,7 @@ def _render_season_stats_html(active_page: str = "", window_games: int = 5, team
     return ""
 
 
-def _common_nav(active_page: str = "", window_games: int = 5) -> str:
+def _common_nav(active_page: str = "", window_games: int = 5, team_code: str = "広島") -> str:
     """全ページ共通ナビゲーションバー HTML を返す。
     active_page: 'recent-batting' / 'risp' / 'fielding' / 'war' /
                  'predicted-lineup-5t' / 'predicted-lineup-5f' /
@@ -4252,36 +4275,56 @@ def _common_nav(active_page: str = "", window_games: int = 5) -> str:
         cls = " active" if active_page == page_key else ""
         return f'<a class="nav-btn{cls}" href="{href}" data-prefetch="{href}">{label}</a>'
 
+    tc = team_code
     wg = window_games
+
+    # チーム選択ドロップダウン
+    all_teams = list(YAHOO_TEAM_ID.keys())
+    options_html = "".join(
+        f'<option value="{t}"{" selected" if t == tc else ""}>{t}</option>'
+        for t in all_teams
+    )
+    # 現在のページを維持しつつ team だけ変えるJS
+    team_selector_html = f"""
+      <div class="nav-section">
+        <span class="nav-label">球団</span>
+        <div class="nav-group">
+          <select id="team-selector" class="team-select" onchange="(function(){{var u=new URL(window.location.href);u.searchParams.set('team',this.value);window.location.href=u.toString()}}).call(this)">
+            {options_html}
+          </select>
+        </div>
+      </div>"""
+
     nav_html = f"""
     <nav class="nav-bar">
+      {team_selector_html}
       <div class="nav-section">
         <span class="nav-label">予想打順</span>
         <div class="nav-group">
-          {_a("5試合 DH有",  f"/public/predicted-lineup?window_games=5&use_dh=true",   "predicted-lineup-5t")}
-          {_a("5試合 DH無",  f"/public/predicted-lineup?window_games=5&use_dh=false",  "predicted-lineup-5f")}
-          {_a("10試合 DH有", f"/public/predicted-lineup?window_games=10&use_dh=true",  "predicted-lineup-10t")}
-          {_a("10試合 DH無", f"/public/predicted-lineup?window_games=10&use_dh=false", "predicted-lineup-10f")}
+          {_a("5試合 DH有",  f"/public/predicted-lineup?window_games=5&use_dh=true&team={tc}",   "predicted-lineup-5t")}
+          {_a("5試合 DH無",  f"/public/predicted-lineup?window_games=5&use_dh=false&team={tc}",  "predicted-lineup-5f")}
+          {_a("10試合 DH有", f"/public/predicted-lineup?window_games=10&use_dh=true&team={tc}",  "predicted-lineup-10t")}
+          {_a("10試合 DH無", f"/public/predicted-lineup?window_games=10&use_dh=false&team={tc}", "predicted-lineup-10f")}
         </div>
       </div>
       <div class="nav-section">
         <span class="nav-label">打撃</span>
         <div class="nav-group">
-          {_a("直近打撃",  f"/public/recent-batting?window_games={wg}", "recent-batting")}
-          {_a("得点圏",    f"/public/risp?window_games={wg}&view=html", "risp")}
+          {_a("直近打撃",  f"/public/recent-batting?window_games={wg}&team={tc}", "recent-batting")}
+          {_a("得点圏",    f"/public/risp?window_games={wg}&view=html&team={tc}", "risp")}
         </div>
       </div>
       <div class="nav-section">
         <span class="nav-label">指標</span>
         <div class="nav-group">
-          {_a("走塁・守備", "/public/fielding-baserunning", "fielding")}
-          {_a("WAR",       "/public/war-ranking",          "war")}
+          {_a("走塁・守備", f"/public/fielding-baserunning?team={tc}", "fielding")}
+          {_a("WAR",       f"/public/war-ranking?team={tc}",          "war")}
         </div>
       </div>
       <div class="nav-section">
         <span class="nav-label">試合</span>
         <div class="nav-group">
-          {_a("試合一覧", "/public/game-recap", "game-recap")}
+          {_a("試合一覧", f"/public/game-recap?team={tc}", "game-recap")}
         </div>
       </div>
     </nav>"""
@@ -4361,19 +4404,19 @@ def _render_recent_batting_html(data: dict, show_season: bool = False, team_code
         <div class="nav-section">
           <span class="nav-label">期間</span>
           <div class="nav-group">
-            <a class="nav-btn{_rb_cls(5)}"  href="/public/recent-batting?window_games=5">直近 5試合</a>
-            <a class="nav-btn{_rb_cls(10)}" href="/public/recent-batting?window_games=10">直近 10試合</a>
+            <a class="nav-btn{_rb_cls(5)}"  href="/public/recent-batting?window_games=5&team={team_code}">直近 5試合</a>
+            <a class="nav-btn{_rb_cls(10)}" href="/public/recent-batting?window_games=10&team={team_code}">直近 10試合</a>
           </div>
         </div>
         <div class="nav-section">
           <span class="nav-label">表示</span>
           <div class="nav-group">
-            <a class="nav-btn{'' if show_season else ' active'}" href="/public/recent-batting?window_games={wg}">直近</a>
-            <a class="nav-btn{' active' if show_season else ''}" href="/public/recent-batting?window_games={wg}&view=season">通算</a>
+            <a class="nav-btn{'' if show_season else ' active'}" href="/public/recent-batting?window_games={wg}&team={team_code}">直近</a>
+            <a class="nav-btn{' active' if show_season else ''}" href="/public/recent-batting?window_games={wg}&view=season&team={team_code}">通算</a>
           </div>
         </div>
       </div>
-      {_common_nav("recent-batting", wg)}
+      {_common_nav("recent-batting", wg, team_code)}
     </div>
 
     <div id="recent-content"{' style="display:none"' if show_season else ''}>
@@ -4413,7 +4456,7 @@ def _render_recent_batting_html(data: dict, show_season: bool = False, team_code
     return _html_page("直近打撃成績", body)
 
 
-def _render_predicted_lineup_html(data: dict) -> HTMLResponse:
+def _render_predicted_lineup_html(data: dict, team_code: str = "広島") -> HTMLResponse:
     lineup = data.get("lineup", [])
 
     # ── 打順行（1行レイアウト）を生成 ──
@@ -4819,7 +4862,7 @@ def _render_predicted_lineup_html(data: dict) -> HTMLResponse:
     <div class="hero">
       <h1>予想打順</h1>
       <div class="muted">DH {dh_str} / 直近 {wg} 試合ベース / 生成時刻 {escape(str(data.get("generated_at", "")))}</div>
-      {_common_nav("predicted-lineup-" + str(wg) + ("t" if dh else "f"), wg)}
+      {_common_nav("predicted-lineup-" + str(wg) + ("t" if dh else "f"), wg, team_code)}
     </div>
 
     <div class="lu-grid">
@@ -4873,7 +4916,7 @@ def public_predicted_lineup(
         data = _build_simple_predicted_lineup(window_games=window_games, use_dh=use_dh, team_code=team)
 
         if _wants_html(request, view):
-            return _render_predicted_lineup_html(data)
+            return _render_predicted_lineup_html(data, team_code=team)
 
         return _no_cache_json(data)
     except Exception as e:
@@ -5199,12 +5242,12 @@ def _render_fielding_baserunning_html(rows: list[dict], show_season: bool = Fals
         <div class="nav-section">
           <span class="nav-label">表示</span>
           <div class="nav-group">
-            <a class="nav-btn{'' if show_season else ' active'}" href="/public/fielding-baserunning">直近</a>
-            <a class="nav-btn{' active' if show_season else ''}" href="/public/fielding-baserunning?view=season">通算</a>
+            <a class="nav-btn{'' if show_season else ' active'}" href="/public/fielding-baserunning?team={team_code}">直近</a>
+            <a class="nav-btn{' active' if show_season else ''}" href="/public/fielding-baserunning?view=season&team={team_code}">通算</a>
           </div>
         </div>
       </div>
-      {_common_nav("fielding")}
+      {_common_nav("fielding", 5, team_code)}
     </div>
 
     <div id="recent-content"{' style="display:none"' if show_season else ''}>
@@ -5387,12 +5430,12 @@ def _render_war_ranking_html(rows: list[dict], show_season: bool = False, team_c
         <div class="nav-section">
           <span class="nav-label">表示</span>
           <div class="nav-group">
-            <a class="nav-btn{'' if show_season else ' active'}" href="/public/war-ranking">直近</a>
-            <a class="nav-btn{' active' if show_season else ''}" href="/public/war-ranking?view=season">通算</a>
+            <a class="nav-btn{'' if show_season else ' active'}" href="/public/war-ranking?team={team_code}">直近</a>
+            <a class="nav-btn{' active' if show_season else ''}" href="/public/war-ranking?view=season&team={team_code}">通算</a>
           </div>
         </div>
       </div>
-      {_common_nav("war")}
+      {_common_nav("war", 5, team_code)}
     </div>
 
     <div id="recent-content"{' style="display:none"' if show_season else ''}>
@@ -6029,19 +6072,19 @@ def _render_hot_batters_html(data: dict, show_season: bool = False, team_code: s
           <div class="nav-section">
             <span class="nav-label">期間</span>
             <div class="nav-group">
-              <a class="nav-btn{_wg_cls(5)}"  href="/public/hot-batters?window_games=5">直近 5試合</a>
-              <a class="nav-btn{_wg_cls(10)}" href="/public/hot-batters?window_games=10">直近 10試合</a>
+              <a class="nav-btn{_wg_cls(5)}"  href="/public/hot-batters?window_games=5&team={team_code}">直近 5試合</a>
+              <a class="nav-btn{_wg_cls(10)}" href="/public/hot-batters?window_games=10&team={team_code}">直近 10試合</a>
             </div>
           </div>
           <div class="nav-section">
             <span class="nav-label">表示</span>
             <div class="nav-group">
-              <a class="nav-btn{'' if show_season else ' active'}" href="/public/hot-batters?window_games={wg}">直近</a>
-              <a class="nav-btn{' active' if show_season else ''}" href="/public/hot-batters?window_games={wg}&view=season">通算</a>
+              <a class="nav-btn{'' if show_season else ' active'}" href="/public/hot-batters?window_games={wg}&team={team_code}">直近</a>
+              <a class="nav-btn{' active' if show_season else ''}" href="/public/hot-batters?window_games={wg}&view=season&team={team_code}">通算</a>
             </div>
           </div>
         </div>
-        {_common_nav("", wg)}
+        {_common_nav("", wg, team_code)}
       </div>
 
       <div id="recent-content"{' style="display:none"' if show_season else ''}>
@@ -6597,7 +6640,7 @@ def _build_game_recap_data(num_games: int = 10, team_code: str = "広島") -> di
     return result
 
 
-def _render_game_recap_html(data: dict) -> HTMLResponse:
+def _render_game_recap_html(data: dict, team_code: str = "広島") -> HTMLResponse:
     games       = data.get("games", [])
     generated_at = data.get("generated_at", "")
 
@@ -6744,8 +6787,8 @@ def _render_game_recap_html(data: dict) -> HTMLResponse:
 
     <div class="hero">
       <h1>試合一覧</h1>
-      <div class="muted">広島東洋カープ 直近試合 / 生成 {generated_at}</div>
-      {_common_nav("game-recap")}
+      <div class="muted">{escape(str(data.get("team_name", team_code)))} 直近試合 / 生成 {generated_at}</div>
+      {_common_nav("game-recap", 5, team_code)}
     </div>
 
     <div class="card">
@@ -6762,7 +6805,7 @@ def public_game_recap(request: Request, team: str = "広島", view: str | None =
     try:
         data = _build_game_recap_data(num_games=10, team_code=team)
         if _wants_html(request, view):
-            return _render_game_recap_html(data)
+            return _render_game_recap_html(data, team_code=team)
         return _no_cache_json(data)
     except Exception as e:
         return JSONResponse(
@@ -7351,20 +7394,20 @@ def _render_risp_html(data: dict, window_games: int, show_season: bool = False, 
         <div class="nav-section">
           <span class="nav-label">試合数</span>
           <div class="nav-group">
-            <a class="nav-btn{'active' if window_games==3 else ''}" href="/public/risp?window_games=3&view=html">直近3試合</a>
-            <a class="nav-btn {'active' if window_games==5 else ''}" href="/public/risp?window_games=5&view=html">直近5試合</a>
-            <a class="nav-btn {'active' if window_games==10 else ''}" href="/public/risp?window_games=10&view=html">直近10試合</a>
+            <a class="nav-btn{'active' if window_games==3 else ''}" href="/public/risp?window_games=3&view=html&team={team_code}">直近3試合</a>
+            <a class="nav-btn {'active' if window_games==5 else ''}" href="/public/risp?window_games=5&view=html&team={team_code}">直近5試合</a>
+            <a class="nav-btn {'active' if window_games==10 else ''}" href="/public/risp?window_games=10&view=html&team={team_code}">直近10試合</a>
           </div>
         </div>
         <div class="nav-section">
           <span class="nav-label">表示</span>
           <div class="nav-group">
-            <a class="nav-btn{'' if show_season else ' active'}" href="/public/risp?window_games={window_games}&view=html">直近</a>
-            <a class="nav-btn{' active' if show_season else ''}" href="/public/risp?window_games={window_games}&view=season">通算</a>
+            <a class="nav-btn{'' if show_season else ' active'}" href="/public/risp?window_games={window_games}&view=html&team={team_code}">直近</a>
+            <a class="nav-btn{' active' if show_season else ''}" href="/public/risp?window_games={window_games}&view=season&team={team_code}">通算</a>
           </div>
         </div>
       </div>
-      {_common_nav("risp", window_games)}
+      {_common_nav("risp", window_games, team_code)}
     </div>
 
     <div id="recent-content"{' style="display:none"' if show_season else ''}>

@@ -4789,14 +4789,15 @@ def public_predicted_lineup(
 # 走塁・守備指標 / WAR一覧  共通データ取得
 # ─────────────────────────────────────────────
 
-def _build_advanced_stats_rows() -> list[dict]:
+def _build_advanced_stats_rows(team_code: str = "広島") -> list[dict]:
     """
     npbbasement の今シーズン通算データから
     走塁指標・守備指標・WAR を選手ごとに集約して返す。
-    PLAYER_PROFILE に登録済みの野手のみ対象。
+    _get_player_profile(team_code) に登録済みの野手のみ対象。
+    npbbasement は全球団データを1ページに掲載しているため URL 変更不要。
     """
     players = _load_npbbasement_players()
-    profile_names = set(_get_player_profile().keys())
+    profile_names = set(_get_player_profile(team_code).keys())
 
     # normalized_name -> canonical_profile_name のマップ
     norm_to_profile: dict[str, str] = {
@@ -4915,13 +4916,14 @@ def _build_advanced_stats_rows() -> list[dict]:
     return rows
 
 
-def _get_advanced_stats_rows() -> list[dict]:
+def _get_advanced_stats_rows(team_code: str = "広島") -> list[dict]:
     """キャッシュ付き advanced stats 取得（12時間）"""
-    cache_entry = CACHE.get("advanced_stats", {})
+    cache_key = f"advanced_stats:{team_code}"
+    cache_entry = CACHE.get(cache_key, {})
     if _cache_alive(cache_entry) and cache_entry.get("value"):
         return cache_entry["value"]
-    rows = _build_advanced_stats_rows()
-    CACHE["advanced_stats"] = {
+    rows = _build_advanced_stats_rows(team_code)
+    CACHE[cache_key] = {
         "value": rows,
         "expires_at": _cache_now() + CACHE_TTL_PLAYER_DEFENSE,  # 12h
     }
@@ -5366,9 +5368,9 @@ def _make_sort_script(table_ids: list[str]) -> str:
 # ─────────────────────────────────────────────
 
 @router.get("/public/fielding-baserunning")
-def public_fielding_baserunning(request: Request, view: str | None = None):
+def public_fielding_baserunning(request: Request, team: str = "広島", view: str | None = None):
     try:
-        rows = _get_advanced_stats_rows()
+        rows = _get_advanced_stats_rows(team_code=team)
         if _wants_html(request, view):
             show_season = (view == "season")
             return _render_fielding_baserunning_html(rows, show_season=show_season)
@@ -5385,9 +5387,9 @@ def public_fielding_baserunning(request: Request, view: str | None = None):
 
 
 @router.get("/public/war-ranking")
-def public_war_ranking(request: Request, view: str | None = None):
+def public_war_ranking(request: Request, team: str = "広島", view: str | None = None):
     try:
-        rows = _get_advanced_stats_rows()
+        rows = _get_advanced_stats_rows(team_code=team)
         if _wants_html(request, view):
             show_season = (view == "season")
             return _render_war_ranking_html(rows, show_season=show_season)

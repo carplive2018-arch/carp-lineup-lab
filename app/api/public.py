@@ -4308,10 +4308,11 @@ def _common_nav(active_page: str = "", window_games: int = 5, team_code: str = "
     team_selector_html = f"""
       <div class="nav-section">
         <span class="nav-label">球団</span>
-        <div class="nav-group">
-          <select id="team-selector" class="team-select" onchange="(function(){{var u=new URL(window.location.href);u.searchParams.set('team',this.value);window.location.href=u.toString()}}).call(this)">
+        <div class="nav-group" style="display:flex;gap:4px;align-items:center;">
+          <select id="team-selector" class="team-select">
             {options_html}
           </select>
+          <button class="nav-btn" style="background:#ffd54a;color:#06100a;border-color:#ffd54a;font-weight:800;cursor:pointer;" onclick="(function(){{var u=new URL(window.location.href);u.searchParams.set('team',document.getElementById('team-selector').value);window.location.href=u.toString()}})()">切替</button>
         </div>
       </div>"""
 

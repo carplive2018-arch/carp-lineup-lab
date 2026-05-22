@@ -138,6 +138,38 @@ NPB_RESULTS_TEAM_CODE: dict[str, str] = {
 # NPB.jp 二軍打撃成績URLのチームコード（広島と同じ形式）
 NPB_FARM_STATS_CODE: dict[str, str] = NPB_RESULTS_TEAM_CODE  # 同じコード体系
 
+# NPB.jp 出場選手登録ページ内のチーム正式名ブロック（team_code → 正式名）
+NPB_ROSTER_TEAM_FULLNAME: dict[str, str] = {
+    "広島":       "広島東洋カープ",
+    "阪神":       "阪神タイガース",
+    "巨人":       "読売ジャイアンツ",
+    "DeNA":       "横浜DeNAベイスターズ",
+    "中日":       "中日ドラゴンズ",
+    "ヤクルト":   "東京ヤクルトスワローズ",
+    "ソフトバンク": "福岡ソフトバンクホークス",
+    "西武":       "埼玉西武ライオンズ",
+    "楽天":       "東北楽天ゴールデンイーグルス",
+    "ロッテ":     "千葉ロッテマリーンズ",
+    "オリックス": "オリックス・バファローズ",
+    "日本ハム":   "北海道日本ハムファイターズ",
+}
+
+# proran.jp チーム別打者一覧URLのチームコード（team_code → proran t= パラメータ）
+PRORAN_TEAM_CODE: dict[str, str] = {
+    "広島":       "_c",
+    "阪神":       "_t",
+    "巨人":       "_g",
+    "DeNA":       "_db",
+    "中日":       "_d",
+    "ヤクルト":   "_s",
+    "ソフトバンク": "_h",
+    "西武":       "_l",
+    "楽天":       "_e",
+    "ロッテ":     "_m",
+    "オリックス": "_b",
+    "日本ハム":   "_f",
+}
+
 LAST_FIXED_FIRST_TEAM_POSITION_PLAYERS = {
     "坂倉 将吾",
     "石原 貴規",
@@ -992,9 +1024,14 @@ def _extract_proran_position_table(html_text: str) -> dict[str, dict[str, float]
     return result
 
 
-@lru_cache(maxsize=1)
-def _discover_proran_player_ids() -> dict[str, str]:
-    html = _fetch_text(PRORAN_TEAM_BATTERS_URL)
+@lru_cache(maxsize=16)
+def _discover_proran_player_ids(team_code: str = "広島") -> dict[str, str]:
+    """proran.jp のチーム別打者一覧ページから {正規化選手名: proran_id} マップを返す。
+    team_code を引数に持つことで lru_cache のキーがチーム別に自動分離される。
+    """
+    proran_code = PRORAN_TEAM_CODE.get(team_code, "_c")
+    url = f"https://proran.jp/team_detail_b.php?t={proran_code}"
+    html = _fetch_text(url)
     result: dict[str, str] = {}
 
     patterns = [
@@ -1022,15 +1059,15 @@ def _discover_proran_player_ids() -> dict[str, str]:
             if canonical:
                 result[_normalize_player_name(canonical)] = player_id
 
-    print("DEBUG_PRORAN_PLAYER_IDS_COUNT", len(result))
+    print(f"DEBUG_PRORAN_PLAYER_IDS_COUNT[{team_code}]", len(result))
     return result
 
 
-def _get_proran_player_ids() -> dict[str, str]:
+def _get_proran_player_ids(team_code: str = "広島") -> dict[str, str]:
     try:
-        return _discover_proran_player_ids()
+        return _discover_proran_player_ids(team_code)
     except Exception as e:
-        print("DEBUG_PRORAN_ID_ERROR", str(e))
+        print(f"DEBUG_PRORAN_ID_ERROR[{team_code}]", str(e))
         return {}
 
 
@@ -1045,13 +1082,13 @@ def _fetch_proran_position_batting(player_name: str, player_id: str) -> dict:
     return data
 
 
-def _build_season_position_batting_from_proran() -> dict:
+def _build_season_position_batting_from_proran(team_code: str = "広島") -> dict:
     result = {}
-    player_ids = _get_proran_player_ids()
+    player_ids = _get_proran_player_ids(team_code)
 
     # 対象プレイヤーと player_id のペアを収集
     targets: list[tuple[str, str]] = []
-    for player_name in _get_player_profile().keys():
+    for player_name in _get_player_profile(team_code).keys():
         normalized_name = _normalize_player_name(player_name)
         player_id = player_ids.get(normalized_name)
         if player_id:
@@ -1064,7 +1101,7 @@ def _build_season_position_batting_from_proran() -> dict:
             position_stats = _fetch_proran_position_batting(player_name, player_id)
             return (player_name, position_stats or {})
         except Exception as e:
-            print("DEBUG_PRORAN_BUILD_ERROR", player_name, str(e))
+            print(f"DEBUG_PRORAN_BUILD_ERROR[{team_code}]", player_name, str(e))
             return (player_name, {})
 
     with ThreadPoolExecutor(max_workers=8) as executor:
@@ -1079,53 +1116,61 @@ def _build_season_position_batting_from_proran() -> dict:
     return result
 
 
-def _get_season_position_batting() -> dict:
-    global SEASON_POSITION_BATTING
+def _get_season_position_batting(team_code: str = "広島") -> dict:
+    """team_code 別のシーズン打撃成績（proran.jp）を返す。
+    team_code ごとにキャッシュエントリを分離して管理する。
+    """
+    cache_bucket = CACHE.setdefault("season_position_batting_v2", {})
+    cache_entry  = cache_bucket.get(team_code, {"value": None, "expires_at": 0})
 
-    cache_entry = CACHE.get("season_position_batting", {})
     if _cache_alive(cache_entry):
         cached_value = cache_entry.get("value")
         if isinstance(cached_value, dict):
             return cached_value
 
     # キャッシュ期限切れでも古いデータがあればすぐ返し、バックグラウンドで更新
-    stale = cache_entry.get("value") if cache_entry else None
+    stale = cache_entry.get("value")
     if stale and isinstance(stale, dict) and stale:
         def _bg_refresh():
             try:
-                data = _build_season_position_batting_from_proran()
+                data = _build_season_position_batting_from_proran(team_code)
                 if data and isinstance(data, dict):
-                    global SEASON_POSITION_BATTING
-                    SEASON_POSITION_BATTING = data
-                    CACHE["season_position_batting"] = {
+                    cache_bucket[team_code] = {
                         "expires_at": _cache_now() + CACHE_TTL_SEASON_POSITION_BATTING,
                         "value": data,
                     }
+                    # 広島の場合はグローバル変数も更新（後方互換）
+                    if team_code == "広島":
+                        global SEASON_POSITION_BATTING
+                        SEASON_POSITION_BATTING = data
             except Exception as e:
-                print("DEBUG_SEASON_POSITION_BATTING_BG_ERROR", str(e))
-        # 一時的に60秒延長して2重更新を防ぐ
-        CACHE["season_position_batting"]["expires_at"] = _cache_now() + 60
-        threading.Thread(target=_bg_refresh, daemon=True, name="bg-season-batting").start()
+                print(f"DEBUG_SEASON_POSITION_BATTING_BG_ERROR[{team_code}]", str(e))
+        # 一時的に60秒延長して二重更新を防ぐ
+        cache_bucket.setdefault(team_code, {})["expires_at"] = _cache_now() + 60
+        threading.Thread(target=_bg_refresh, daemon=True, name=f"bg-season-batting-{team_code}").start()
         return stale
 
     try:
-        data = _build_season_position_batting_from_proran()
+        data = _build_season_position_batting_from_proran(team_code)
         if not isinstance(data, dict):
             data = {}
     except Exception as e:
-        print("DEBUG_SEASON_POSITION_BATTING_ERROR", str(e))
+        print(f"DEBUG_SEASON_POSITION_BATTING_ERROR[{team_code}]", str(e))
         data = {}
 
     if data:
-        SEASON_POSITION_BATTING = data
-        CACHE["season_position_batting"] = {
+        cache_bucket[team_code] = {
             "expires_at": _cache_now() + CACHE_TTL_SEASON_POSITION_BATTING,
             "value": data,
         }
+        if team_code == "広島":
+            global SEASON_POSITION_BATTING
+            SEASON_POSITION_BATTING = data
         return data
 
-    fallback = SEASON_POSITION_BATTING if isinstance(SEASON_POSITION_BATTING, dict) else {}
-    CACHE["season_position_batting"] = {
+    # 広島のフォールバック: グローバル変数を使用
+    fallback = SEASON_POSITION_BATTING if (team_code == "広島" and isinstance(SEASON_POSITION_BATTING, dict)) else {}
+    cache_bucket[team_code] = {
         "expires_at": _cache_now() + 60,
         "value": fallback,
     }
@@ -1200,13 +1245,17 @@ def _load_npbbasement_players() -> list[dict]:
         return []
 
 
-def _build_player_defense_from_npbbasement() -> dict:
+def _build_player_defense_from_npbbasement(team_code: str = "広島") -> dict:
+    """npbbasement の守備指標から team_code に属する選手だけ抽出して返す。
+    npbbasement は全球団データを1ページに持つため URL 変更不要。
+    _get_player_profile(team_code) のキーでフィルタするだけで全球団対応できる。
+    """
     result = {}
     players = _load_npbbasement_players()
 
     normalized_profile_names = {
         _normalize_player_name(name): name
-        for name in _get_player_profile().keys()
+        for name in _get_player_profile(team_code).keys()
     }
 
     for player in players:
@@ -1228,57 +1277,70 @@ def _build_player_defense_from_npbbasement() -> dict:
     return result
 
 
-def _get_player_defense() -> dict[str, dict[str, float]]:
-    global PLAYER_DEFENSE
+def _get_player_defense(team_code: str = "広島") -> dict[str, dict[str, float]]:
+    """team_code 別の守備指標を返す。
+    npbbasement は全球団1ページなので、キャッシュキーに team_code を含めて管理する。
+    """
+    cache_bucket = CACHE.setdefault("player_defense_v2", {})
+    cache_entry  = cache_bucket.get(team_code, {"value": None, "expires_at": 0})
 
-    cache_entry = CACHE.get("player_defense", {})
     if _cache_alive(cache_entry) and cache_entry.get("value"):
         return cache_entry["value"]
 
     # キャッシュ期限切れでも古いデータがあればすぐ返し、バックグラウンドで更新
-    stale = cache_entry.get("value") if cache_entry else None
+    stale = cache_entry.get("value")
     if stale and isinstance(stale, dict) and stale:
         def _bg_refresh_defense():
             try:
-                data = _build_player_defense_from_npbbasement()
+                data = _build_player_defense_from_npbbasement(team_code)
                 if data:
-                    global PLAYER_DEFENSE
-                    PLAYER_DEFENSE = data
-                    CACHE["player_defense"] = {
+                    cache_bucket[team_code] = {
                         "expires_at": _cache_now() + CACHE_TTL_PLAYER_DEFENSE,
                         "value": data,
                     }
+                    if team_code == "広島":
+                        global PLAYER_DEFENSE
+                        PLAYER_DEFENSE = data
             except Exception as e:
-                print("DEBUG_PLAYER_DEFENSE_BG_ERROR", str(e))
-        CACHE["player_defense"]["expires_at"] = _cache_now() + 60
-        threading.Thread(target=_bg_refresh_defense, daemon=True, name="bg-player-defense").start()
+                print(f"DEBUG_PLAYER_DEFENSE_BG_ERROR[{team_code}]", str(e))
+        cache_bucket.setdefault(team_code, {})["expires_at"] = _cache_now() + 60
+        threading.Thread(target=_bg_refresh_defense, daemon=True, name=f"bg-player-defense-{team_code}").start()
         return stale
 
     try:
-        data = _build_player_defense_from_npbbasement()
+        data = _build_player_defense_from_npbbasement(team_code)
         if not data:
-            data = dict(PLAYER_DEFENSE_FALLBACK)
+            # 広島のみフォールバック定数を持つ
+            data = dict(PLAYER_DEFENSE_FALLBACK) if team_code == "広島" else {}
     except Exception:
-        data = dict(PLAYER_DEFENSE_FALLBACK)
+        data = dict(PLAYER_DEFENSE_FALLBACK) if team_code == "広島" else {}
 
-    PLAYER_DEFENSE = data
-    CACHE["player_defense"] = {
+    cache_bucket[team_code] = {
         "expires_at": _cache_now() + CACHE_TTL_PLAYER_DEFENSE,
         "value": data,
     }
+    if team_code == "広島":
+        global PLAYER_DEFENSE
+        PLAYER_DEFENSE = data
     return data
-def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
-    global SEASON_POSITION_BATTING
+def _get_adjusted_position_batting(player_name: str, position: str, team_code: str = "広島") -> dict:
+    """player_name の position での打撃成績をベイズ補正して返す。
+    team_code 別のキャッシュから取得し、なければ proran から即時フェッチする。
+    """
+    # team_code 別キャッシュを参照
+    cache_bucket = CACHE.setdefault("season_position_batting_v2", {})
+    season_data: dict = cache_bucket.get(team_code, {}).get("value") or {}
 
-    if not isinstance(SEASON_POSITION_BATTING, dict) or not SEASON_POSITION_BATTING:
-        SEASON_POSITION_BATTING = _get_season_position_batting() or {}
+    # キャッシュが空なら同期ロード（初回のみ）
+    if not season_data:
+        season_data = _get_season_position_batting(team_code) or {}
 
     canonical_name = _canonical_player_name(player_name)
     normalized_name = _normalize_player_name(canonical_name)
 
     player_stats = (
-        SEASON_POSITION_BATTING.get(canonical_name)
-        or SEASON_POSITION_BATTING.get(normalized_name)
+        season_data.get(canonical_name)
+        or season_data.get(normalized_name)
         or {}
     )
 
@@ -1299,7 +1361,7 @@ def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
         }
 
     if not player_stats:
-        player_ids = _get_proran_player_ids()
+        player_ids = _get_proran_player_ids(team_code)
         player_id = player_ids.get(normalized_name)
 
         if player_id:
@@ -1307,22 +1369,23 @@ def _get_adjusted_position_batting(player_name: str, position: str) -> dict:
                 fetched = _fetch_proran_position_batting(canonical_name, player_id)
 
                 if fetched:
-                    SEASON_POSITION_BATTING[canonical_name] = fetched
-                    SEASON_POSITION_BATTING[normalized_name] = fetched
+                    season_data[canonical_name] = fetched
+                    season_data[normalized_name] = fetched
                     player_stats = fetched
                 else:
                     empty_marker = {"__empty__": True}
-                    SEASON_POSITION_BATTING[canonical_name] = empty_marker
-                    SEASON_POSITION_BATTING[normalized_name] = empty_marker
+                    season_data[canonical_name] = empty_marker
+                    season_data[normalized_name] = empty_marker
                     player_stats = empty_marker
 
-                CACHE["season_position_batting"] = {
-                    "value": dict(SEASON_POSITION_BATTING),
-                    "expires_at": _cache_now() + 60,
-                }
+                # キャッシュを更新（既存エントリがあれば value だけ差し替え）
+                entry = cache_bucket.setdefault(team_code, {"value": {}, "expires_at": 0})
+                entry["value"] = season_data
+                if entry["expires_at"] < _cache_now():
+                    entry["expires_at"] = _cache_now() + 60
 
             except Exception as e:
-                print("DEBUG_PRORAN_FETCH_ERROR", canonical_name, str(e))
+                print(f"DEBUG_PRORAN_FETCH_ERROR[{team_code}]", canonical_name, str(e))
                 player_stats = {}
 
     if player_stats.get("__empty__"):
@@ -1481,71 +1544,78 @@ def _find_farm_batting_table(tables: list[list[list[str]]]) -> list[list[str]]:
     return []
 
 
-@lru_cache(maxsize=1)
-def _fetch_current_first_team_position_players() -> set[str]:
-    """NPB公示「出場選手登録名簿」ページから広島の現在の一軍登録選手を取得する。
+@lru_cache(maxsize=16)
+def _fetch_current_first_team_position_players(team_code: str = "広島") -> set[str]:
+    """NPB公示「出場選手登録名簿」ページから指定球団の一軍登録選手を取得する。
 
     ページ構造:
-      - ページ上部: 当日の登録/抹消情報（広島枠は当日変更があった選手のみ）
+      - ページ上部: 当日の登録/抹消情報（当日変更があった選手のみ）
       - ページ下部: 「出場選手一覧」セクション（全球団の全登録選手を掲載）
-    → 「出場選手一覧」セクション内の広島ブロックを優先的に取得する。
+    → 「出場選手一覧」セクション内の球団ブロックを優先的に取得する。
 
     他球団の同姓選手との誤マッチを防ぐため姓のみ(2文字以下)のエイリアスはスキップ。
     PLAYER_PROFILE 登録済み選手名のみを返す（eligible_positions が保証されるため）。
     """
+    team_fullname = NPB_ROSTER_TEAM_FULLNAME.get(team_code, "広島東洋カープ")
+    team_fullname_esc = re.escape(team_fullname)
+
     try:
         html = _fetch_html(FIRST_TEAM_MEMBERS_URL)
         text = _clean_text(html)
         normalized = text.replace(" ", "").replace("　", "")
 
-        # ── ① 「出場選手一覧」セクション内の広島ブロックを優先取得 ──
-        # ページ下部の全登録選手一覧から広島東洋カープブロックを切り出す
+        # ── ① 「出場選手一覧」セクション内の対象球団ブロックを優先取得 ──
         block: str | None = None
         idx_list = normalized.find("出場選手一覧")
         if idx_list >= 0:
             after_list = normalized[idx_list:]
-            carp_match = re.search(
-                r"広島東洋カープ(.*?)以上\d+名",
+            team_match = re.search(
+                rf"{team_fullname_esc}(.*?)以上\d+名",
                 after_list,
                 re.DOTALL,
             )
-            if carp_match:
-                block = carp_match.group(1)
-                print(f"DEBUG_FIRST_TEAM: 出場選手一覧セクションから広島ブロック取得 ({len(block)}文字)")
+            if team_match:
+                block = team_match.group(1)
+                print(f"DEBUG_FIRST_TEAM[{team_code}]: 出場選手一覧セクションから取得 ({len(block)}文字)")
 
-        # ── ② フォールバック: ページ先頭からの広島ブロック（当日変更のみ掲載の場合もある） ──
+        # ── ② フォールバック: ページ先頭からのブロック ──
         if not block:
-            carp_match = re.search(
-                r"広島東洋カープ(.*?)以上\d*名",
+            team_match = re.search(
+                rf"{team_fullname_esc}(.*?)以上\d*名",
                 normalized,
                 re.DOTALL,
             )
-            if carp_match:
-                block = carp_match.group(1)
-                print(f"DEBUG_FIRST_TEAM: フォールバック(先頭ブロック)から広島ブロック取得 ({len(block)}文字)")
+            if team_match:
+                block = team_match.group(1)
+                print(f"DEBUG_FIRST_TEAM[{team_code}]: フォールバック(先頭ブロック) ({len(block)}文字)")
 
-        # ── ③ フォールバック: 次球団名まで ──
+        # ── ③ フォールバック: 次の球団名まで ──
         if not block:
-            carp_match = re.search(
-                r"広島東洋カープ(.*?)"
-                r"(?:東京ヤクルト|中日ドラゴンズ|読売ジャイアンツ"
-                r"|横浜DeNA|阪神タイガース|福岡ソフトバンク|埼玉西武"
-                r"|千葉ロッテ|オリックス|東北楽天|北海道日本ハム)",
+            # 全球団正式名リストをパイプ接続して「次球団まで」の正規表現を構築
+            other_fullnames = [
+                re.escape(fn)
+                for tc, fn in NPB_ROSTER_TEAM_FULLNAME.items()
+                if tc != team_code
+            ]
+            others_pat = "|".join(other_fullnames)
+            team_match = re.search(
+                rf"{team_fullname_esc}(.*?)(?:{others_pat})",
                 normalized,
                 re.DOTALL,
             )
-            if carp_match:
-                block = carp_match.group(1)
-                print(f"DEBUG_FIRST_TEAM: フォールバック(次球団名区切り)から広島ブロック取得 ({len(block)}文字)")
+            if team_match:
+                block = team_match.group(1)
+                print(f"DEBUG_FIRST_TEAM[{team_code}]: フォールバック(次球団名区切り) ({len(block)}文字)")
 
         if not block:
-            print("DEBUG_FIRST_TEAM_BLOCK_NOT_FOUND")
-            return set(LAST_FIXED_FIRST_TEAM_POSITION_PLAYERS)
+            print(f"DEBUG_FIRST_TEAM_BLOCK_NOT_FOUND[{team_code}]")
+            # 広島のみハードコードフォールバックを持つ
+            return set(LAST_FIXED_FIRST_TEAM_POSITION_PLAYERS) if team_code == "広島" else set()
 
-        # PLAYER_PROFILE 登録済み選手と広島ブロック内でマッチング
+        # PLAYER_PROFILE 登録済み選手とブロック内でマッチング
         # 姓のみ（2文字以下）のエイリアスは他球団選手との誤マッチ防止のためスキップ
         result: set[str] = set()
-        for name in _get_player_profile().keys():
+        for name in _get_player_profile(team_code).keys():
             for alias in _name_aliases(name):
                 n = _normalize_name(alias)
                 if len(n) <= 2:
@@ -1554,22 +1624,23 @@ def _fetch_current_first_team_position_players() -> set[str]:
                     result.add(name)
                     break
 
-        print(f"DEBUG_FIRST_TEAM_FOUND {len(result)}名を公示ページから取得")
+        print(f"DEBUG_FIRST_TEAM_FOUND[{team_code}] {len(result)}名を公示ページから取得")
         if result:
             return result
     except Exception as e:
-        print("DEBUG_FIRST_TEAM_MEMBER_ERROR", str(e))
+        print(f"DEBUG_FIRST_TEAM_MEMBER_ERROR[{team_code}]", str(e))
 
-    return set(LAST_FIXED_FIRST_TEAM_POSITION_PLAYERS)
-def _get_active_first_team_position_players(now: datetime | None = None) -> set[str]:
-    """npb.jp の一軍打撃成績ページを常時参照して一軍登録選手を返す。
-    時刻制限なし（npb.jp の一軍成績ページは常に最新の登録選手を反映）。
-    取得失敗時は LAST_FIXED_FIRST_TEAM_POSITION_PLAYERS にフォールバック。
+    return set(LAST_FIXED_FIRST_TEAM_POSITION_PLAYERS) if team_code == "広島" else set()
+
+
+def _get_active_first_team_position_players(now: datetime | None = None, team_code: str = "広島") -> set[str]:
+    """npb.jp の一軍登録名簿ページを参照して一軍登録選手を返す。
+    取得失敗時は広島のみ LAST_FIXED_FIRST_TEAM_POSITION_PLAYERS にフォールバック。
     """
-    current = _fetch_current_first_team_position_players()
+    current = _fetch_current_first_team_position_players(team_code)
     if current:
         return set(current)
-    return set(LAST_FIXED_FIRST_TEAM_POSITION_PLAYERS)
+    return set(LAST_FIXED_FIRST_TEAM_POSITION_PLAYERS) if team_code == "広島" else set()
 
 
 def _is_recently_promoted(player_name: str, now: datetime | None = None) -> bool:
@@ -1586,13 +1657,15 @@ def _is_recently_promoted(player_name: str, now: datetime | None = None) -> bool
     return now < promoted_at + timedelta(days=PROMOTION_GRACE_DAYS)
 
 
-def _build_farm_score_maps() -> dict:
+def _build_farm_score_maps(team_code: str = "広島") -> dict:
     """二軍打撃成績ページの全選手（50PA以上）をスキャンしてスコアを算出する。
     candidate_names 縛りなし。選手名はページ記載の正規化名をそのまま使用。
     返り値の farm_score キーは正規化済み選手名 → スコア(float)。
     """
     try:
-        html = _fetch_html(FARM_BATTING_STATS_URL)
+        npb_code = NPB_FARM_STATS_CODE.get(team_code, "c")
+        farm_url = f"https://npb.jp/bis/{CURRENT_SEASON_YEAR}/stats/idb2_{npb_code}.html"
+        html = _fetch_html(farm_url)
         tables = _extract_tables(html)
         table = _find_farm_batting_table(tables)
 
@@ -1659,7 +1732,7 @@ def _build_farm_score_maps() -> dict:
         }
 
     except Exception as e:
-        print("DEBUG_FARM_SCORE_ERROR", str(e))
+        print(f"DEBUG_FARM_SCORE_ERROR[{team_code}]", str(e))
         return {
             "farm_score": {},
             "farm_pa": {},
@@ -2281,12 +2354,12 @@ def _get_prediction_candidate_names(now: datetime | None = None, team_code: str 
     now = now or _now_jst()
 
     # ① 一軍候補: メンバーページのみ参照
-    active_first_team = _get_active_first_team_position_players(now)
+    active_first_team = _get_active_first_team_position_players(now, team_code)
     candidates: list[str] = list(active_first_team)
 
     # ② 二軍候補: 50PA以上の全選手からスコア最上位1名を選出
     #    ただし一軍登録済み選手はスキップし、純粋な二軍選手のみを対象とする
-    farm_maps = _build_farm_score_maps()
+    farm_maps = _build_farm_score_maps(team_code)
     farm_score = farm_maps.get("farm_score", {})
 
     if farm_score:
@@ -2311,9 +2384,9 @@ def _get_prediction_candidate_names(now: datetime | None = None, team_code: str 
 
     return candidates
 
-def _defense_value_for(name: str, position: str = "", defense_map: dict | None = None) -> float:
+def _defense_value_for(name: str, position: str = "", defense_map: dict | None = None, team_code: str = "広島") -> float:
     canonical_name = _canonical_player_name(name)
-    defense_map = defense_map or _get_player_defense()
+    defense_map = defense_map or _get_player_defense(team_code)
 
     player_def = (
         defense_map.get(canonical_name)
@@ -2339,6 +2412,7 @@ def _slot_score(
     slot_def: dict,
     recent_map: dict[str, dict],
     defense_map: dict,
+    team_code: str = "広島",
 ) -> tuple[float, dict, dict, float]:
     """打順スロット専用スコア計算。
     weights キー: recent_obp / recent_iso / season_obp / season_iso / defense
@@ -2352,7 +2426,7 @@ def _slot_score(
         "adj_obp": NPB_LEAGUE_AVG_OBP, "adj_iso": NPB_LEAGUE_AVG_ISO,
         "reliability": 0.0, "raw": {},
     })
-    season_pos = _get_adjusted_position_batting(canonical_name, position)
+    season_pos = _get_adjusted_position_batting(canonical_name, position, team_code)
     defense    = _defense_value_for(canonical_name, position, defense_map)
 
     # ── スコア計算はベイズ収縮済み値を使用 ──
@@ -2831,8 +2905,8 @@ def _build_simple_predicted_lineup(window_games: int, use_dh: bool, team_code: s
 
 def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: dict, cache_key: str, team_code: str = "広島") -> dict:
     slot_defs = DH_LINEUP_SLOTS if use_dh else NO_DH_LINEUP_SLOTS
-    recent_map    = _recent_snapshot_map(window_games, team_code)
-    defense_map   = _get_player_defense()
+    recent_map      = _recent_snapshot_map(window_games, team_code)
+    defense_map     = _get_player_defense(team_code)
     candidate_names = _get_prediction_candidate_names(team_code=team_code)
 
     # ── 全候補の指標を事前集計してランキングを作る ──
@@ -2847,7 +2921,7 @@ def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: di
         eligible = (_get_player_profile(team_code).get(cname) or {}).get("eligible_positions", [])
         best_s_obp, best_s_iso = 0.0, 0.0
         for pos in eligible:
-            sp = _get_adjusted_position_batting(cname, pos)
+            sp = _get_adjusted_position_batting(cname, pos, team_code)
             best_s_obp = max(best_s_obp, float(sp.get("obp", 0.0) or 0.0))
             best_s_iso = max(best_s_iso, float(sp.get("iso", 0.0) or 0.0))
         all_stats_for_rank.append({
@@ -2900,7 +2974,7 @@ def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: di
 
             for position in available_positions:
                 score, recent, season_pos, defense = _slot_score(
-                    canonical_name, position, slot_def, recent_map, defense_map,
+                    canonical_name, position, slot_def, recent_map, defense_map, team_code,
                 )
                 # -inf はハードカット（min_adj_iso 未達）→ このポジション/スロットは不適格
                 if math.isinf(score) and score < 0:
@@ -2954,7 +3028,7 @@ def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: di
                 best_defense    = 0.0
                 for position in available_positions:
                     score, recent, season_pos, defense = _slot_score(
-                        canonical_name, position, fallback_slot, recent_map, defense_map,
+                        canonical_name, position, fallback_slot, recent_map, defense_map, team_code,
                     )
                     if math.isinf(score) and score < 0:
                         continue
@@ -3832,7 +3906,7 @@ def _th_tip(label: str, col_class: str = "") -> str:
     )
 
 
-def _render_season_stats_html(active_page: str = "", window_games: int = 5) -> str:
+def _render_season_stats_html(active_page: str = "", window_games: int = 5, team_code: str = "広島") -> str:
     """今シーズン通算成績テーブルHTML（全ページ共通カード）。
 
     active_page に応じて表示するテーブルを切り替える：
@@ -3852,12 +3926,12 @@ def _render_season_stats_html(active_page: str = "", window_games: int = 5) -> s
 
     # ── 打撃通算（recent-batting / risp 用）──
     if active_page in ("recent-batting", "risp"):
-        season_data = _get_season_position_batting()
-        adv_rows    = _get_advanced_stats_rows()
+        season_data = _get_season_position_batting(team_code)
+        adv_rows    = _get_advanced_stats_rows(team_code)
 
         # 選手ごとに「全ポジション中で最もPAが多い打撃成績」を集約
         seen: dict[str, dict] = {}
-        for player_name in _get_player_profile().keys():
+        for player_name in _get_player_profile(team_code).keys():
             cname = _canonical_player_name(player_name)
             if cname in seen:
                 continue
@@ -4034,11 +4108,11 @@ def _render_season_stats_html(active_page: str = "", window_games: int = 5) -> s
 
     # ── ホットバッター通算（hot-batters 用）──
     if active_page == "hot-batters":
-        season_data = _get_season_position_batting()
-        adv_rows    = _get_advanced_stats_rows()
+        season_data = _get_season_position_batting(team_code)
+        adv_rows    = _get_advanced_stats_rows(team_code)
 
         seen: dict[str, dict] = {}
-        for player_name in _get_player_profile().keys():
+        for player_name in _get_player_profile(team_code).keys():
             cname = _canonical_player_name(player_name)
             if cname in seen:
                 continue
@@ -4214,7 +4288,7 @@ def _common_nav(active_page: str = "", window_games: int = 5) -> str:
     return nav_html
 
 
-def _render_recent_batting_html(data: dict, show_season: bool = False) -> HTMLResponse:
+def _render_recent_batting_html(data: dict, show_season: bool = False, team_code: str = "広島") -> HTMLResponse:
     rows_html = []
 
     for row in data.get("players", []):
@@ -4335,7 +4409,7 @@ def _render_recent_batting_html(data: dict, show_season: bool = False) -> HTMLRe
     {_make_sort_script(["batting-table"])}
     """
     if show_season:
-        body += _render_season_stats_html("recent-batting", wg)
+        body += _render_season_stats_html("recent-batting", wg, team_code)
     return _html_page("直近打撃成績", body)
 
 
@@ -4773,7 +4847,7 @@ def public_recent_batting(request: Request, window_games: int = 5, team: str = "
 
         if _wants_html(request, view):
             show_season = (view == "season")
-            return _render_recent_batting_html(data, show_season=show_season)
+            return _render_recent_batting_html(data, show_season=show_season, team_code=team)
 
         return _no_cache_json(data)
     except Exception as e:
@@ -4974,7 +5048,7 @@ def _fmt(v: float | None, fmt: str = ".2f", plus: bool = False) -> str:
     return f'<span style="color:{color}">{s}</span>' if color else s
 
 
-def _render_fielding_baserunning_html(rows: list[dict], show_season: bool = False) -> HTMLResponse:
+def _render_fielding_baserunning_html(rows: list[dict], show_season: bool = False, team_code: str = "広島") -> HTMLResponse:
 
     # ── 走塁テーブル行 ──
     run_rows_html = []
@@ -5184,7 +5258,7 @@ def _render_fielding_baserunning_html(rows: list[dict], show_season: bool = Fals
     </script>
     """
     if show_season:
-        body += _render_season_stats_html("fielding")
+        body += _render_season_stats_html("fielding", team_code=team_code)
     return _html_page("走塁・守備指標", body)
 
 
@@ -5218,7 +5292,7 @@ def _war_chart_html(rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _render_war_ranking_html(rows: list[dict], show_season: bool = False) -> HTMLResponse:
+def _render_war_ranking_html(rows: list[dict], show_season: bool = False, team_code: str = "広島") -> HTMLResponse:
 
     war_rows_html = []
     for r in rows:
@@ -5346,7 +5420,7 @@ def _render_war_ranking_html(rows: list[dict], show_season: bool = False) -> HTM
     {_make_sort_script(["war-table"])}
     """
     if show_season:
-        body += _render_season_stats_html("war")
+        body += _render_season_stats_html("war", team_code=team_code)
     return _html_page("WAR一覧", body)
 
 
@@ -5401,7 +5475,7 @@ def public_fielding_baserunning(request: Request, team: str = "広島", view: st
         rows = _get_advanced_stats_rows(team_code=team)
         if _wants_html(request, view):
             show_season = (view == "season")
-            return _render_fielding_baserunning_html(rows, show_season=show_season)
+            return _render_fielding_baserunning_html(rows, show_season=show_season, team_code=team)
         return _no_cache_json({"players": rows})
     except Exception as e:
         return JSONResponse(
@@ -5420,7 +5494,7 @@ def public_war_ranking(request: Request, team: str = "広島", view: str | None 
         rows = _get_advanced_stats_rows(team_code=team)
         if _wants_html(request, view):
             show_season = (view == "season")
-            return _render_war_ranking_html(rows, show_season=show_season)
+            return _render_war_ranking_html(rows, show_season=show_season, team_code=team)
         return _no_cache_json({"players": rows})
     except Exception as e:
         return JSONResponse(
@@ -5645,7 +5719,7 @@ def _build_hot_batters_data(window_games: int = 5, team_code: str = "広島") ->
     return result
 
 
-def _render_hot_batters_html(data: dict, show_season: bool = False) -> HTMLResponse:
+def _render_hot_batters_html(data: dict, show_season: bool = False, team_code: str = "広島") -> HTMLResponse:
     wg          = int(data.get("window_games", 5))
     avg_top     = data.get("avg_top")  or {}
     obp_top     = data.get("obp_top")  or {}
@@ -6018,7 +6092,7 @@ def _render_hot_batters_html(data: dict, show_season: bool = False) -> HTMLRespo
     """
 
     if show_season:
-        body += _render_season_stats_html("hot-batters", wg)
+        body += _render_season_stats_html("hot-batters", wg, team_code)
 
     return _html_page("ホットバッター", body)
 
@@ -6030,7 +6104,7 @@ def public_hot_batters(request: Request, window_games: int = 5, team: str = "広
         data = _build_hot_batters_data(window_games, team_code=team)
         if _wants_html(request, view):
             show_season = (view == "season")
-            return _render_hot_batters_html(data, show_season=show_season)
+            return _render_hot_batters_html(data, show_season=show_season, team_code=team)
         return _no_cache_json(data)
     except Exception as e:
         return JSONResponse(
@@ -7045,7 +7119,7 @@ def _fmt_avg(val) -> str:
     return str(val)
 
 
-def _render_risp_html(data: dict, window_games: int, show_season: bool = False) -> HTMLResponse:
+def _render_risp_html(data: dict, window_games: int, show_season: bool = False, team_code: str = "広島") -> HTMLResponse:
     """得点圏打率ページのHTML生成 — 3カラムランキング（得点圏打率・出塁率・打点）"""
     players    = data.get("players", [])
     games_found = data.get("games_found", 0)
@@ -7054,7 +7128,7 @@ def _render_risp_html(data: dict, window_games: int, show_season: bool = False) 
 
     # ─── 一軍登録選手セットを取得（正規化済み = スペース除去）───
     try:
-        active_set = _fetch_current_first_team_position_players()
+        active_set = _fetch_current_first_team_position_players(team_code)
         active_normalized = {_normalize_name(n) for n in active_set}
     except Exception:
         active_normalized = set()  # 取得失敗時はフィルタなし（全員表示）
@@ -7339,7 +7413,7 @@ def public_risp(request: Request, window_games: int = 5, team: str = "広島", v
         data = _build_risp_data(window_games, team_code=team)
         if _wants_html(request, view):
             show_season = (view == "season")
-            return _render_risp_html(data, window_games, show_season=show_season)
+            return _render_risp_html(data, window_games, show_season=show_season, team_code=team)
         return _no_cache_json(data)
     except Exception as e:
         return JSONResponse(
@@ -7502,8 +7576,9 @@ def warmup_cache() -> None:
     - 残り11球団はチームごとに独立したデーモンスレッドで並列実行
       各スレッドは player_profile → recent_games → recent_batting → predicted_lineup の順
       1チームの失敗が他チームに影響しないよう try/except を独立させている
-    - 共有リソース（_get_active_first_team_position_players, _get_player_defense,
-      _get_season_position_batting）は広島スレッドのみで実行（チーム非依存なので1回で十分）
+    - 共有リソース（_get_active_first_team_position_players）は広島スレッドのみで実行
+      _get_player_defense, _get_season_position_batting は team_code 別になったため
+      各球団の _warmup_team(tc) 内で個別に呼び出す
     """
 
     # --- チーム別ウォームアップ（全球団共通処理） ---
@@ -7531,6 +7606,20 @@ def warmup_cache() -> None:
             print(f"[warmup:{tc}] recent_batting error:", e)
 
         try:
+            # シーズン守備指標（team_code 別）
+            _get_player_defense(tc)
+            print(f"[warmup:{tc}] player_defense OK")
+        except Exception as e:
+            print(f"[warmup:{tc}] player_defense error:", e)
+
+        try:
+            # シーズン打撃成績（team_code 別）
+            _get_season_position_batting(tc)
+            print(f"[warmup:{tc}] season_position_batting OK")
+        except Exception as e:
+            print(f"[warmup:{tc}] season_position_batting error:", e)
+
+        try:
             # 予想打順（最も重いメイン処理）
             _build_simple_predicted_lineup(window_games=5, use_dh=True, team_code=tc)
             print(f"[warmup:{tc}] predicted_lineup OK")
@@ -7551,21 +7640,7 @@ def warmup_cache() -> None:
             except Exception as e:
                 print("[warmup] first_team error:", e)
 
-            # ② シーズン守備指標（npbbasement・チーム非依存）
-            try:
-                _get_player_defense()
-                print("[warmup] player_defense OK")
-            except Exception as e:
-                print("[warmup] player_defense error:", e)
-
-            # ③ シーズン打撃成績（proran 全選手・チーム非依存）
-            try:
-                _get_season_position_batting()
-                print("[warmup] season_position_batting OK")
-            except Exception as e:
-                print("[warmup] season_position_batting error:", e)
-
-            # ④〜⑥ 広島分を _warmup_team で実行
+            # ②③ 広島分を _warmup_team で実行（player_defense / season_position_batting も含む）
             _warmup_team("広島")
 
             print("[warmup] 広島 all done")

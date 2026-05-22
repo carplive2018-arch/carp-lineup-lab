@@ -649,8 +649,11 @@ def _build_player_profiles_from_npb(team_code: str = "広島") -> dict[str, dict
     try:
         html = _fetch_text("https://npb.jp/announcement/roster/")
         sections = re.split(r"(<h5[^>]*>.*?</h5>)", html, flags=re.DOTALL)
+        # 略称(team_code)または正式名(NPB_ROSTER_TEAM_FULLNAME)のどちらかがh5に含まれればマッチ
+        # 例: "巨人" は h5 に含まれないが "読売ジャイアンツ" は含まれる
+        team_fullname = NPB_ROSTER_TEAM_FULLNAME.get(team_code, team_code)
         for i, s in enumerate(sections):
-            if team_code in s and "<h5" in s:
+            if (team_code in s or team_fullname in s) and "<h5" in s:
                 if i + 1 < len(sections):
                     block = sections[i + 1]
                     rows = re.findall(r"<tr[^>]*>(.*?)</tr>", block, re.DOTALL)

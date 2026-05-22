@@ -1,7 +1,8 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import RedirectResponse
+from fastapi.responses import PlainTextResponse, RedirectResponse
 
 from app.api import public
 
@@ -27,3 +28,10 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok", "marker": "koidanshi-check-0511"}
+
+
+@app.get("/ads.txt", include_in_schema=False)
+def ads_txt():
+    ads_path = Path(__file__).parent.parent / "ads.txt"
+    content = ads_path.read_text(encoding="utf-8")
+    return PlainTextResponse(content=content, media_type="text/plain; charset=utf-8")

@@ -54,7 +54,23 @@ TEAM_NAME_TO_CODE = {
     "日本ハム": "f",
 }
 
-HOME_VENUE_KEYWORDS = ["マツダ"]
+HOME_VENUE_KEYWORDS = ["マツダ"]  # 広島デフォルト（広島固定各所で使用）
+
+# 球団別ホーム球場キーワード（試合結果ページの会場名からホーム/アウェーを判定）
+TEAM_HOME_VENUE_KEYWORDS: dict[str, list[str]] = {
+    "広島":       ["マツダ"],
+    "阪神":       ["甲子園"],
+    "巨人":       ["東京ドーム", "ドーム"],
+    "DeNA":       ["横浜", "ハマスタ"],
+    "中日":       ["ナゴヤ", "バンテリン"],
+    "ヤクルト":   ["明治神宮", "ジャパン"],
+    "ソフトバンク": ["ペイペイ", "福岡"],
+    "西武":       ["ベルーナ", "所沢"],
+    "楽天":       ["楽天", "みずほ"],
+    "ロッテ":     ["ZOZOマリン", "千葉"],
+    "オリックス": ["京セラ", "大阪京セラ"],
+    "日本ハム":   ["エスコン", "札幌"],
+}
 
 POSITION_BATTING_PRIOR_PA = 60
 POSITION_BATTING_PRIOR_AB = 80
@@ -1746,9 +1762,10 @@ def _normalize_opponent_name(name: str) -> str:
     return name
 
 
-def _is_home_game(venue: str) -> bool:
+def _is_home_game(venue: str, team_code: str = "広島") -> bool:
     venue = _clean_text(venue)
-    return any(keyword in venue for keyword in HOME_VENUE_KEYWORDS)
+    keywords = TEAM_HOME_VENUE_KEYWORDS.get(team_code, HOME_VENUE_KEYWORDS)
+    return any(keyword in venue for keyword in keywords)
 
 
 def _extract_year_from_results_page(html: str) -> str:
@@ -1807,9 +1824,12 @@ def _extract_result_rows_from_html(html: str) -> list[list[str]]:
     return rows
 
 
-def _parse_result_rows_to_games(rows: list[list[str]], year: str) -> list[dict]:
+def _parse_result_rows_to_games(rows: list[list[str]], year: str, team_npb_code: str = "c") -> list[dict]:
     games: list[dict] = []
     current_month: int | None = None
+    # npb_code → team_code の逆引き（ホーム球場判定に使用）
+    _code_to_team = {v: k for k, v in NPB_RESULTS_TEAM_CODE.items()}
+    team_code_for_home = _code_to_team.get(team_npb_code, "広島")
 
     for row in rows:
         if len(row) < 8:
@@ -1852,7 +1872,7 @@ def _parse_result_rows_to_games(rows: list[list[str]], year: str) -> list[dict]:
             continue
 
         mmdd = f"{month:02d}{day:02d}"
-        matchup = f"c-{opponent_code}" if _is_home_game(venue) else f"{opponent_code}-c"
+        matchup = f"{team_npb_code}-{opponent_code}" if _is_home_game(venue, team_code_for_home) else f"{opponent_code}-{team_npb_code}"
         box_url = f"https://npb.jp/scores/{year}/{mmdd}/{matchup}-{round_no:02d}/box.html"
 
         games.append({
@@ -1879,14 +1899,14 @@ def _fetch_recent_carp_games(limit: int, team_code: str = "広島") -> list[dict
     all_games: list[dict] = []
 
     current_rows = _extract_result_rows_from_html(current_html)
-    all_games.extend(_parse_result_rows_to_games(current_rows, year))
+    all_games.extend(_parse_result_rows_to_games(current_rows, year, npb_code))
 
     previous_url = _extract_previous_results_page_url(current_html, npb_code)
     if previous_url:
         try:
             previous_html = _fetch_html(previous_url)
             previous_rows = _extract_result_rows_from_html(previous_html)
-            all_games.extend(_parse_result_rows_to_games(previous_rows, year))
+            all_games.extend(_parse_result_rows_to_games(previous_rows, year, npb_code))
         except Exception as e:
             print("DEBUG_PREVIOUS_RESULTS_ERROR", str(e))
 

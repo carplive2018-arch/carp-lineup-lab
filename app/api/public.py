@@ -122,17 +122,17 @@ CARP_TEAM_ID = 6   # Yahoo baseball 広島東洋カープのチームID
 # Yahoo Baseball チームID マッピング（team_name → Yahoo team_id）
 YAHOO_TEAM_ID: dict[str, int] = {
     "広島":       6,
-    "阪神":       2,
+    "阪神":       5,
     "巨人":       1,
     "DeNA":       3,
-    "中日":       5,
-    "ヤクルト":   4,
-    "ソフトバンク": 11,
+    "中日":       4,
+    "ヤクルト":   2,
+    "ソフトバンク": 12,
     "西武":       7,
-    "楽天":       12,
-    "ロッテ":     8,
-    "オリックス": 10,
-    "日本ハム":   9,
+    "楽天":       376,
+    "ロッテ":     9,
+    "オリックス": 11,
+    "日本ハム":   8,
 }
 
 # NPB.jp 試合結果URLのチームコード（team_name → npb code）
@@ -1652,10 +1652,12 @@ def _fetch_current_first_team_position_players(team_code: str = "広島") -> set
 def _get_active_first_team_position_players(now: datetime | None = None, team_code: str = "広島") -> set[str]:
     """npb.jp の一軍登録名簿ページを参照して一軍登録選手を返す。
     取得失敗時は広島のみ LAST_FIXED_FIRST_TEAM_POSITION_PLAYERS にフォールバック。
+    他球団で取得失敗時は空 set() を返す（呼び出し側でフィルタなし扱い）。
     """
     current = _fetch_current_first_team_position_players(team_code)
     if current:
         return set(current)
+    # 広島: ハードコードフォールバック、他球団: 空set（呼び出し側が「not active」→全員表示に切り替える）
     return set(LAST_FIXED_FIRST_TEAM_POSITION_PLAYERS) if team_code == "広島" else set()
 
 

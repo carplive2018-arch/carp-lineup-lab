@@ -733,10 +733,25 @@ def _update_player_name_aliases(profile: dict[str, dict]) -> None:
     1. スペース除去版 → 正式名
        例: "小園 海斗" → {"小園海斗": "小園 海斗"}
     2. 外国人選手の姓のみ版 → 正式名
-       例: "Ｅ．モンテロ" → {"モンテロ": "Ｅ．モンテロ", "Ｅ．モンテロ": "Ｅ．モンテロ"}
+       例: "Ｅ．モンテロ" → {"モンテロ": "Ｅ．モンテロ"}
+    3. 日本人選手の姓のみ版 → 正式名（同姓選手がいない場合のみ）
+       例: "吉川 尚輝" → {"吉川": "吉川 尚輝"}
+       ※ NPB のボックススコアでは「吉川」等、姓のみで記載されることがあるため。
+       ※ 同一プロファイル内に同姓選手が複数いる場合は登録しない（曖昧性回避）。
 
     既存の手書きエントリは上書きしない（手書き優先）。
     """
+    # 3) 日本人選手の姓のみ版: 同姓重複チェックのため先にカウント
+    surname_count: dict[str, int] = {}
+    for full_name in profile:
+        # 外国人選手（Ａ-Ｚ or A-Z + ．で始まる名前）はスキップ
+        if re.match(r"^[Ａ-Ｚa-zA-Z]+[．.]", full_name):
+            continue
+        parts = [p for p in full_name.replace("　", " ").split(" ") if p]
+        if len(parts) >= 2:
+            surname = _normalize_player_name(parts[0])
+            surname_count[surname] = surname_count.get(surname, 0) + 1
+
     for full_name in profile:
         # 1) スペース除去 → 正式名
         no_space = _normalize_player_name(full_name)  # 例: "小園海斗"
@@ -746,10 +761,18 @@ def _update_player_name_aliases(profile: dict[str, dict]) -> None:
         # 2) 外国人選手: "Ｅ．モンテロ" → "モンテロ" (姓のみ)
         surname_only = re.sub(r"^[Ａ-Ｚa-zA-Z]+[．.]\s*", "", full_name).strip()
         if surname_only and surname_only != full_name:
-            # スペース除去版も登録（"Ｅ．モンテロ" の場合は full_name と同じ）
             surname_norm = _normalize_player_name(surname_only)
             if surname_norm and surname_norm not in PLAYER_NAME_ALIASES:
                 PLAYER_NAME_ALIASES[surname_norm] = full_name
+
+        # 3) 日本人選手: 姓のみ → 正式名（同姓が1名のみの場合）
+        elif not re.match(r"^[Ａ-Ｚa-zA-Z]+[．.]", full_name):
+            parts = [p for p in full_name.replace("　", " ").split(" ") if p]
+            if len(parts) >= 2:
+                surname = _normalize_player_name(parts[0])
+                if surname and surname_count.get(surname, 0) == 1:
+                    if surname not in PLAYER_NAME_ALIASES:
+                        PLAYER_NAME_ALIASES[surname] = full_name
 
 
 def _get_player_profile(team_code: str = "広島") -> dict[str, dict]:
@@ -2036,6 +2059,11 @@ def _parse_carp_batting_rows(box_url: str, team_code: str = "広島") -> list[di
 
 
 def _aggregate_recent_batting_stats(window_games: int, team_code: str = "広島") -> dict:
+    # team_code のプロファイルを事前ロードして PLAYER_NAME_ALIASES を更新する。
+    # これにより _canonical_player_name が他球団の日本人選手名（姓のみ表記）を
+    # 正式名（姓 + 名）へ正しく正規化できるようになる。
+    _get_player_profile(team_code)
+
     cache_bucket = _cache_get_bucket("recent_batting")
     cache_key = f"aggregate:{window_games}:{team_code}"
     cache_entry = cache_bucket.get(cache_key)

@@ -6886,21 +6886,21 @@ def public_game_recap(request: Request, team: str = "広島", view: str | None =
         )
 
 
-def _build_season_risp_data() -> dict:
+def _build_season_risp_data(team_code: str = "広島") -> dict:
     """今シーズン全試合の得点圏打率データを構築（通算ランキング用）。
 
     直近版と同じ `_fetch_risp_for_game` を使い、チームスケジュールの
     全完了試合を集計する。計算コストが高いため6時間キャッシュ。
     """
     cache_bucket = _cache_get_bucket("risp")
-    cache_key = "season_risp"
+    cache_key = f"season_risp:{team_code}"
     cache_entry = cache_bucket.get(cache_key)
     if _cache_alive(cache_entry):
         cached = cache_entry.get("value")
         if isinstance(cached, dict):
             return cached
 
-    all_finished = _fetch_carp_finished_game_ids_from_team_schedule()
+    all_finished = _fetch_carp_finished_game_ids_from_team_schedule(team_code)
     if not all_finished:
         result = {"games_found": 0, "players": [], "generated_at": _now_jst().isoformat()}
         cache_bucket[cache_key] = {"value": result, "expires_at": _cache_now() + 60 * 30}
@@ -6911,7 +6911,7 @@ def _build_season_risp_data() -> dict:
 
     for gid in all_finished:
         try:
-            at_bats = _fetch_risp_for_game(gid)
+            at_bats = _fetch_risp_for_game(gid, team_code)
         except Exception:
             continue
 
@@ -6980,17 +6980,17 @@ def _build_season_risp_data() -> dict:
     rows.sort(key=lambda r: (-r["risp_ab"], r["player"]))
     result = {"games_found": games_found, "players": rows, "generated_at": _now_jst().isoformat()}
     # 通算は6時間キャッシュ（試合ごとに大きく変わらない）
-    cache_bucket[cache_key] = {"value": result, "expires_at": _cache_now() + 60 * 60 * 6}
+    cache_bucket[f"season_risp:{team_code}"] = {"value": result, "expires_at": _cache_now() + 60 * 60 * 6}
     return result
 
 
-def _render_season_risp_html(window_games: int) -> str:
+def _render_season_risp_html(window_games: int, team_code: str = "広島") -> str:
     """通算得点圏ランキング HTML（得点圏打率・出塁率・打点の3カラム）。
 
     直近版 `_render_risp_html` と同じUIで、今シーズン全試合の通算データを表示。
     最低出場要件: 得点圏打数 >= 5 / OBP は打席数 >= 15
     """
-    data = _build_season_risp_data()
+    data = _build_season_risp_data(team_code)
     players    = data.get("players", [])
     games_found = data.get("games_found", 0)
     generated_at = data.get("generated_at", "")
@@ -7512,7 +7512,7 @@ def _render_risp_html(data: dict, window_games: int, show_season: bool = False, 
     </div><!-- /#recent-content -->
     """
     if show_season:
-        body += _render_season_risp_html(window_games)
+        body += _render_season_risp_html(window_games, team_code)
     return _html_page("得点圏・出塁・打点", body)
 
 

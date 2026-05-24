@@ -3780,6 +3780,407 @@ def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: di
     return result
 
 
+# ════════════════════════════════════════════════════════════════════
+# v2: wOBAランク＋配置ルール方式（並列比較用）
+# ════════════════════════════════════════════════════════════════════
+
+# ── v2 配置ルール定義 ──────────────────────────────────────────────
+# 各スロットを「どの指標で選ぶか」をシンプルなルールで記述する。
+# primary: メイン選出指標（adj_woba / adj_obp / adj_iso / adj_con）
+# pool_top_pct: adj_woba上位N%のみを候補とする（None=全員）
+# tiebreak: primaryが同値のときのサブ指標
+# def_bonus: Trueのとき守備補正をスコアに加算（7・8番向け）
+# no_iso_zero: TrueかつPA>=5のとき raw_iso=0 の選手を除外（4番向け）
+# role: _build_reason/_build_commentary に渡すロール名
+V2_DH_PLACEMENT_RULES: list[dict] = [
+    # 4番: wOBA上位50%の中でadj_isoが最大（ISO=0除外）
+    {"order": 4, "role": "cleanup_power",
+     "primary": "adj_iso",   "pool_top_pct": 0.50,
+     "tiebreak": "adj_woba", "no_iso_zero": True,  "def_bonus": False},
+    # 3番: 残りからwOBA最大（万能型）
+    {"order": 3, "role": "versatile_upper",
+     "primary": "adj_woba",  "pool_top_pct": None,
+     "tiebreak": "adj_obp",  "no_iso_zero": False, "def_bonus": False},
+    # 5番: 残りからwOBA最大（2枚目の長打力）
+    {"order": 5, "role": "second_slugger",
+     "primary": "adj_woba",  "pool_top_pct": None,
+     "tiebreak": "adj_iso",  "no_iso_zero": False, "def_bonus": False},
+    # 2番: wOBA上位60%の中でadj_conが最大
+    {"order": 2, "role": "strong_connector",
+     "primary": "adj_con",   "pool_top_pct": 0.60,
+     "tiebreak": "adj_woba", "no_iso_zero": False, "def_bonus": False},
+    # 1番: wOBA上位60%の中でadj_obp最大（走力タイブレーク）
+    {"order": 1, "role": "leadoff_obp",
+     "primary": "adj_obp",   "pool_top_pct": 0.60,
+     "tiebreak": "adj_run",  "no_iso_zero": False, "def_bonus": False},
+    # 6番: 残りからwOBA最大
+    {"order": 6, "role": "bridge_lower",
+     "primary": "adj_woba",  "pool_top_pct": None,
+     "tiebreak": "adj_obp",  "no_iso_zero": False, "def_bonus": False},
+    # 7番: 残りから（守備補正込みで）最大
+    {"order": 7, "role": "glove_core",
+     "primary": "adj_woba",  "pool_top_pct": None,
+     "tiebreak": "defense",  "no_iso_zero": False, "def_bonus": True},
+    # 8番: 残りから（守備補正込みで）最大
+    {"order": 8, "role": "glove_bottom",
+     "primary": "adj_woba",  "pool_top_pct": None,
+     "tiebreak": "defense",  "no_iso_zero": False, "def_bonus": True},
+    # 9番(DH有): 残りからOBP最大（第2の1番）
+    {"order": 9, "role": "second_leadoff",
+     "primary": "adj_obp",   "pool_top_pct": None,
+     "tiebreak": "adj_run",  "no_iso_zero": False, "def_bonus": False},
+]
+
+# DH無し（セ・リーグ等）: 9番=投手固定のため8番まで
+V2_NODH_PLACEMENT_RULES: list[dict] = [
+    r for r in V2_DH_PLACEMENT_RULES if r["order"] != 9
+]
+
+
+def _v2_player_score(
+    entry: dict,          # {adj_woba, adj_obp, adj_iso, adj_con, adj_run, defense, raw_iso, pa}
+    rule: dict,
+) -> float:
+    """v2スコア計算: primary指標 + def_bonus + tiebreak微調整。"""
+    primary_key = rule["primary"]
+    tiebreak_key = rule.get("tiebreak", "adj_woba")
+
+    # 守備補正は7・8番のみ加算（最大値でも1点前後なので指標スケールと整合）
+    def_add = entry.get("defense", 0.0) * 0.3 if rule.get("def_bonus") else 0.0
+
+    score = (
+        float(entry.get(primary_key, 0.0) or 0.0)
+        + def_add
+        + float(entry.get(tiebreak_key, 0.0) or 0.0) * 0.001  # タイブレークは微小係数
+    )
+    return score
+
+
+def _do_build_predicted_lineup_v2(
+    window_games: int,
+    use_dh: bool,
+    cache_bucket: dict,
+    cache_key: str,
+    team_code: str = "広島",
+) -> dict:
+    """
+    v2: wOBAランク＋配置ルール方式。
+
+    【アルゴリズム概要】
+    1. 全候補を adj_woba 降順でランク付けしたプールを作成
+    2. 配置ルール（V2_DH_PLACEMENT_RULES）を 4→3→5→2→1→6→7→8→9 の順で適用
+       - pool_top_pct: adj_woba上位X%に候補を絞る
+       - primary指標が最大の選手を選出、no_iso_zero でISO=0を除外
+       - ポジション割当は eligible_positions から used_positions を除いた最善を採用
+    3. 全スロットを順番確定後に order でソート
+    4. reason/commentary を生成して既存フォーマットで返す
+    """
+    placement_rules = V2_DH_PLACEMENT_RULES if use_dh else V2_NODH_PLACEMENT_RULES
+
+    recent_map      = _recent_snapshot_map(window_games, team_code)
+    defense_map     = _get_player_defense(team_code)
+    candidate_names = _get_prediction_candidate_names(team_code=team_code)
+
+    # ── ステージ1: 全候補のスナップショットをプールとして整理 ──
+    # {canonical_name: {adj_woba, adj_obp, adj_iso, adj_con, adj_run,
+    #                   defense, raw_iso, pa, ...}}
+    pool: dict[str, dict] = {}
+    for player_name in candidate_names:
+        cname  = _canonical_player_name(player_name, team_code)
+        recent = recent_map.get(cname, {}).copy() or recent_map.get(
+            _normalize_player_name(player_name), {}
+        ).copy()
+        def_val = _defense_value_for(cname, "", defense_map)
+
+        # シーズン成績（ポジション別ベスト）
+        eligible = (
+            (_get_player_profile(team_code).get(cname) or {})
+            .get("eligible_positions", [])
+        )
+        best_s_obp, best_s_iso = 0.0, 0.0
+        for pos in eligible:
+            sp = _get_adjusted_position_batting(cname, pos, team_code)
+            best_s_obp = max(best_s_obp, float(sp.get("obp", 0.0) or 0.0))
+            best_s_iso = max(best_s_iso, float(sp.get("iso", 0.0) or 0.0))
+
+        pool[cname] = {
+            # ベイズ収縮済み指標（選出判断に使用）
+            "adj_woba":  float(recent.get("adj_woba",  _LEAGUE_WOBA)    or _LEAGUE_WOBA),
+            "adj_obp":   float(recent.get("adj_obp",   NPB_LEAGUE_AVG_OBP) or NPB_LEAGUE_AVG_OBP),
+            "adj_iso":   float(recent.get("adj_iso",   NPB_LEAGUE_AVG_ISO) or NPB_LEAGUE_AVG_ISO),
+            "adj_con":   float(recent.get("adj_con",   0.77)            or 0.77),
+            "adj_run":   float(recent.get("adj_run",   0.0)             or 0.0),
+            "defense":   def_val,
+            # 生の観測値（ハードカット判定用）
+            "raw_iso":   float(recent.get("iso",  0.0) or 0.0),
+            "pa":        int(recent.get("pa", 0)   or 0),
+            # 表示用（recent dict をそのまま保持）
+            "_recent":   recent,
+            "_season_s_obp": best_s_obp,
+            "_season_s_iso": best_s_iso,
+            "_eligible": eligible,
+        }
+
+    # ランキング用（_build_ranks に渡すリスト）
+    all_stats_for_rank: list[dict] = []
+    for cname, entry in pool.items():
+        all_stats_for_rank.append({
+            "name":        cname,
+            "recent_obp":  entry["adj_obp"],
+            "recent_iso":  entry["adj_iso"],
+            "recent_woba": entry["adj_woba"],
+            "recent_con":  entry["adj_con"],
+            "recent_run":  entry["adj_run"],
+            "season_obp":  entry["_season_s_obp"],
+            "season_iso":  entry["_season_s_iso"],
+            "defense":     entry["defense"],
+        })
+    ranks = _build_ranks(all_stats_for_rank)
+
+    # adj_woba 降順でプール全体をソートしてランク付き候補リストを作成
+    pool_sorted: list[tuple[str, dict]] = sorted(
+        pool.items(), key=lambda kv: kv[1]["adj_woba"], reverse=True
+    )
+    n_pool = len(pool_sorted)
+
+    # ── ステージ2: 配置ルールを順番に適用 ──
+    used_players: set[str]   = set()
+    used_positions: set[str] = set()
+    lineup: list[dict]       = []
+
+    for rule in placement_rules:
+        order = rule["order"]
+
+        # pool_top_pct: adj_woba上位N%に絞る（Noneは全員）
+        top_pct = rule.get("pool_top_pct")
+        if top_pct is not None and n_pool > 0:
+            cut_idx = max(1, int(math.ceil(n_pool * top_pct)))
+            candidates_for_slot = [
+                (cn, entry) for cn, entry in pool_sorted[:cut_idx]
+                if cn not in used_players
+            ]
+            # 上位に絞り込んだ結果が空の場合は全員を対象にしてフォールバック
+            if not candidates_for_slot:
+                candidates_for_slot = [
+                    (cn, entry) for cn, entry in pool_sorted
+                    if cn not in used_players
+                ]
+        else:
+            candidates_for_slot = [
+                (cn, entry) for cn, entry in pool_sorted
+                if cn not in used_players
+            ]
+
+        # PA>=1 ソフトフィルタ: 直近ウィンドウで1打席以上の選手を優先
+        # （adj_* はPA=0でもprior値を持つため、打席なし選手が誤選出されるのを防ぐ）
+        active_candidates = [
+            (cn, e) for cn, e in candidates_for_slot if e["pa"] >= 1
+        ]
+        if active_candidates:
+            candidates_for_slot = active_candidates
+        # PA=0しか残らない場合はフォールバックとして全員を対象にする（上記 candidates_for_slot を維持）
+
+        # no_iso_zero: raw_iso=0 かつ PA>=5 の選手を除外（4番向け）
+        if rule.get("no_iso_zero"):
+            filtered = [
+                (cn, e) for cn, e in candidates_for_slot
+                if not (e["raw_iso"] == 0.0 and e["pa"] >= 5)
+            ]
+            # 全員除外された場合はフォールバック
+            if filtered:
+                candidates_for_slot = filtered
+
+        best_pick: dict | None = None
+        best_score: float      = float("-inf")
+
+        for cname, entry in candidates_for_slot:
+            # ── ポジション割当 ──
+            eligible_positions = entry["_eligible"] or [POS_DH]
+            available_positions = [
+                p for p in eligible_positions
+                if p not in used_positions
+                and (use_dh or p != POS_DH)
+            ]
+            if not available_positions:
+                continue
+
+            sc = _v2_player_score(entry, rule)
+
+            if sc > best_score:
+                best_score = sc
+                # ポジションはシーズン守備指標が最も高いものを採用
+                best_pos = max(
+                    available_positions,
+                    key=lambda p: _defense_value_for(cname, p, defense_map, team_code),
+                )
+                best_pick = {
+                    "order":       order,
+                    "position":    best_pos,
+                    "player_name": cname,
+                    "score":       round(sc, 3),
+                    "role":        rule["role"],
+                    "_entry":      entry,
+                }
+
+        if best_pick is None:
+            # ── フォールバック: used_positions 制約を緩めて再試行 ──
+            # 優先順位: ①DH枠がまだ空いている選手 → ②used_positions 重複を許容
+            fallback_all = [
+                (cn, e) for cn, e in pool_sorted
+                if cn not in used_players
+            ]
+            # まずDH枠空き選手に絞る（use_dh=Trueかつ DH not in used_positions）
+            dh_open = POS_DH not in used_positions and use_dh
+            if dh_open:
+                dh_candidates = [
+                    (cn, e) for cn, e in fallback_all
+                    if not e["_eligible"]   # eligible=[] → DH専用
+                    or POS_DH in (e["_eligible"] or [])
+                ]
+                if dh_candidates:
+                    fallback_all = dh_candidates
+            for cname_fb, entry_fb in fallback_all:
+                eligible_fb = entry_fb["_eligible"] or [POS_DH]
+                avail_fb = [
+                    p for p in eligible_fb
+                    if use_dh or p != POS_DH
+                ]
+                # used_positions 制約を無視（重複ポジションを許容）
+                if not avail_fb:
+                    # eligible が空の場合も DH で対応
+                    if use_dh:
+                        avail_fb = [POS_DH]
+                    else:
+                        continue
+                sc_fb = _v2_player_score(entry_fb, rule)
+                if sc_fb > best_score:
+                    best_score = sc_fb
+                    # DH 空きがあれば DH を優先
+                    if dh_open and POS_DH in avail_fb:
+                        best_pos_fb = POS_DH
+                    else:
+                        best_pos_fb = max(
+                            avail_fb,
+                            key=lambda p: _defense_value_for(cname_fb, p, defense_map, team_code),
+                        )
+                    best_pick = {
+                        "order":       order,
+                        "position":    best_pos_fb,
+                        "player_name": cname_fb,
+                        "score":       round(sc_fb, 3),
+                        "role":        rule["role"],
+                        "_entry":      entry_fb,
+                    }
+
+        if best_pick is None:
+            continue
+
+        cname   = best_pick["player_name"]
+        entry   = best_pick["_entry"]
+        pos     = best_pick["position"]
+        recent  = entry["_recent"]
+
+        used_players.add(cname)
+        used_positions.add(pos)
+
+        # シーズン打撃成績（ポジション別）
+        season_pos = _get_adjusted_position_batting(cname, pos, team_code)
+
+        reason = _build_reason(
+            cname, pos, best_pick["role"],
+            recent, season_pos, entry["defense"], ranks, window_games,
+        )
+        commentary = _build_commentary(
+            cname, pos, best_pick["role"],
+            recent, season_pos, entry["defense"], ranks, window_games,
+            best_pick["score"],
+        )
+
+        lineup.append({
+            "order":       best_pick["order"],
+            "position":    pos,
+            "player_name": cname,
+            "score":       best_pick["score"],
+            "reason":      reason,
+            "commentary":  commentary,
+            "recent": {
+                "games":    recent.get("games",  0),
+                "pa":       recent.get("pa",     0),
+                "ab":       recent.get("ab",     0),
+                "obp":      recent.get("obp",    0.0),
+                "iso":      recent.get("iso",    0.0),
+                "woba":     recent.get("woba",   0.0),
+                "con":      recent.get("con",    0.75),
+                "run":      recent.get("run",    0.0),
+                "adj_obp":  recent.get("adj_obp",  NPB_LEAGUE_AVG_OBP),
+                "adj_iso":  recent.get("adj_iso",  NPB_LEAGUE_AVG_ISO),
+                "adj_woba": recent.get("adj_woba", _LEAGUE_WOBA),
+                "adj_con":  recent.get("adj_con",  0.77),
+                "adj_run":  recent.get("adj_run",  0.0),
+                "prior_woba":  recent.get("prior_woba",  _LEAGUE_WOBA),
+                "reliability": recent.get("reliability", 0.0),
+            },
+            "season_position": {
+                "pa":  float(season_pos.get("pa",  0.0) or 0.0),
+                "ab":  float(season_pos.get("ab",  0.0) or 0.0),
+                "obp": float(season_pos.get("obp", 0.0) or 0.0),
+                "iso": float(season_pos.get("iso", 0.0) or 0.0),
+            },
+            "defense": round(entry["defense"], 3),
+            "role":    best_pick["role"],
+        })
+
+    lineup.sort(key=lambda x: x["order"])
+
+    result = {
+        "use_dh":       use_dh,
+        "window_games": window_games,
+        "generated_at": _now_jst().isoformat(),
+        "lineup":       lineup,
+        "algorithm":    "v2_woba_rank",
+    }
+
+    cache_bucket[cache_key] = {
+        "value":      result,
+        "expires_at": _cache_now() + CACHE_TTL_PREDICTED_LINEUP,
+    }
+    return result
+
+
+def _build_predicted_lineup_v2(
+    window_games: int,
+    use_dh: bool,
+    team_code: str = "広島",
+) -> dict:
+    """v2方式のキャッシュ付きエントリポイント。"""
+    cache_bucket = _cache_get_bucket("predicted_lineup_v2")
+    cache_key    = f"w{window_games}:dh{int(use_dh)}:{team_code}"
+    cache_entry  = cache_bucket.get(cache_key)
+
+    if _cache_alive(cache_entry):
+        cached = cache_entry.get("value")
+        if isinstance(cached, dict):
+            return cached
+
+    # stale-while-revalidate
+    stale = cache_entry.get("value") if cache_entry else None
+    if stale and isinstance(stale, dict):
+        def _bg():
+            try:
+                _do_build_predicted_lineup_v2(
+                    window_games, use_dh, cache_bucket, cache_key, team_code
+                )
+            except Exception as e:
+                print("DEBUG_V2_BG_ERROR", str(e))
+        cache_bucket[cache_key] = {**cache_entry, "expires_at": _cache_now() + 60}
+        threading.Thread(target=_bg, daemon=True, name=f"bg-lineup-v2-{cache_key}").start()
+        return stale
+
+    return _do_build_predicted_lineup_v2(
+        window_games, use_dh, cache_bucket, cache_key, team_code
+    )
+
+
 def _wants_html(request: Request, view: str | None) -> bool:
     if view == "json":
         return False
@@ -5145,6 +5546,163 @@ def _render_recent_batting_html(data: dict, show_season: bool = False, team_code
     return _html_page("直近打撃成績", body)
 
 
+def _render_compare_html(combined: dict, team_code: str = "広島") -> HTMLResponse:
+    """v1とv2の打順を横並びで比較するHTMLを生成する。"""
+    team     = combined.get("team", team_code)
+    wg       = combined.get("window_games", 5)
+    use_dh   = combined.get("use_dh", True)
+    v1_lineup = combined.get("v1", {}).get("lineup", [])
+    v2_lineup = combined.get("v2", {}).get("lineup", [])
+    dh_label = "DH有" if use_dh else "DH無"
+
+    # 打順番号をキーにしたマップ
+    v1_map = {p["order"]: p for p in v1_lineup}
+    v2_map = {p["order"]: p for p in v2_lineup}
+    orders = sorted(set(list(v1_map.keys()) + list(v2_map.keys())))
+
+    def _fmt_entry(p: dict | None, side: str) -> str:
+        if not p:
+            return "<td colspan='4'>—</td>"
+        name  = p.get("player_name", "?")
+        pos   = p.get("position", "")
+        rec   = p.get("recent", {})
+        iso   = float(rec.get("iso",  0.0) or 0.0)
+        woba  = float(rec.get("woba", 0.0) or 0.0)
+        adj_w = float(rec.get("adj_woba", 0.0) or 0.0)
+        role  = p.get("role", "")
+        role_label = _ROLE_LABEL_JA.get(role, role)
+
+        color = "#1a3a5c" if side == "v1" else "#2a1a4a"
+        return (
+            f"<td style='background:{color};padding:6px 10px;font-weight:700;color:#e8f0fe'>"
+            f"{name}<span style='font-size:10px;color:#8494b8;margin-left:6px'>[{pos}]</span></td>"
+            f"<td style='padding:6px 10px;color:#aab4c8;font-size:12px'>{role_label}</td>"
+            f"<td style='padding:6px 10px;text-align:right;color:#7dd3fc'>{woba:.3f}"
+            f"<span style='color:#6b7280;font-size:10px'> adj:{adj_w:.3f}</span></td>"
+            f"<td style='padding:6px 10px;text-align:right;color:#fbbf24'>{iso:.3f}</td>"
+        )
+
+    rows_html = ""
+    for order in orders:
+        p1 = v1_map.get(order)
+        p2 = v2_map.get(order)
+        same = p1 and p2 and p1.get("player_name") == p2.get("player_name")
+        diff_mark = "" if same else "⚡"
+        rows_html += (
+            f"<tr>"
+            f"<td style='padding:6px 10px;text-align:center;font-weight:700;"
+            f"color:#f59e0b;width:40px'>{order}番</td>"
+            f"{_fmt_entry(p1, 'v1')}"
+            f"<td style='padding:6px 10px;text-align:center;color:#f59e0b;"
+            f"font-size:16px'>{diff_mark}</td>"
+            f"{_fmt_entry(p2, 'v2')}"
+            f"</tr>"
+        )
+
+    # サマリー: 一致選手数
+    same_count = sum(
+        1 for o in orders
+        if v1_map.get(o) and v2_map.get(o)
+        and v1_map[o].get("player_name") == v2_map[o].get("player_name")
+    )
+    total = len(orders)
+
+    body = f"""
+<div style="max-width:1100px;margin:0 auto;padding:16px">
+  <h2 style="color:#e8f0fe;margin-bottom:4px">
+    予想打順 比較: {team}
+    <span style="font-size:13px;color:#8494b8;margin-left:12px">
+      直近{wg}試合 / {dh_label}
+    </span>
+  </h2>
+  <p style="color:#6b7280;font-size:12px;margin-bottom:16px">
+    ⚡ マークは v1 と v2 で選手が異なる打順 /
+    一致: <strong style="color:#34d399">{same_count}</strong> / {total} 打順
+  </p>
+
+  <div style="overflow-x:auto">
+  <table style="width:100%;border-collapse:collapse;background:#0d1b2e;
+                color:#c9d4e8;font-size:13px">
+    <thead>
+      <tr style="background:#1a2540;border-bottom:2px solid #2a3f6f">
+        <th style="padding:8px 10px;width:40px"></th>
+        <th colspan="4" style="padding:8px 10px;color:#60a5fa;text-align:center">
+          v1 — スロット重み付け方式
+        </th>
+        <th style="padding:8px 10px;width:30px"></th>
+        <th colspan="4" style="padding:8px 10px;color:#c084fc;text-align:center">
+          v2 — wOBAランク＋配置ルール方式
+        </th>
+      </tr>
+      <tr style="background:#111d2e;color:#6b7280;font-size:11px">
+        <th></th>
+        <th style="padding:4px 10px">選手名</th>
+        <th style="padding:4px 10px">役割</th>
+        <th style="padding:4px 10px;text-align:right">wOBA</th>
+        <th style="padding:4px 10px;text-align:right">ISO</th>
+        <th></th>
+        <th style="padding:4px 10px">選手名</th>
+        <th style="padding:4px 10px">役割</th>
+        <th style="padding:4px 10px;text-align:right">wOBA</th>
+        <th style="padding:4px 10px;text-align:right">ISO</th>
+      </tr>
+    </thead>
+    <tbody>
+      {rows_html}
+    </tbody>
+  </table>
+  </div>
+
+  <div style="margin-top:20px;display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <div>
+      <h3 style="color:#60a5fa;font-size:14px;margin-bottom:8px">
+        v1 コメンタリー（スロット方式）
+      </h3>
+      {"".join(
+          f'<div style="margin-bottom:10px;padding:10px;background:#0d1b2e;'
+          f'border-left:3px solid #1e40af;border-radius:4px">'
+          f'<span style="color:#f59e0b;font-weight:700">{p["order"]}番</span> '
+          f'<span style="color:#e8f0fe">{p.get("player_name","")}</span> '
+          f'<span style="color:#6b7280;font-size:11px">[{p.get("position","")}]</span><br>'
+          f'<span style="color:#9ca3af;font-size:12px">{p.get("reason","")}</span>'
+          f'</div>'
+          for p in sorted(v1_lineup, key=lambda x: x["order"])
+      )}
+    </div>
+    <div>
+      <h3 style="color:#c084fc;font-size:14px;margin-bottom:8px">
+        v2 コメンタリー（wOBAランク方式）
+      </h3>
+      {"".join(
+          f'<div style="margin-bottom:10px;padding:10px;background:#0d1b2e;'
+          f'border-left:3px solid #7c3aed;border-radius:4px">'
+          f'<span style="color:#f59e0b;font-weight:700">{p["order"]}番</span> '
+          f'<span style="color:#e8f0fe">{p.get("player_name","")}</span> '
+          f'<span style="color:#6b7280;font-size:11px">[{p.get("position","")}]</span><br>'
+          f'<span style="color:#9ca3af;font-size:12px">{p.get("reason","")}</span>'
+          f'</div>'
+          for p in sorted(v2_lineup, key=lambda x: x["order"])
+      )}
+    </div>
+  </div>
+
+  <div style="margin-top:20px;padding:12px;background:#111d2e;
+              border-radius:6px;font-size:11px;color:#6b7280">
+    <strong style="color:#8494b8">v2 アルゴリズム概要:</strong>
+    ① 全候補を adj_woba 降順でランク付け
+    → ② 4番: wOBA上位50%かつISO最大（ISO=0除外）
+    → ③ 3番: 残りwOBA最大
+    → ④ 5番: 残りwOBA最大
+    → ⑤ 2番: wOBA上位60%かつCON最大
+    → ⑥ 1番: wOBA上位60%かつOBP最大（RUN補助）
+    → ⑦ 6〜8番: 残りwOBA降順（7・8番は守備補正加味）
+    → ⑧ 9番(DH有): 残りOBP最大
+  </div>
+</div>
+"""
+    return _html_page(f"打順比較 {team}", body)
+
+
 def _render_predicted_lineup_html(data: dict, team_code: str = "広島") -> HTMLResponse:
     lineup = data.get("lineup", [])
 
@@ -5738,6 +6296,85 @@ def public_predicted_lineup(
             status_code=500,
             content={
                 "error": "predicted-lineup failed",
+                "type": type(e).__name__,
+                "message": str(e),
+            },
+        )
+
+
+@router.get("/public/predicted-lineup-compare")
+def public_predicted_lineup_compare(
+    request: Request,
+    window_games: int = 5,
+    use_dh: bool = True,
+    team: str = "広島",
+    view: str | None = None,
+):
+    """
+    v1（スロット重み付け）と v2（wOBAランク＋配置ルール）の打順を並べて比較する。
+
+    view=html  → HTMLで横並び比較表示
+    view=json  → JSONで両方の結果を返す
+    デフォルト → Accept: text/html なら HTML、それ以外は JSON
+    """
+    try:
+        window_games = max(1, min(window_games, 10))
+
+        # ── v1（既存方式）──
+        data_v1 = _build_simple_predicted_lineup(
+            window_games=window_games, use_dh=use_dh, team_code=team
+        )
+        # スナップショット補正（v1と同じ処理）
+        try:
+            snap = _recent_snapshot_map(window_games, team)
+            for item in data_v1.get("lineup", []):
+                cname = item.get("player_name", "")
+                snap_entry = snap.get(cname)
+                if snap_entry:
+                    item["recent"] = {
+                        "games":      snap_entry.get("games",     0),
+                        "pa":         snap_entry.get("pa",        0),
+                        "ab":         snap_entry.get("ab",        0),
+                        "obp":        snap_entry.get("obp",       0.0),
+                        "iso":        snap_entry.get("iso",       0.0),
+                        "woba":       snap_entry.get("woba",      0.0),
+                        "con":        snap_entry.get("con",       0.75),
+                        "run":        snap_entry.get("run",       0.0),
+                        "adj_obp":    snap_entry.get("adj_obp",   NPB_LEAGUE_AVG_OBP),
+                        "adj_iso":    snap_entry.get("adj_iso",   NPB_LEAGUE_AVG_ISO),
+                        "adj_woba":   snap_entry.get("adj_woba",  _LEAGUE_WOBA),
+                        "adj_con":    snap_entry.get("adj_con",   0.77),
+                        "adj_run":    snap_entry.get("adj_run",   0.0),
+                        "prior_woba": snap_entry.get("prior_woba", _LEAGUE_WOBA),
+                        "reliability": snap_entry.get("reliability", 0.0),
+                    }
+        except Exception:
+            pass
+
+        # ── v2（新方式）──
+        data_v2 = _build_predicted_lineup_v2(
+            window_games=window_games, use_dh=use_dh, team_code=team
+        )
+
+        combined = {
+            "team":         team,
+            "use_dh":       use_dh,
+            "window_games": window_games,
+            "generated_at": _now_jst().isoformat(),
+            "v1":           data_v1,
+            "v2":           data_v2,
+        }
+
+        if _wants_html(request, view):
+            return _render_compare_html(combined, team_code=team)
+
+        return _no_cache_json(combined)
+
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "predicted-lineup-compare failed",
                 "type": type(e).__name__,
                 "message": str(e),
             },

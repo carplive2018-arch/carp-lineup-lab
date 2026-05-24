@@ -981,39 +981,53 @@ def _normalize_player_name(name: str) -> str:
 def _canonical_player_name(name: str, team_code: str | None = None) -> str:
     """選手名を正式名（スペースあり）に正規化する。
     team_code が指定された場合は、そのチームのプロファイルも検索対象に追加する。
+
+    検索優先順位:
+    1. team_code プロファイルでの完全一致（スペース除去）
+    2. PLAYER_NAME_ALIASES での完全一致（スペース除去）
+       ただし姓のみ（= normalized が空白なしで1トークン）の場合は後回し
+    3. SEASON_OVERALL_BATTING での逆引き
+    4. team_code プロファイルでの姓のみマッチ（同姓1名のみ）
+    5. PLAYER_NAME_ALIASES での姓のみマッチ（フォールバック）
+    6. 広島プロファイルでの姓のみマッチ（後方互換フォールバック）
     """
     normalized = _normalize_player_name(name)
 
     if not normalized:
         return name
 
-    # まず PLAYER_NAME_ALIASES を確認（_update_player_name_aliases で自動補完済み）
-    if normalized in PLAYER_NAME_ALIASES:
-        return PLAYER_NAME_ALIASES[normalized]
-
-    # SEASON_OVERALL_BATTING のキーでも逆引き（スペースあり正式名→スペースなし）
-    for full_name in SEASON_OVERALL_BATTING:
-        if _normalize_player_name(full_name) == normalized:
-            return full_name
-
-    # チーム指定がある場合はそのプロファイルを優先検索
+    # ── プロファイルリストを構築 ──
     profiles_to_search = []
     if team_code:
         team_profile = _get_player_profile(team_code)
         if team_profile:
             profiles_to_search.append(team_profile)
 
-    # 広島プロファイルも常に含める（後方互換）
     carp_profile = _get_player_profile("広島")
     if carp_profile and (not team_code or team_code != "広島"):
         profiles_to_search.append(carp_profile)
 
+    # ── Step 1: team_code プロファイルで完全一致（スペース除去）優先 ──
+    # → PLAYER_NAME_ALIASES より先に確認することで他球団の同姓選手との衝突を防ぐ
     for _profile in profiles_to_search:
         for full_name in _profile.keys():
             if _normalize_player_name(full_name) == normalized:
                 return full_name
 
-    # 姓のみマッチ（チームプロファイル優先）
+    # ── Step 2: PLAYER_NAME_ALIASES での完全一致（姓のみキーを除く） ──
+    # 「佐藤」のような姓のみキーは Step 4 で team_code 優先で解決するため、
+    # ここでは「佐藤輝明」などのスペース除去フルネームのみ信頼する。
+    # 姓のみ判定: normalized にスペースがなく、かつ元の name にスペースがない（姓のみ入力）
+    is_surname_only = " " not in name.strip() and "　" not in name.strip()
+    if not is_surname_only and normalized in PLAYER_NAME_ALIASES:
+        return PLAYER_NAME_ALIASES[normalized]
+
+    # ── Step 3: SEASON_OVERALL_BATTING のキーでも逆引き ──
+    for full_name in SEASON_OVERALL_BATTING:
+        if _normalize_player_name(full_name) == normalized:
+            return full_name
+
+    # ── Step 4: team_code プロファイルでの姓のみマッチ（同姓1名のみ） ──
     for _profile in profiles_to_search:
         surname_matches = []
         for full_name in _profile.keys():
@@ -1025,6 +1039,10 @@ def _canonical_player_name(name: str, team_code: str | None = None) -> str:
                 surname_matches.append(full_name)
         if len(surname_matches) == 1:
             return surname_matches[0]
+
+    # ── Step 5: PLAYER_NAME_ALIASES での姓のみフォールバック ──
+    if normalized in PLAYER_NAME_ALIASES:
+        return PLAYER_NAME_ALIASES[normalized]
 
     return name
 
@@ -2201,9 +2219,16 @@ def _analyze_plate_results(result_cells: list[str]) -> dict:
     return stats
 
 
-@lru_cache(maxsize=128)
 def _parse_carp_batting_rows(box_url: str, team_code: str = "広島") -> list[dict]:
     html = _fetch_html(box_url)
+
+    # ── 生HTMLから選手IDリンク→選手名のマップを構築 ──
+    # NPB box.html は 2026年以降、選手セルが姓のみ表示になっているため
+    # <a href="/bis/players/{id}.html">姓</a> パターンからIDを取得して
+    # 後段の _canonical_player_name でフルネームに解決する際のヒントとして使う
+    # （本関数では raw テキストのみを返す; フルネーム解決は呼び出し元の
+    #   _aggregate_recent_batting_stats で team_code を使って行う）
+
     tables = _extract_tables(html)
 
     batting_tables = [table for table in tables if _is_batting_table(table)]
@@ -2224,6 +2249,11 @@ def _parse_carp_batting_rows(box_url: str, team_code: str = "広島") -> list[di
         return row[idx]
 
     result_start_idx = index_map.get("盗塁", 7) + 1
+
+    # ── 打撃テーブルのHTML断片を取得して選手フルネームを補完 ──
+    # _extract_tables はテキストのみ返すが、選手名リンクにフルネームが格納されている場合がある
+    # （2026年のbox.htmlは姓のみ表示だが、将来変更に備えてここでも対応）
+    # 今は _canonical_player_name + team_code で解決するため特別処理不要
 
     rows: list[dict] = []
 
@@ -2359,6 +2389,29 @@ def _aggregate_recent_batting_stats(window_games: int, team_code: str = "広島"
                 value = int(row.get(key, 0) or 0)
                 stat_line[key] += value
                 team_totals[key] += value
+
+    # ── 選手名正規化クリーンアップ ──
+    # box.html が姓のみ表示の場合、_parse_carp_batting_rows が返す player_name は
+    # 「佐藤」など姓のみになることがある。_canonical_player_name は呼び出し時点での
+    # PLAYER_NAME_ALIASES に依存するため、プロファイルロード後にキーを再正規化する。
+    # （既に _get_player_profile を L2272 で呼び済みなのでここでは ALIASES が最新）
+    normalized_totals: dict[str, dict] = {}
+    for raw_key, stat_line in player_totals.items():
+        canonical = _canonical_player_name(raw_key, team_code)
+        existing = normalized_totals.get(canonical)
+        if existing:
+            # 同一選手が複数キーに分散していた場合はマージ
+            for k in ["games", "at_bats", "runs", "hits", "rbi", "steals",
+                      "doubles", "triples", "homeruns", "walks",
+                      "hit_by_pitch", "strikeouts", "sacrifice_bunts", "sacrifice_flies"]:
+                existing[k] = existing.get(k, 0) + stat_line.get(k, 0)
+            # games は重複カウントしないよう上書き（二重集計防止のため max を使用）
+            existing["games"] = max(existing.get("games", 0), stat_line.get("games", 0))
+        else:
+            merged = dict(stat_line)
+            merged["player_name"] = canonical
+            normalized_totals[canonical] = merged
+    player_totals = normalized_totals
 
     result = {
         "games": games,
@@ -4765,9 +4818,13 @@ def _render_predicted_lineup_html(data: dict, team_code: str = "広島") -> HTML
         commentary  = escape(str(item.get("commentary", "")))
         wg_val      = int(data.get("window_games", 5) or 5)
 
-        # 直近出場なし（pa=0）の場合はシーズン補正値をメイン表示する
+        # 直近出場なし（pa=0）または打席が5未満の場合はシーズン補正値をメイン表示する
+        # pa < 5 の場合は信頼性が低いためシーズン補正値を優先
+        MIN_RELIABLE_PA = 5
         no_recent = (r_pa == 0)
-        if no_recent:
+        few_recent = (0 < r_pa < MIN_RELIABLE_PA)
+        use_season = no_recent or few_recent
+        if use_season:
             # シーズン補正値をメインに表示
             disp_obp   = s_obp
             disp_iso   = s_iso
@@ -4775,7 +4832,10 @@ def _render_predicted_lineup_html(data: dict, team_code: str = "広島") -> HTML
             disp_slg   = s_iso  # ISOはSLG-AVGなので長打率の代わりにISO表示
             disp_ops   = round(s_obp + s_obp + s_iso, 3)  # 概算OPS≈2*obp+iso
             stat_badge = f'<span class="lu-stat-badge lu-badge-season">シーズン補正値</span>'
-            stat_note  = f'<div class="lu-no-recent-note">直近{wg_val}試合の打席データなし</div>'
+            if no_recent:
+                stat_note = f'<div class="lu-no-recent-note">直近{wg_val}試合の打席データなし</div>'
+            else:
+                stat_note = f'<div class="lu-no-recent-note">直近{wg_val}試合は{r_pa}打席（参考値として補正出塁: {r_obp:.3f}）</div>'
             obp_label  = "出塁率"
             iso_label  = "長打指数"
             slg_label  = "長打率"
@@ -4792,8 +4852,8 @@ def _render_predicted_lineup_html(data: dict, team_code: str = "広島") -> HTML
             slg_label  = "長打率"
             ops_label  = "OPS"
 
-        # シーズン補正の行：直近あり時は補足、直近なし時は既にメイン表示済みなので省略
-        if no_recent:
+        # シーズン補正の行：直近あり時は補足、直近なし/少ない時は既にメイン表示済みなので省略
+        if use_season:
             season_extra = ""
         else:
             season_extra = f"""
@@ -5224,6 +5284,53 @@ def public_recent_batting(request: Request, window_games: int = 5, team: str = "
             },
         )
 
+@router.get("/internal/cache-clear")
+def internal_cache_clear(team: str | None = None):
+    """内部用: recent_batting / predicted_lineup キャッシュをクリアする。
+    team を指定した場合はそのチームのみ、省略した場合は全チーム。"""
+    rb = CACHE.get("recent_batting", {})
+    pl = CACHE.get("predicted_lineup", {})
+    cleared = []
+    if team:
+        for bucket, label in [(rb, "recent_batting"), (pl, "predicted_lineup")]:
+            keys_to_del = [k for k in bucket if team in k]
+            for k in keys_to_del:
+                del bucket[k]
+                cleared.append(f"{label}:{k}")
+    else:
+        rb.clear()
+        pl.clear()
+        cleared.append("recent_batting:ALL")
+        cleared.append("predicted_lineup:ALL")
+    return {"cleared": cleared}
+
+
+@router.get("/internal/debug-recent")
+def internal_debug_recent(team: str = "阪神", window_games: int = 5):
+    """内部デバッグ用: recent_snapshot_map の内容をそのまま返す。"""
+    try:
+        snap = _recent_snapshot_map(window_games, team)
+        result = {}
+        for name, d in snap.items():
+            result[name] = {
+                "games": d.get("games", 0),
+                "pa":    d.get("pa", 0),
+                "obp":   d.get("obp", 0.0),
+                "iso":   d.get("iso", 0.0),
+            }
+        return {"team": team, "window_games": window_games, "players": result}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.get("/internal/debug-aliases")
+def internal_debug_aliases(pattern: str = "佐藤"):
+    """内部デバッグ用: PLAYER_NAME_ALIASES のうち pattern を含むエントリを返す。"""
+    from app.api.public import PLAYER_NAME_ALIASES
+    matched = {k: v for k, v in PLAYER_NAME_ALIASES.items() if pattern in k or pattern in v}
+    return {"pattern": pattern, "aliases": matched, "total": len(PLAYER_NAME_ALIASES)}
+
+
 @router.get("/public/predicted-lineup")
 def public_predicted_lineup(
     request: Request,
@@ -5235,6 +5342,26 @@ def public_predicted_lineup(
     try:
         window_games = max(1, min(window_games, 10))
         data = _build_simple_predicted_lineup(window_games=window_games, use_dh=use_dh, team_code=team)
+
+        # ── キャッシュ内の `recent` が古い（pa=0）場合の補正 ──
+        # predicted_lineup キャッシュは TTL=20分。その間に recent データが変化しても
+        # キャッシュから古い recent.pa=0 が返ることがある。
+        # ここで毎リクエスト最新の _recent_snapshot_map から recent を注入して補正する。
+        try:
+            snap = _recent_snapshot_map(window_games, team)
+            for item in data.get("lineup", []):
+                cname = item.get("player_name", "")
+                snap_entry = snap.get(cname)
+                if snap_entry:
+                    item["recent"] = {
+                        "games": snap_entry.get("games", 0),
+                        "pa":    snap_entry.get("pa",    0),
+                        "ab":    snap_entry.get("ab",    0),
+                        "obp":   snap_entry.get("obp",   0.0),
+                        "iso":   snap_entry.get("iso",   0.0),
+                    }
+        except Exception:
+            pass  # スナップショット補正に失敗してもキャッシュ値で続行
 
         if _wants_html(request, view):
             return _render_predicted_lineup_html(data, team_code=team)

@@ -3743,8 +3743,8 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
 <body>
   <!-- サイトヘッダー -->
   <header class="site-header">
-    <a class="site-logo" href="/public/predicted-lineup?window_games=5&use_dh=true&view=html">
-      鯉男の打席分析室<span>広島カープ データ分析</span>
+    <a class="site-logo" href="/public/top">
+      鯉男の打席分析室<span>NPB 全12球団 データ分析</span>
     </a>
     <nav class="site-header-nav">
       <a href="/public/game-recap?view=html">試合一覧</a>
@@ -3776,6 +3776,7 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
       <!-- フッター -->
       <footer class="site-footer">
         <div class="footer-links">
+          <a href="/public/top">トップ</a>
           <a href="/public/predicted-lineup?window_games=5&use_dh=true&view=html">予想打順</a>
           <a href="/public/recent-batting?view=html">直近打撃</a>
           <a href="/public/risp?view=html">得点圏</a>
@@ -3786,7 +3787,7 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
           <a href="/public/terms">利用規約</a>
         </div>
         <div>© 2025 鯉男の打席分析室 — 非公式ファンサイト。掲載データはYahoo!スポーツ・NPB Basementより取得。</div>
-        <div style="margin-top:4px">本サイトは広島東洋カープ及びNPBとは無関係の個人ファンサイトです。</div>
+        <div style="margin-top:4px">本サイトはNPB各球団及びNPBとは無関係の個人ファンサイトです。</div>
       </footer>
     </main>
 
@@ -7671,6 +7672,403 @@ def public_terms(request: Request):
         body,
         description="鯉男の打席分析室の利用規約ページです。サービスの利用条件、禁止事項、免責事項について説明します。",
     )
+
+
+
+# ─────────────────────────────────────────────
+# トップ（表紙）ページ  /public/top
+# ─────────────────────────────────────────────
+
+# 球団別カラー・リーグ・愛称定義
+_TEAM_INFO: list[dict] = [
+    # セ・リーグ
+    {"code": "広島",       "full": "広島東洋カープ",           "color": "#e4002b", "sub": "#fff", "emoji": "⚾", "league": "セ"},
+    {"code": "阪神",       "full": "阪神タイガース",           "color": "#ffe100", "sub": "#222", "emoji": "⚾", "league": "セ"},
+    {"code": "巨人",       "full": "読売ジャイアンツ",         "color": "#f97300", "sub": "#fff", "emoji": "⚾", "league": "セ"},
+    {"code": "DeNA",       "full": "横浜DeNAベイスターズ",     "color": "#003087", "sub": "#fff", "emoji": "⚾", "league": "セ"},
+    {"code": "中日",       "full": "中日ドラゴンズ",           "color": "#003087", "sub": "#fff", "emoji": "⚾", "league": "セ"},
+    {"code": "ヤクルト",   "full": "東京ヤクルトスワローズ",   "color": "#00529b", "sub": "#fff", "emoji": "⚾", "league": "セ"},
+    # パ・リーグ
+    {"code": "ソフトバンク","full": "福岡ソフトバンクホークス","color": "#f5a623", "sub": "#222", "emoji": "⚾", "league": "パ"},
+    {"code": "西武",       "full": "埼玉西武ライオンズ",       "color": "#00529b", "sub": "#fff", "emoji": "⚾", "league": "パ"},
+    {"code": "楽天",       "full": "東北楽天ゴールデンイーグルス","color": "#8c1b37","sub": "#fff", "emoji": "⚾", "league": "パ"},
+    {"code": "ロッテ",     "full": "千葉ロッテマリーンズ",     "color": "#000e2f", "sub": "#fff", "emoji": "⚾", "league": "パ"},
+    {"code": "オリックス", "full": "オリックス・バファローズ", "color": "#0032a0", "sub": "#fff", "emoji": "⚾", "league": "パ"},
+    {"code": "日本ハム",   "full": "北海道日本ハムファイターズ","color": "#003f8f", "sub": "#fff", "emoji": "⚾", "league": "パ"},
+]
+
+
+@router.get("/public/top", include_in_schema=False)
+def public_top(request: Request):
+    """サイトトップ（表紙）ページ — 12球団への入口 + サイト機能紹介"""
+
+    def _team_card(t: dict) -> str:
+        code = t["code"]
+        full = t["full"]
+        color = t["color"]
+        sub   = t["sub"]
+        # 各機能ページへのリンク（予想打順をメインに）
+        href = f"/public/predicted-lineup?window_games=5&team={code}&view=html"
+        # 略称バッジの最大2文字
+        badge = code[:3] if code == "DeNA" else code[:3]
+        return f"""
+        <a class="team-card" href="{href}" style="--tc:{color};--ts:{sub};">
+          <div class="tc-badge">{badge}</div>
+          <div class="tc-full">{full}</div>
+          <div class="tc-arrow">→</div>
+        </a>"""
+
+    central_cards = "".join(_team_card(t) for t in _TEAM_INFO if t["league"] == "セ")
+    pacific_cards = "".join(_team_card(t) for t in _TEAM_INFO if t["league"] == "パ")
+
+    body = f"""
+    <style>
+      /* ── トップページ固有スタイル ── */
+      .top-hero {{
+        text-align: center;
+        padding: 40px 16px 32px;
+      }}
+      .top-hero-title {{
+        font-size: clamp(22px, 5vw, 36px);
+        font-weight: 900;
+        color: #ffd54a;
+        letter-spacing: -0.02em;
+        line-height: 1.2;
+      }}
+      .top-hero-title span {{
+        color: #c8d8f4;
+        font-weight: 400;
+        font-size: 0.55em;
+        display: block;
+        margin-top: 6px;
+        letter-spacing: 0.02em;
+      }}
+      .top-hero-desc {{
+        margin-top: 14px;
+        font-size: 13px;
+        color: #8494b8;
+        line-height: 1.8;
+        max-width: 520px;
+        margin-left: auto;
+        margin-right: auto;
+      }}
+
+      /* ── リーグセクション ── */
+      .league-section {{
+        margin-top: 32px;
+      }}
+      .league-label {{
+        font-size: 11px;
+        font-weight: 700;
+        color: #5a6e94;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        padding: 0 4px 8px;
+        border-bottom: 1px solid #1a2540;
+        margin-bottom: 12px;
+      }}
+      .team-grid {{
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+      }}
+      @media (max-width: 480px) {{
+        .team-grid {{ grid-template-columns: repeat(2, 1fr); gap: 8px; }}
+      }}
+
+      /* ── 球団カード ── */
+      .team-card {{
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 7px;
+        padding: 16px 10px 14px;
+        background: #0c1424;
+        border: 1px solid #1a2540;
+        border-top: 3px solid var(--tc);
+        border-radius: 10px;
+        text-decoration: none;
+        color: #e8edf8;
+        transition: transform 0.15s, border-color 0.15s, background 0.15s;
+        position: relative;
+        cursor: pointer;
+      }}
+      .team-card:hover {{
+        transform: translateY(-3px);
+        background: #101c30;
+        border-color: var(--tc);
+        box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+      }}
+      .tc-badge {{
+        background: var(--tc);
+        color: var(--ts);
+        font-size: 12px;
+        font-weight: 900;
+        padding: 3px 10px;
+        border-radius: 999px;
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+      }}
+      .tc-full {{
+        font-size: 11px;
+        color: #8494b8;
+        text-align: center;
+        line-height: 1.4;
+      }}
+      .tc-arrow {{
+        font-size: 12px;
+        color: #ffd54a;
+        font-weight: 700;
+      }}
+
+      /* ── 機能紹介カード ── */
+      .features-section {{
+        margin-top: 40px;
+      }}
+      .features-title {{
+        font-size: 16px;
+        font-weight: 800;
+        color: #c8d8f4;
+        padding-bottom: 8px;
+        border-bottom: 1px solid #1a2540;
+        margin-bottom: 20px;
+      }}
+      .features-title::before {{
+        content: "⚡";
+        margin-right: 6px;
+      }}
+      .feature-list {{
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }}
+      .feature-item {{
+        display: flex;
+        gap: 14px;
+        align-items: flex-start;
+        background: #0c1424;
+        border: 1px solid #1a2540;
+        border-radius: 10px;
+        padding: 16px;
+      }}
+      .feature-icon {{
+        font-size: 26px;
+        flex-shrink: 0;
+        width: 40px;
+        text-align: center;
+      }}
+      .feature-body {{}}
+      .feature-name {{
+        font-size: 14px;
+        font-weight: 800;
+        color: #ffd54a;
+        margin-bottom: 4px;
+      }}
+      .feature-desc {{
+        font-size: 12px;
+        color: #8494b8;
+        line-height: 1.7;
+      }}
+      .feature-link {{
+        display: inline-block;
+        margin-top: 8px;
+        font-size: 11px;
+        color: #56cff8;
+        border: 1px solid #1a4060;
+        border-radius: 4px;
+        padding: 2px 8px;
+        text-decoration: none;
+      }}
+      .feature-link:hover {{ background: #1a4060; }}
+
+      /* ── 使い方セクション ── */
+      .howto-section {{
+        margin-top: 40px;
+        background: #0c1424;
+        border: 1px solid #1a2540;
+        border-radius: 12px;
+        padding: 20px;
+      }}
+      .howto-title {{
+        font-size: 14px;
+        font-weight: 800;
+        color: #c8d8f4;
+        margin-bottom: 14px;
+      }}
+      .howto-title::before {{
+        content: "📖";
+        margin-right: 6px;
+      }}
+      .howto-steps {{
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }}
+      .howto-step {{
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+        font-size: 12px;
+        color: #8494b8;
+        line-height: 1.6;
+      }}
+      .step-num {{
+        background: #ffd54a;
+        color: #06100a;
+        font-weight: 900;
+        font-size: 11px;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        margin-top: 1px;
+      }}
+    </style>
+
+    <!-- ヒーローエリア -->
+    <div class="top-hero">
+      <div class="top-hero-title">
+        鯉男の打席分析室
+        <span>NPB 全12球団 データ分析ファンサイト</span>
+      </div>
+      <p class="top-hero-desc">
+        直近5〜10試合の打撃成績・得点圏打率・守備走塁指標・WARを独自集計し、<br>
+        AIスコアリングによる今日の予想打順を12球団分リアルタイムで提供します。
+      </p>
+    </div>
+
+    <!-- 球団選択 セ・リーグ -->
+    <div class="card">
+      <div class="card-title">球団を選んでください</div>
+
+      <div class="league-section">
+        <div class="league-label">🔵 セントラル・リーグ</div>
+        <div class="team-grid">
+          {central_cards}
+        </div>
+      </div>
+
+      <div class="league-section" style="margin-top:24px">
+        <div class="league-label">🟠 パシフィック・リーグ</div>
+        <div class="team-grid">
+          {pacific_cards}
+        </div>
+      </div>
+    </div>
+
+    <!-- 機能紹介 -->
+    <div class="features-section">
+      <div class="features-title">このサイトでできること</div>
+      <div class="feature-list">
+
+        <div class="feature-item">
+          <div class="feature-icon">📋</div>
+          <div class="feature-body">
+            <div class="feature-name">今日の予想打順</div>
+            <div class="feature-desc">
+              直近5試合の打撃データをベイズ補正してスコアリング。
+              出塁率・長打率・守備力を打順ごとの役割（リードオフ/クリーンアップ等）に応じたウェイトで評価し、
+              最適な9人の打順を自動算出します。DH制の有無も対応。
+            </div>
+            <a class="feature-link" href="/public/predicted-lineup?window_games=5&team=広島&view=html">広島の予想打順を見る →</a>
+          </div>
+        </div>
+
+        <div class="feature-item">
+          <div class="feature-icon">📊</div>
+          <div class="feature-body">
+            <div class="feature-name">直近打撃成績ランキング</div>
+            <div class="feature-desc">
+              直近5〜10試合の打率・出塁率・OPS・ISO（長打指数）・wOBAをリアルタイム集計。
+              シーズン通算成績との比較も可能。今ホットな打者が一目でわかります。
+            </div>
+            <a class="feature-link" href="/public/recent-batting?team=広島&view=html">広島の直近打撃を見る →</a>
+          </div>
+        </div>
+
+        <div class="feature-item">
+          <div class="feature-icon">🏃</div>
+          <div class="feature-body">
+            <div class="feature-name">得点圏・出塁・打点ランキング</div>
+            <div class="feature-desc">
+              ヤフースポーツのテキスト速報を独自解析し、得点圏打率・出塁率・打点を集計。
+              今シーズン通算ランキングも対応。プレッシャー下での勝負強さを可視化します。
+            </div>
+            <a class="feature-link" href="/public/risp?team=広島&view=html">広島の得点圏を見る →</a>
+          </div>
+        </div>
+
+        <div class="feature-item">
+          <div class="feature-icon">🧤</div>
+          <div class="feature-body">
+            <div class="feature-name">走塁・守備指標（UBR / TZR / Framing）</div>
+            <div class="feature-desc">
+              UBR（走塁貢献度）・TZR（守備範囲）・捕手フレーミング等の
+              セイバーメトリクス指標をシーズン通算で表示。
+              見えにくい貢献を数値で確認できます。
+            </div>
+            <a class="feature-link" href="/public/fielding-baserunning?team=広島&view=html">広島の守備走塁を見る →</a>
+          </div>
+        </div>
+
+        <div class="feature-item">
+          <div class="feature-icon">📈</div>
+          <div class="feature-body">
+            <div class="feature-name">WAR ランキング</div>
+            <div class="feature-desc">
+              打撃・走塁・守備を総合した選手貢献度指標 WAR をランキング表示。
+              シーズンを通じてチームに何勝もたらしたかを一覧で確認できます。
+            </div>
+            <a class="feature-link" href="/public/war-ranking?team=広島&view=html">広島のWARを見る →</a>
+          </div>
+        </div>
+
+        <div class="feature-item">
+          <div class="feature-icon">🔥</div>
+          <div class="feature-body">
+            <div class="feature-name">ホットバッター</div>
+            <div class="feature-desc">
+              直近の調子が突出して良い選手を独自スコアで抽出。
+              wOBA・OPS・打率の直近上昇率を複合評価し、
+              今日スタメンで注目すべき打者をピックアップします。
+            </div>
+            <a class="feature-link" href="/public/hot-batters?team=広島&view=html">広島のホットバッターを見る →</a>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- 使い方 -->
+    <div class="howto-section">
+      <div class="howto-title">使い方</div>
+      <div class="howto-steps">
+        <div class="howto-step">
+          <div class="step-num">1</div>
+          <div>上の球団カードから応援チームを選ぶ</div>
+        </div>
+        <div class="howto-step">
+          <div class="step-num">2</div>
+          <div>「予想打順」ページが開く — 直近データに基づく今日の打線が確認できる</div>
+        </div>
+        <div class="howto-step">
+          <div class="step-num">3</div>
+          <div>ページ上部のナビから「直近打撃」「得点圏」「守備走塁」「WAR」等に移動して詳細分析</div>
+        </div>
+        <div class="howto-step">
+          <div class="step-num">4</div>
+          <div>直近5試合 / 10試合のタブを切り替えてトレンドを確認</div>
+        </div>
+      </div>
+    </div>
+    """
+
+    # トップページ専用の _html_page 呼び出し
+    desc = "NPB全12球団の予想打順・直近打撃成績・得点圏打率・守備走塁・WARをリアルタイム分析するデータファンサイト。"
+    return _html_page("トップ", body, description=desc)
 
 
 # ─────────────────────────────────────────────

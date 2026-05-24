@@ -5698,7 +5698,15 @@ def public_predicted_lineup(
                         "obp":       snap_entry.get("obp",       0.0),
                         "iso":       snap_entry.get("iso",       0.0),
                         "woba":      snap_entry.get("woba",      0.0),
+                        "con":       snap_entry.get("con",       0.75),
+                        "run":       snap_entry.get("run",       0.0),
+                        "adj_obp":   snap_entry.get("adj_obp",   NPB_LEAGUE_AVG_OBP),
+                        "adj_iso":   snap_entry.get("adj_iso",   NPB_LEAGUE_AVG_ISO),
                         "adj_woba":  snap_entry.get("adj_woba",  _LEAGUE_WOBA),
+                        "adj_con":   snap_entry.get("adj_con",   0.77),
+                        "adj_run":   snap_entry.get("adj_run",   0.0),
+                        "prior_woba": snap_entry.get("prior_woba", _LEAGUE_WOBA),
+                        "reliability": snap_entry.get("reliability", 0.0),
                     }
         except Exception:
             pass  # スナップショット補正に失敗してもキャッシュ値で続行

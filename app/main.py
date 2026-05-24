@@ -22,7 +22,7 @@ app.include_router(public.router)
 
 @app.get("/", include_in_schema=False)
 def root():
-    return RedirectResponse(url="/public/predicted-lineup?window_games=5&use_dh=true&view=html")
+    return RedirectResponse(url="/public/top")
 
 
 @app.get("/health")

@@ -626,8 +626,10 @@ DH_LINEUP_SLOTS = [
             "avail":       0.10,   # Avail 0.10
         },
         # ISO<0.110 ソフト減点（×0.90）、wOBA 下位50%候補外
+        # 生ISO=0.000かつPA>=5 の選手は4番候補から完全除外
         "soft_penalty": {"iso_threshold": 0.110, "penalty": 0.90},
         "hard_cut_woba_bottom_pct": 0.50,
+        "hard_cut_iso_zero": True,
     },
     {
         # 5番：返す2枚目（wOBA＋ISO 長打力継続）
@@ -765,8 +767,10 @@ NO_DH_LINEUP_SLOTS = [
             "defense":     0.05,   # DEF 0.05
             "avail":       0.10,   # Avail 0.10
         },
+        # 生ISO=0.000かつPA>=5 の選手は4番候補から完全除外
         "soft_penalty": {"iso_threshold": 0.110, "penalty": 0.90},
         "hard_cut_woba_bottom_pct": 0.50,
+        "hard_cut_iso_zero": True,
     },
     {
         # 5番：返す2枚目（ISO比率をDH有より若干軽く）
@@ -2994,6 +2998,14 @@ def _slot_score(
             if adj_woba_val < threshold:
                 return float("-inf"), recent, season_pos, defense
 
+    # ── hard_cut_iso_zero（4番向け：生のISO=0.000かつPA>=5の選手は候補外） ──
+    # ベイズ収縮によりadj_isoは0にならないため、生の値(raw_iso)でチェックする
+    if slot_def.get("hard_cut_iso_zero"):
+        raw_pa = int(recent.get("pa", 0) or 0)
+        raw_iso_val = float(recent.get("iso", 0.0) or 0.0)
+        if raw_pa >= 5 and raw_iso_val == 0.0:
+            return float("-inf"), recent, season_pos, defense
+
     # ── ウエイト加算スコア ──
     weights = slot_def.get("weights", {})
     score = (
@@ -3652,9 +3664,15 @@ def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: di
                 }
 
         # ── フォールバック：hard_cut_woba_bottom_pct で全候補が弾かれた場合 ──
-        # hard_cut 制約を外して残り候補の中からスコア最高の選手を割り当てる
-        if best_pick is None and slot_def.get("hard_cut_woba_bottom_pct") is not None:
-            fallback_slot = {k: v for k, v in slot_def.items() if k != "hard_cut_woba_bottom_pct"}
+        # hard_cut_woba_bottom_pct / hard_cut_iso_zero の両制約を外して再選出する
+        if best_pick is None and (
+            slot_def.get("hard_cut_woba_bottom_pct") is not None
+            or slot_def.get("hard_cut_iso_zero")
+        ):
+            fallback_slot = {
+                k: v for k, v in slot_def.items()
+                if k not in ("hard_cut_woba_bottom_pct", "hard_cut_iso_zero")
+            }
             for player_name in candidate_names:
                 canonical_name = _canonical_player_name(player_name, team_code)
                 if canonical_name in used_players:

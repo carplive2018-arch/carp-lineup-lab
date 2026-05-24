@@ -7973,7 +7973,7 @@ def public_top(request: Request):
               出塁率・長打率・守備力を打順ごとの役割（リードオフ/クリーンアップ等）に応じたウェイトで評価し、
               最適な9人の打順を自動算出します。DH制の有無も対応。
             </div>
-            <a class="feature-link" href="/public/predicted-lineup?window_games=5&team=広島&view=html">広島の予想打順を見る →</a>
+            <a class="feature-link" href="/public/select?page=predicted-lineup">チームを選んで見る →</a>
           </div>
         </div>
 
@@ -7985,7 +7985,7 @@ def public_top(request: Request):
               直近5〜10試合の打率・出塁率・OPS・ISO（長打指数）・wOBAをリアルタイム集計。
               シーズン通算成績との比較も可能。今ホットな打者が一目でわかります。
             </div>
-            <a class="feature-link" href="/public/recent-batting?team=広島&view=html">広島の直近打撃を見る →</a>
+            <a class="feature-link" href="/public/select?page=recent-batting">チームを選んで見る →</a>
           </div>
         </div>
 
@@ -7997,7 +7997,7 @@ def public_top(request: Request):
               ヤフースポーツのテキスト速報を独自解析し、得点圏打率・出塁率・打点を集計。
               今シーズン通算ランキングも対応。プレッシャー下での勝負強さを可視化します。
             </div>
-            <a class="feature-link" href="/public/risp?team=広島&view=html">広島の得点圏を見る →</a>
+            <a class="feature-link" href="/public/select?page=risp">チームを選んで見る →</a>
           </div>
         </div>
 
@@ -8010,7 +8010,7 @@ def public_top(request: Request):
               セイバーメトリクス指標をシーズン通算で表示。
               見えにくい貢献を数値で確認できます。
             </div>
-            <a class="feature-link" href="/public/fielding-baserunning?team=広島&view=html">広島の守備走塁を見る →</a>
+            <a class="feature-link" href="/public/select?page=fielding-baserunning">チームを選んで見る →</a>
           </div>
         </div>
 
@@ -8022,7 +8022,7 @@ def public_top(request: Request):
               打撃・走塁・守備を総合した選手貢献度指標 WAR をランキング表示。
               シーズンを通じてチームに何勝もたらしたかを一覧で確認できます。
             </div>
-            <a class="feature-link" href="/public/war-ranking?team=広島&view=html">広島のWARを見る →</a>
+            <a class="feature-link" href="/public/select?page=war-ranking">チームを選んで見る →</a>
           </div>
         </div>
 
@@ -8035,7 +8035,7 @@ def public_top(request: Request):
               wOBA・OPS・打率の直近上昇率を複合評価し、
               今日スタメンで注目すべき打者をピックアップします。
             </div>
-            <a class="feature-link" href="/public/hot-batters?team=広島&view=html">広島のホットバッターを見る →</a>
+            <a class="feature-link" href="/public/select?page=hot-batters">チームを選んで見る →</a>
           </div>
         </div>
 
@@ -8069,6 +8069,222 @@ def public_top(request: Request):
     # トップページ専用の _html_page 呼び出し
     desc = "NPB全12球団の予想打順・直近打撃成績・得点圏打率・守備走塁・WARをリアルタイム分析するデータファンサイト。"
     return _html_page("トップ", body, description=desc)
+
+
+# ─────────────────────────────────────────────
+# チーム選択ページ  /public/select
+# ─────────────────────────────────────────────
+
+# 各ページの表示名・URLテンプレート定義
+_PAGE_META: dict[str, dict] = {
+    "predicted-lineup": {
+        "label":    "今日の予想打順",
+        "icon":     "📋",
+        "url_tmpl": "/public/predicted-lineup?window_games=5&team={team}&view=html",
+        "desc":     "直近データをAIスコアリングして最適な9人の打順を算出します。",
+    },
+    "recent-batting": {
+        "label":    "直近打撃成績ランキング",
+        "icon":     "📊",
+        "url_tmpl": "/public/recent-batting?team={team}&view=html",
+        "desc":     "直近5〜10試合の打率・OPS・wOBA等をリアルタイム集計します。",
+    },
+    "risp": {
+        "label":    "得点圏・出塁・打点ランキング",
+        "icon":     "🏃",
+        "url_tmpl": "/public/risp?team={team}&view=html",
+        "desc":     "得点圏打率・出塁率・打点を独自集計。シーズン通算対応。",
+    },
+    "fielding-baserunning": {
+        "label":    "走塁・守備指標",
+        "icon":     "🧤",
+        "url_tmpl": "/public/fielding-baserunning?team={team}&view=html",
+        "desc":     "UBR・TZR・捕手フレーミング等のセイバーメトリクス指標。",
+    },
+    "war-ranking": {
+        "label":    "WAR ランキング",
+        "icon":     "📈",
+        "url_tmpl": "/public/war-ranking?team={team}&view=html",
+        "desc":     "打撃・走塁・守備を総合した選手貢献度指標WARをランキング表示。",
+    },
+    "hot-batters": {
+        "label":    "ホットバッター",
+        "icon":     "🔥",
+        "url_tmpl": "/public/hot-batters?team={team}&view=html",
+        "desc":     "直近の調子が突出して良い選手を独自スコアで抽出します。",
+    },
+}
+
+
+@router.get("/public/select", include_in_schema=False)
+def public_select(request: Request, page: str = "predicted-lineup"):
+    """チーム選択ページ — 機能を選んだあとチームを選ぶ中間ページ"""
+
+    meta = _PAGE_META.get(page, _PAGE_META["predicted-lineup"])
+    page_label = meta["label"]
+    page_icon  = meta["icon"]
+    page_desc  = meta["desc"]
+
+    def _team_card(t: dict) -> str:
+        code  = t["code"]
+        full  = t["full"]
+        color = t["color"]
+        sub   = t["sub"]
+        url   = meta["url_tmpl"].format(team=code)
+        return f"""
+        <a class="team-card" href="{url}" style="--tc:{color};--ts:{sub};">
+          <div class="tc-badge">{code}</div>
+          <div class="tc-full">{full}</div>
+          <div class="tc-arrow">→</div>
+        </a>"""
+
+    central_cards = "".join(_team_card(t) for t in _TEAM_INFO if t["league"] == "セ")
+    pacific_cards = "".join(_team_card(t) for t in _TEAM_INFO if t["league"] == "パ")
+
+    # 他の機能への切替ナビ
+    other_pages_html = ""
+    for pg_key, pg_meta in _PAGE_META.items():
+        active_cls = ' style="background:#1a2d50;border-color:#ffd54a;color:#ffd54a;"' if pg_key == page else ""
+        other_pages_html += (
+            f'<a class="nav-btn" href="/public/select?page={pg_key}"{active_cls}>'
+            f'{pg_meta["icon"]} {pg_meta["label"]}</a>'
+        )
+
+    body = f"""
+    <style>
+      /* チーム選択ページ — /public/top と共通スタイルを再利用 */
+      .select-hero {{
+        text-align: center;
+        padding: 28px 16px 20px;
+      }}
+      .select-back {{
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: #5a6e94;
+        text-decoration: none;
+        margin-bottom: 16px;
+        border: 1px solid #1a2540;
+        border-radius: 4px;
+        padding: 4px 10px;
+        transition: color 0.15s, background 0.15s;
+      }}
+      .select-back:hover {{ color: #c8d8f4; background: #0c1424; }}
+      .select-page-name {{
+        font-size: clamp(18px, 4vw, 26px);
+        font-weight: 900;
+        color: #ffd54a;
+        margin-bottom: 6px;
+      }}
+      .select-page-desc {{
+        font-size: 12px;
+        color: #8494b8;
+        margin-bottom: 0;
+      }}
+      .league-section {{ margin-top: 24px; }}
+      .league-label {{
+        font-size: 11px;
+        font-weight: 700;
+        color: #5a6e94;
+        letter-spacing: 0.12em;
+        padding: 0 4px 8px;
+        border-bottom: 1px solid #1a2540;
+        margin-bottom: 12px;
+      }}
+      .team-grid {{
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+      }}
+      @media (max-width: 480px) {{
+        .team-grid {{ grid-template-columns: repeat(2, 1fr); gap: 8px; }}
+      }}
+      .team-card {{
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 7px;
+        padding: 16px 10px 14px;
+        background: #0c1424;
+        border: 1px solid #1a2540;
+        border-top: 3px solid var(--tc);
+        border-radius: 10px;
+        text-decoration: none;
+        color: #e8edf8;
+        transition: transform 0.15s, border-color 0.15s, background 0.15s;
+        cursor: pointer;
+      }}
+      .team-card:hover {{
+        transform: translateY(-3px);
+        background: #101c30;
+        border-color: var(--tc);
+        box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+      }}
+      .tc-badge {{
+        background: var(--tc);
+        color: var(--ts);
+        font-size: 12px;
+        font-weight: 900;
+        padding: 3px 10px;
+        border-radius: 999px;
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+      }}
+      .tc-full {{ font-size: 11px; color: #8494b8; text-align: center; line-height: 1.4; }}
+      .tc-arrow {{ font-size: 12px; color: #ffd54a; font-weight: 700; }}
+      /* 他機能切替ナビ */
+      .other-pages {{
+        margin-top: 32px;
+        padding-top: 20px;
+        border-top: 1px solid #1a2540;
+      }}
+      .other-pages-title {{
+        font-size: 11px;
+        color: #5a6e94;
+        margin-bottom: 10px;
+        letter-spacing: 0.08em;
+      }}
+      .other-pages-nav {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }}
+    </style>
+
+    <!-- 戻るリンク + ページタイトル -->
+    <div class="select-hero">
+      <a class="select-back" href="/public/top">← 機能一覧に戻る</a>
+      <div class="select-page-name">{page_icon} {page_label}</div>
+      <p class="select-page-desc">{page_desc}<br>チームを選ぶと該当ページへ移動します。</p>
+    </div>
+
+    <!-- 球団選択カード -->
+    <div class="card">
+      <div class="card-title">チームを選んでください</div>
+
+      <div class="league-section">
+        <div class="league-label">🔵 セントラル・リーグ</div>
+        <div class="team-grid">{central_cards}</div>
+      </div>
+
+      <div class="league-section" style="margin-top:24px">
+        <div class="league-label">🟠 パシフィック・リーグ</div>
+        <div class="team-grid">{pacific_cards}</div>
+      </div>
+    </div>
+
+    <!-- 他の機能への切替 -->
+    <div class="other-pages">
+      <div class="other-pages-title">他の機能を見る</div>
+      <div class="other-pages-nav">
+        {other_pages_html}
+      </div>
+    </div>
+    """
+
+    desc_meta = f"NPB全12球団の{page_label}をチームごとに確認できます。"
+    return _html_page(f"{page_label} — チーム選択", body, description=desc_meta)
 
 
 # ─────────────────────────────────────────────

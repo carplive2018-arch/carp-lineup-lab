@@ -80,6 +80,7 @@ POSITION_BATTING_PRIOR_AB = 80
 # PRIOR_PA/AB が大きいほど「信頼できるとみなすのに必要な打席数が多い」→ 補正が強い
 RECENT_OBP_PRIOR_PA  = 18   # 旧12 → 18: 5試合程度（~20PA）でも半分以上引き戻す
 RECENT_ISO_PRIOR_AB  = 25   # 旧20 → 25: ISO は長打率なので標本分散が大きい → より強い収縮
+RECENT_WOBA_PRIOR_PA = 18   # wOBA の収縮強度（OBP と同等）
 RECENT_FULL_TRUST_PA = 8
 # NPBリーグ平均（prior が個人シーズン成績にない場合のフォールバック）
 NPB_LEAGUE_AVG_OBP   = 0.310
@@ -562,115 +563,116 @@ SEASON_OVERALL_BATTING = {
 
 DH_LINEUP_SLOTS = [
     {
-        # 1番：出塁最重視 → adj_obp 最高の選手を補正なしで選出
+        # 1番：出塁最重視 → adj_woba 最高の選手を補正なしで選出
+        # (leadoff フラグ時は adj_woba 単独でスコアを決定)
         "order": 1,
         "role": "lead_obp_glove",
-        "leadoff": True,  # このフラグがある場合は adj_obp 単独で選出
-        "weights": {"recent_obp": 0.35, "recent_iso": 0.07, "season_obp": 0.30, "season_iso": 0.03, "defense": 0.25},
+        "leadoff": True,
+        "weights": {"recent_woba": 0.25, "recent_obp": 0.15, "recent_iso": 0.02, "season_obp": 0.30, "season_iso": 0.03, "defense": 0.25},
     },
     {
-        # 2番：打撃バランス（OBP＋長打）
+        # 2番：打撃バランス（OBP＋長打）wOBA で総合打撃質を評価
         "order": 2,
         "role": "two_hole_bat",
-        "weights": {"recent_obp": 0.25, "recent_iso": 0.25, "season_obp": 0.25, "season_iso": 0.15, "defense": 0.10},
+        "weights": {"recent_woba": 0.20, "recent_obp": 0.10, "recent_iso": 0.15, "season_obp": 0.25, "season_iso": 0.15, "defense": 0.15},
     },
     {
-        # 3番：総合打撃最強（OBP＋ISO重視）
+        # 3番：総合打撃最強（OBP＋ISO重視）wOBA で打撃の質を補強
         "order": 3,
         "role": "three_hole_contact",
-        "weights": {"recent_obp": 0.30, "recent_iso": 0.25, "season_obp": 0.25, "season_iso": 0.15, "defense": 0.05},
+        "weights": {"recent_woba": 0.25, "recent_obp": 0.10, "recent_iso": 0.15, "season_obp": 0.25, "season_iso": 0.15, "defense": 0.10},
     },
     {
-        # 4番：長打力最大（直近ISO最重視）
+        # 4番：長打力最大（直近ISO最重視）wOBA で長打の質も評価
         "order": 4,
         "role": "cleanup_power",
-        "weights": {"recent_obp": 0.10, "recent_iso": 0.42, "season_obp": 0.10, "season_iso": 0.33, "defense": 0.05},
-        "min_adj_iso": 0.100,  # adj_isoがこれ未満の選手は4番候補から除外
+        "weights": {"recent_woba": 0.25, "recent_obp": 0.05, "recent_iso": 0.25, "season_obp": 0.10, "season_iso": 0.30, "defense": 0.05},
+        "min_adj_iso": 0.100,
     },
     {
-        # 5番：長打＋出塁（4番に次ぐ長打、直近ISO優先）
+        # 5番：長打＋出塁（4番に次ぐ長打）wOBA で長打の質も評価
         "order": 5,
         "role": "five_hole_power",
-        "weights": {"recent_obp": 0.15, "recent_iso": 0.35, "season_obp": 0.15, "season_iso": 0.25, "defense": 0.10},
-        "min_adj_iso": 0.085,  # adj_isoがこれ未満の選手は5番候補から除外
+        "weights": {"recent_woba": 0.20, "recent_obp": 0.05, "recent_iso": 0.25, "season_obp": 0.15, "season_iso": 0.25, "defense": 0.10},
+        "min_adj_iso": 0.085,
     },
     {
         # 6番：総合打撃（直近ISO優先）
         "order": 6,
         "role": "six_hole_balance",
-        "weights": {"recent_obp": 0.25, "recent_iso": 0.25, "season_obp": 0.25, "season_iso": 0.15, "defense": 0.10},
+        "weights": {"recent_woba": 0.20, "recent_obp": 0.10, "recent_iso": 0.15, "season_obp": 0.25, "season_iso": 0.15, "defense": 0.15},
     },
     {
-        # 7番：シーズン成績重視＋守備（直近ISO優先）
+        # 7番：シーズン成績重視＋守備
         "order": 7,
         "role": "seven_hole_season",
-        "weights": {"recent_obp": 0.15, "recent_iso": 0.13, "season_obp": 0.30, "season_iso": 0.12, "defense": 0.30},
+        "weights": {"recent_woba": 0.10, "recent_obp": 0.08, "recent_iso": 0.10, "season_obp": 0.27, "season_iso": 0.15, "defense": 0.30},
     },
     {
-        # 8番：守備最重視（直近ISO優先）
+        # 8番：守備最重視
         "order": 8,
         "role": "glove_bottom",
-        "weights": {"recent_obp": 0.10, "recent_iso": 0.08, "season_obp": 0.20, "season_iso": 0.07, "defense": 0.55},
+        "weights": {"recent_woba": 0.05, "recent_obp": 0.05, "recent_iso": 0.08, "season_obp": 0.17, "season_iso": 0.10, "defense": 0.55},
     },
     {
         # 9番（DH有）：繋ぎ出塁
         "order": 9,
         "role": "turnover_obp",
-        "weights": {"recent_obp": 0.30, "recent_iso": 0.13, "season_obp": 0.35, "season_iso": 0.07, "defense": 0.15},
+        "weights": {"recent_woba": 0.15, "recent_obp": 0.15, "recent_iso": 0.10, "season_obp": 0.35, "season_iso": 0.10, "defense": 0.15},
     },
 ]
 
 NO_DH_LINEUP_SLOTS = [
     {
-        # 1番：出塁最重視 → adj_obp 最高の選手を補正なしで選出
+        # 1番：出塁最重視 → adj_woba 最高の選手を補正なしで選出
         "order": 1,
         "role": "lead_obp_glove",
-        "leadoff": True,  # このフラグがある場合は adj_obp 単独で選出
-        "weights": {"recent_obp": 0.35, "recent_iso": 0.07, "season_obp": 0.30, "season_iso": 0.03, "defense": 0.25},
+        "leadoff": True,
+        "weights": {"recent_woba": 0.25, "recent_obp": 0.15, "recent_iso": 0.02, "season_obp": 0.30, "season_iso": 0.03, "defense": 0.25},
     },
     {
-        # 2番：打撃バランス（直近ISO優先）
+        # 2番：打撃バランス（直近wOBA重視）
         "order": 2,
         "role": "two_hole_bat",
-        "weights": {"recent_obp": 0.25, "recent_iso": 0.25, "season_obp": 0.25, "season_iso": 0.15, "defense": 0.10},
+        "weights": {"recent_woba": 0.20, "recent_obp": 0.10, "recent_iso": 0.15, "season_obp": 0.25, "season_iso": 0.15, "defense": 0.15},
     },
     {
-        # 3番：総合打撃最強（直近ISO優先）
+        # 3番：総合打撃最強（直近wOBA重視）
         "order": 3,
         "role": "three_hole_contact",
-        "weights": {"recent_obp": 0.30, "recent_iso": 0.25, "season_obp": 0.25, "season_iso": 0.15, "defense": 0.05},
+        "weights": {"recent_woba": 0.25, "recent_obp": 0.10, "recent_iso": 0.15, "season_obp": 0.25, "season_iso": 0.15, "defense": 0.10},
     },
     {
-        # 4番：長打力最大（直近ISO最重視）
+        # 4番：長打力最大（直近wOBA＋ISO最重視）
         "order": 4,
         "role": "cleanup_power",
-        "weights": {"recent_obp": 0.10, "recent_iso": 0.42, "season_obp": 0.10, "season_iso": 0.33, "defense": 0.05},
-        "min_adj_iso": 0.100,  # adj_isoがこれ未満の選手は4番候補から除外
+        "weights": {"recent_woba": 0.25, "recent_obp": 0.05, "recent_iso": 0.25, "season_obp": 0.10, "season_iso": 0.30, "defense": 0.05},
+        "min_adj_iso": 0.100,
     },
     {
-        # 5番：長打＋出塁（直近ISO優先）
+        # 5番：長打＋出塁（直近wOBA優先）
         "order": 5,
         "role": "five_hole_power",
-        "weights": {"recent_obp": 0.15, "recent_iso": 0.35, "season_obp": 0.15, "season_iso": 0.25, "defense": 0.10},
-        "min_adj_iso": 0.085,  # adj_isoがこれ未満の選手は5番候補から除外
+        "weights": {"recent_woba": 0.20, "recent_obp": 0.05, "recent_iso": 0.25, "season_obp": 0.15, "season_iso": 0.25, "defense": 0.10},
+        "min_adj_iso": 0.085,
     },
     {
-        # 6番：総合打撃（直近ISO優先）
+        # 6番：総合打撃（直近wOBA優先）
         "order": 6,
         "role": "six_hole_balance",
-        "weights": {"recent_obp": 0.25, "recent_iso": 0.25, "season_obp": 0.25, "season_iso": 0.15, "defense": 0.10},
+        "weights": {"recent_woba": 0.20, "recent_obp": 0.10, "recent_iso": 0.15, "season_obp": 0.25, "season_iso": 0.15, "defense": 0.15},
     },
     {
-        # 7番：シーズン成績重視＋守備（直近ISO優先）
+        # 7番：シーズン成績重視＋守備
         "order": 7,
         "role": "seven_hole_season",
-        "weights": {"recent_obp": 0.15, "recent_iso": 0.13, "season_obp": 0.30, "season_iso": 0.12, "defense": 0.30},
+        "weights": {"recent_woba": 0.10, "recent_obp": 0.08, "recent_iso": 0.10, "season_obp": 0.27, "season_iso": 0.15, "defense": 0.30},
     },
     {
-        # 8番（DH無）：守備最重視（直近ISO優先）
+        # 8番（DH無）：守備最重視
         "order": 8,
         "role": "glove_bottom",
-        "weights": {"recent_obp": 0.10, "recent_iso": 0.08, "season_obp": 0.20, "season_iso": 0.07, "defense": 0.55},
+        "weights": {"recent_woba": 0.05, "recent_obp": 0.05, "recent_iso": 0.08, "season_obp": 0.17, "season_iso": 0.10, "defense": 0.55},
     },
 ]
 
@@ -2618,6 +2620,7 @@ def _recent_snapshot_map(window_games: int, team_code: str = "広島") -> dict[s
         ab  = int(stats.get("at_bats", 0) or 0)
         raw_obp = _calc_recent_obp(stats)
         raw_iso = _calc_iso_from_stats(stats)
+        raw_woba = _calc_woba(stats, pa)
 
         # ── ベイズ収縮: prior = 個人シーズン期待値 or リーグ平均 ──
         overall = (
@@ -2626,12 +2629,15 @@ def _recent_snapshot_map(window_games: int, team_code: str = "広島") -> dict[s
             or SEASON_OVERALL_BATTING.get(_normalize_player_name(player_name))
             or {}
         )
-        prior_obp = float(overall.get("obp", NPB_LEAGUE_AVG_OBP) or NPB_LEAGUE_AVG_OBP)
-        prior_iso = float(overall.get("iso", NPB_LEAGUE_AVG_ISO) or NPB_LEAGUE_AVG_ISO)
+        prior_obp  = float(overall.get("obp",  NPB_LEAGUE_AVG_OBP) or NPB_LEAGUE_AVG_OBP)
+        prior_iso  = float(overall.get("iso",  NPB_LEAGUE_AVG_ISO)  or NPB_LEAGUE_AVG_ISO)
+        # wOBA prior: SEASON_OVERALL_BATTING にあればそれを使い、なければリーグ平均
+        prior_woba = float(overall.get("woba", _LEAGUE_WOBA) or _LEAGUE_WOBA)
 
         # pa=0 でも prior が返るため 0 打席の選手も prior 値を持つ
-        adj_obp = (pa * raw_obp + RECENT_OBP_PRIOR_PA * prior_obp) / (pa + RECENT_OBP_PRIOR_PA)
-        adj_iso = (ab * raw_iso + RECENT_ISO_PRIOR_AB * prior_iso) / (ab + RECENT_ISO_PRIOR_AB)
+        adj_obp  = (pa * raw_obp  + RECENT_OBP_PRIOR_PA  * prior_obp)  / (pa + RECENT_OBP_PRIOR_PA)
+        adj_iso  = (ab * raw_iso  + RECENT_ISO_PRIOR_AB  * prior_iso)  / (ab + RECENT_ISO_PRIOR_AB)
+        adj_woba = (pa * raw_woba + RECENT_WOBA_PRIOR_PA * prior_woba) / (pa + RECENT_WOBA_PRIOR_PA)
 
         # 信頼度: 0.0（0打席）〜 1.0（PRIOR_PA打席以上で≒1）
         reliability = pa / (pa + RECENT_OBP_PRIOR_PA) if pa > 0 else 0.0
@@ -2640,12 +2646,15 @@ def _recent_snapshot_map(window_games: int, team_code: str = "広島") -> dict[s
             "games":       int(stats.get("games", 0) or 0),
             "pa":          pa,
             "ab":          ab,
-            "obp":         raw_obp,         # 表示用（生の観測値）
-            "iso":         raw_iso,         # 表示用（生の観測値）
+            "obp":         raw_obp,           # 表示用（生の観測値）
+            "iso":         raw_iso,           # 表示用（生の観測値）
+            "woba":        raw_woba,          # 表示用（生の観測値）
             "adj_obp":     _round3(adj_obp),  # スコア計算用（収縮済み）
             "adj_iso":     _round3(adj_iso),  # スコア計算用（収縮済み）
+            "adj_woba":    _round3(adj_woba), # スコア計算用（収縮済み）
             "prior_obp":   _round3(prior_obp),
             "prior_iso":   _round3(prior_iso),
+            "prior_woba":  _round3(prior_woba),
             "reliability": _round3(reliability),
             "raw": stats,
         }
@@ -2738,38 +2747,44 @@ def _slot_score(
         _normalize_player_name(player_name), {}
     ).copy() or {
         "games": 0, "pa": 0, "ab": 0,
-        "obp": 0.0, "iso": 0.0,
+        "obp": 0.0, "iso": 0.0, "woba": 0.0,
         "adj_obp": NPB_LEAGUE_AVG_OBP, "adj_iso": NPB_LEAGUE_AVG_ISO,
+        "adj_woba": _LEAGUE_WOBA,
         "reliability": 0.0, "raw": {},
     }
     season_pos = _get_adjusted_position_batting(canonical_name, position, team_code)
     defense    = _defense_value_for(canonical_name, position, defense_map)
 
     # ── スコア計算はベイズ収縮済み値を使用 ──
-    # adj_obp/adj_iso: 打席数が少ない場合はシーズン期待値に引き寄せられた補正値
+    # adj_obp/adj_iso/adj_woba: 打席数が少ない場合はシーズン期待値に引き寄せられた補正値
     # これにより「5試合2打席でOBP=1.000」のような過大評価を防ぐ
-    adj_obp_val = float(recent.get("adj_obp", recent.get("obp", 0.0)) or 0.0)
-    adj_iso_val = float(recent.get("adj_iso", recent.get("iso", 0.0)) or 0.0)
-    raw_obp_val = float(recent.get("obp", 0.0) or 0.0)
+    adj_obp_val  = float(recent.get("adj_obp",  recent.get("obp",  0.0)) or 0.0)
+    adj_iso_val  = float(recent.get("adj_iso",  recent.get("iso",  0.0)) or 0.0)
+    adj_woba_val = float(recent.get("adj_woba", recent.get("woba", _LEAGUE_WOBA)) or _LEAGUE_WOBA)
+    raw_obp_val  = float(recent.get("obp", 0.0) or 0.0)
+    raw_woba_val = float(recent.get("woba", 0.0) or 0.0)
 
-    r_obp = adj_obp_val * 100
-    r_iso = adj_iso_val * 100
-    s_obp = float(season_pos.get("obp", 0.0) or 0.0) * 100
-    s_iso = float(season_pos.get("iso", 0.0) or 0.0) * 100
-    defv  = defense * 10   # 守備補正を同スケールに
+    r_obp  = adj_obp_val  * 100
+    r_iso  = adj_iso_val  * 100
+    r_woba = adj_woba_val * 100   # wOBA は 0〜1 スケール → ×100 で OBP/ISO と揃える
+    s_obp  = float(season_pos.get("obp", 0.0) or 0.0) * 100
+    s_iso  = float(season_pos.get("iso", 0.0) or 0.0) * 100
+    defv   = defense * 10   # 守備補正を同スケールに
 
-    # ── leadoff スロット専用：adj_obp をそのままスコアとして返す ──
-    # 補正なし・純粋に出塁率最高の選手を1番に起用する
+    # ── leadoff スロット専用：adj_woba をそのままスコアとして返す ──
+    # wOBA は出塁の質（HR・長打・単打・四球の価値差）を統合した指標のため
+    # 1番選出の基準を adj_obp から adj_woba に変更する
     if slot_def.get("leadoff"):
-        return adj_obp_val * 100, recent, season_pos, defense
+        return adj_woba_val * 100, recent, season_pos, defense
 
-    # ── OBP=0.000 ペナルティ ──
+    # ── OBP/wOBA=0.000 ペナルティ ──
     # 直近の生OBPが 0.000（ヒット・四球・死球いずれもなし）の場合は
     # 「出塁ゼロ」として最低評価のペナルティを付与する
-    # ベイズ収縮で adj_obp が prior に引き上げられても実態は0なので補正する
+    # ベイズ収縮で adj が prior に引き上げられても実態は0なので補正する
     if raw_obp_val == 0.0 and int(recent.get("pa", 0) or 0) > 0:
-        # adj_obp を強制的に 0 に戻す（prior による下駄を剥ぐ）
-        r_obp = 0.0
+        # adj_obp / adj_woba を強制的に 0 に戻す（prior による下駄を剥ぐ）
+        r_obp  = 0.0
+        r_woba = 0.0
 
     # ── min_adj_iso ハードカット ──
     # 4番・5番など長打力必須スロットで、adj_isoが基準を下回る選手を除外する
@@ -2785,6 +2800,7 @@ def _slot_score(
     score = (
         float(weights.get("recent_obp",  0.0) or 0.0) * r_obp
       + float(weights.get("recent_iso",  0.0) or 0.0) * r_iso
+      + float(weights.get("recent_woba", 0.0) or 0.0) * r_woba
       + float(weights.get("season_obp",  0.0) or 0.0) * s_obp
       + float(weights.get("season_iso",  0.0) or 0.0) * s_iso
       + float(weights.get("defense",     0.0) or 0.0) * defv
@@ -2803,7 +2819,7 @@ def _build_ranks(all_stats: list[dict]) -> dict[str, dict[str, int]]:
     """全候補選手の各指標ランキングを事前計算。
     返り値: {player_name: {metric_key: rank}}
     """
-    metrics = ["recent_obp", "recent_iso", "season_obp", "season_iso", "defense"]
+    metrics = ["recent_obp", "recent_iso", "recent_woba", "season_obp", "season_iso", "defense"]
     ranks: dict[str, dict[str, int]] = {s["name"]: {} for s in all_stats}
 
     for metric in metrics:
@@ -2827,8 +2843,9 @@ def _build_reason(
     window_games: int,
 ) -> str:
     """指標の順位を交えた日本語の根拠文を生成する。"""
-    r_obp  = recent.get("obp", 0.0)
-    r_iso  = recent.get("iso", 0.0)
+    r_obp  = recent.get("obp",  0.0)
+    r_iso  = recent.get("iso",  0.0)
+    r_woba = recent.get("woba", 0.0)
     s_obp  = float(season_pos.get("obp", 0.0) or 0.0)
     s_iso  = float(season_pos.get("iso", 0.0) or 0.0)
 
@@ -2842,70 +2859,81 @@ def _build_reason(
 
     r_obp_tag  = rank_tag("recent_obp")
     r_iso_tag  = rank_tag("recent_iso")
+    r_woba_tag = rank_tag("recent_woba")
     s_obp_tag  = rank_tag("season_obp")
     s_iso_tag  = rank_tag("season_iso")
     def_tag    = rank_tag("defense")
 
     # 打順役割ごとに強調する指標を変える
     if role in ("lead_obp_glove",):
-        # 1番：出塁＋守備重視
+        # 1番：wOBA最高の選手を選出（leadoff フラグ）
         parts = [
-            f"直近{window_games}試合出塁率 {r_obp:.3f}{r_obp_tag}",
+            f"直近{window_games}試合 wOBA {r_woba:.3f}{r_woba_tag}",
+            f"直近出塁率 {r_obp:.3f}{r_obp_tag}",
             f"守備補正 {defense:+.3f}{def_tag}",
         ]
     elif role in ("two_hole_bat",):
-        # 2番：打撃バランス
+        # 2番：打撃バランス（wOBA＋OBP＋ISO）
         parts = [
-            f"直近{window_games}試合出塁率 {r_obp:.3f}{r_obp_tag}",
-            f"直近長打率 {r_iso:.3f}{r_iso_tag}",
+            f"直近{window_games}試合 wOBA {r_woba:.3f}{r_woba_tag}",
+            f"直近出塁率 {r_obp:.3f}{r_obp_tag}",
+            f"直近長打指数 {r_iso:.3f}{r_iso_tag}",
         ]
-    elif role in ("three_hole_iso_glove",):
-        # 3番：長打＋守備
+    elif role in ("three_hole_iso_glove", "three_hole_contact"):
+        # 3番：総合打撃（wOBA＋OBP＋ISO）
         parts = [
-            f"直近{window_games}試合長打率 {r_iso:.3f}{r_iso_tag}",
-            f"守備補正 {defense:+.3f}{def_tag}",
+            f"直近{window_games}試合 wOBA {r_woba:.3f}{r_woba_tag}",
+            f"直近出塁率 {r_obp:.3f}{r_obp_tag}",
+            f"直近長打指数 {r_iso:.3f}{r_iso_tag}",
         ]
-    elif role in ("cleanup_bat",):
-        # 4番：長打力最重視
+    elif role in ("cleanup_bat", "cleanup_power"):
+        # 4番：長打力最重視（wOBA＋ISO）
         parts = [
-            f"直近{window_games}試合長打率 {r_iso:.3f}{r_iso_tag}",
+            f"直近{window_games}試合 wOBA {r_woba:.3f}{r_woba_tag}",
+            f"直近長打指数 {r_iso:.3f}{r_iso_tag}",
             f"直近出塁率 {r_obp:.3f}{r_obp_tag}",
         ]
     elif role in ("five_hole_power",):
-        # 5番：長打＋出塁
+        # 5番：長打＋出塁（wOBA＋ISO＋OBP）
         parts = [
-            f"直近{window_games}試合長打率 {r_iso:.3f}{r_iso_tag}",
-            f"直近{window_games}試合出塁率 {r_obp:.3f}{r_obp_tag}",
+            f"直近{window_games}試合 wOBA {r_woba:.3f}{r_woba_tag}",
+            f"直近長打指数 {r_iso:.3f}{r_iso_tag}",
+            f"直近出塁率 {r_obp:.3f}{r_obp_tag}",
         ]
     elif role in ("six_hole_balance",):
-        # 6番：総合打撃バランス
+        # 6番：総合打撃バランス（wOBA＋OBP＋ISO＋守備）
         parts = [
-            f"直近{window_games}試合出塁率 {r_obp:.3f}{r_obp_tag}",
-            f"直近長打率 {r_iso:.3f}{r_iso_tag}",
+            f"直近{window_games}試合 wOBA {r_woba:.3f}{r_woba_tag}",
+            f"直近出塁率 {r_obp:.3f}{r_obp_tag}",
+            f"直近長打指数 {r_iso:.3f}{r_iso_tag}",
             f"守備補正 {defense:+.3f}{def_tag}",
         ]
     elif role in ("seven_hole_season",):
         # 7番：シーズン成績重視＋守備
         parts = [
             f"守備補正 {defense:+.3f}{def_tag}",
-            f"直近{window_games}試合出塁率 {r_obp:.3f}{r_obp_tag}",
+            f"直近{window_games}試合 wOBA {r_woba:.3f}{r_woba_tag}",
+            f"直近出塁率 {r_obp:.3f}{r_obp_tag}",
         ]
     elif role in ("glove_bottom",):
         # 8番：守備最重視
         parts = [
             f"守備補正 {defense:+.3f}{def_tag}",
-            f"直近{window_games}試合出塁率 {r_obp:.3f}{r_obp_tag}",
+            f"直近{window_games}試合 wOBA {r_woba:.3f}{r_woba_tag}",
+            f"直近出塁率 {r_obp:.3f}{r_obp_tag}",
         ]
     elif role in ("turnover_obp",):
-        # 9番：繋ぎ出塁
+        # 9番：繋ぎ出塁（wOBA＋OBP）
         parts = [
-            f"直近{window_games}試合出塁率 {r_obp:.3f}{r_obp_tag}",
+            f"直近{window_games}試合 wOBA {r_woba:.3f}{r_woba_tag}",
+            f"直近出塁率 {r_obp:.3f}{r_obp_tag}",
             f"守備補正 {defense:+.3f}{def_tag}",
         ]
     else:
         parts = [
-            f"直近{window_games}試合出塁率 {r_obp:.3f}{r_obp_tag}",
-            f"直近長打率 {r_iso:.3f}{r_iso_tag}",
+            f"直近{window_games}試合 wOBA {r_woba:.3f}{r_woba_tag}",
+            f"直近出塁率 {r_obp:.3f}{r_obp_tag}",
+            f"直近長打指数 {r_iso:.3f}{r_iso_tag}",
         ]
 
     return "、".join(parts)
@@ -2938,30 +2966,33 @@ def _build_commentary(
 ) -> str:
     """打順決定の論理的な解説文（2〜3文）を生成する。"""
     # 生の観測値（表示用）
-    r_obp = recent.get("obp", 0.0)
-    r_iso = recent.get("iso", 0.0)
+    r_obp  = recent.get("obp",  0.0)
+    r_iso  = recent.get("iso",  0.0)
+    r_woba = recent.get("woba", 0.0)
     # ベイズ補正済み値（スコア計算に使った値）
-    adj_obp = recent.get("adj_obp", r_obp)
-    adj_iso = recent.get("adj_iso", r_iso)
+    adj_obp  = recent.get("adj_obp",  r_obp)
+    adj_iso  = recent.get("adj_iso",  r_iso)
+    adj_woba = recent.get("adj_woba", r_woba)
     s_obp = float(season_pos.get("obp", 0.0) or 0.0)
     s_iso = float(season_pos.get("iso", 0.0) or 0.0)
 
     pa           = int(recent.get("pa", 0) or 0)
     reliability  = float(recent.get("reliability", 1.0) or 1.0)
-    prior_obp    = float(recent.get("prior_obp", s_obp or NPB_LEAGUE_AVG_OBP) or NPB_LEAGUE_AVG_OBP)
+    prior_obp    = float(recent.get("prior_obp",  s_obp or NPB_LEAGUE_AVG_OBP) or NPB_LEAGUE_AVG_OBP)
+    prior_woba   = float(recent.get("prior_woba", _LEAGUE_WOBA) or _LEAGUE_WOBA)
 
     # ── 打席数に応じた信頼度注記 ──
     def _reliability_note() -> str:
         if pa == 0:
             return (
                 f"（注: 直近{window_games}試合の打席データなし。"
-                f"シーズン期待値 OBP={prior_obp:.3f} を基準として評価している）"
+                f"シーズン期待値 wOBA={prior_woba:.3f} を基準として評価している）"
             )
         if reliability < 0.40:
             return (
                 f"（注: 直近{window_games}試合は{pa}打席と少ないため、"
-                f"直近OBP {r_obp:.3f} をシーズン期待値 {prior_obp:.3f} 方向へ補正し"
-                f" {adj_obp:.3f} として評価している）"
+                f"直近 wOBA {r_woba:.3f} をシーズン期待値 {prior_woba:.3f} 方向へ補正し"
+                f" adj_woba={adj_woba:.3f} として評価している）"
             )
         if reliability < 0.65:
             return (
@@ -2993,174 +3024,161 @@ def _build_commentary(
 
     # ── role別に解説文テンプレートを分岐 ──
     if role == "lead_obp_glove":
-        # 1番 = ベイズ補正済み出塁率（adj_obp）が候補中最高の選手を補正なしで選出
+        # 1番 = ベイズ補正済み wOBA（adj_woba）が候補中最高の選手を補正なしで選出
         sent1 = (
             f"1番打者はウェイト計算を使わず、"
-            f"直近{window_games}試合のベイズ補正済み出塁率（adj_obp）が候補中最高の選手を選出する。"
+            f"直近{window_games}試合のベイズ補正済み wOBA（adj_woba）が候補中最高の選手を選出する。"
         )
         sent2 = (
-            f"この選手の adj_obp は {adj_obp:.3f}（{rank_str('recent_obp')}）で、"
-            f"候補の中で最も出塁能力が高く、打線の起点として最適と判断した。"
+            f"この選手の adj_woba は {adj_woba:.3f}（{rank_str('recent_woba')}）で、"
+            f"wOBA は単打・長打・四球の「値」の差を包含した総合的な打撃質指標であるため、"
+            f"出塁率単独より打線の起点としての適切さをより正確に評価できる。"
         )
         return sent1 + sent2 + _reliability_note()
 
     elif role == "two_hole_bat":
-        # 2番スコア = recent_obp×25 + recent_iso×25 + season_obp×25 + season_iso×15 + defense×10
+        # 2番スコア = recent_woba×20 + recent_obp×10 + recent_iso×15 + season_obp×25 + season_iso×15 + defense×15
         sent1 = (
-            f"直近{window_games}試合の出塁率 {r_obp:.3f}（{rank_str('recent_obp')}）と"
-            f"長打指数 {r_iso:.3f}（{rank_str('recent_iso')}）を兼備しており、"
+            f"直近{window_games}試合の wOBA {r_woba:.3f}（{rank_str('recent_woba')}）が"
+            f"出塁率 {r_obp:.3f}・長打指数 {r_iso:.3f} を包括する総合気鋭を示しており、"
             f"1番走者を進める「つなぎ」と自身の長打による得点機創出を両立できる。"
         )
         sent2 = (
-            f"2番スコアはOBP系とISO系をバランスよく評価する設計で、"
-            f"直近の出塁力と長打力を特に重視している。"
+            f"2番スコアは wOBA（ウエイト 20%）を中心に OBP・ISO をバランスよく評価する設計で、"
             f"この選手の総合スコア {score:.1f} が候補中最高と判定された。"
         )
         return sent1 + sent2 + _reliability_note()
 
     elif role == "three_hole_contact":
-        # 3番スコア = recent_obp×30 + recent_iso×25 + season_obp×25 + season_iso×15 + defense×5
+        # 3番スコア = recent_woba×25 + recent_obp×10 + recent_iso×15 + season_obp×25 + season_iso×15 + defense×10
         sent1 = (
-            f"直近{window_games}試合の出塁率 {r_obp:.3f}（{rank_str('recent_obp')}）と"
-            f"長打指数 {r_iso:.3f}（{rank_str('recent_iso')}）を持ち、"
-            f"クリーンアップ前の3番として出塁と長打の両方を要求するスロットに適合している。"
+            f"直近{window_games}試合の wOBA {r_woba:.3f}（{rank_str('recent_woba')}）が示す総合打撃力が高く、"
+            f"出塁率 {r_obp:.3f}・長打指数 {r_iso:.3f} も具備したクリーンアップ前の3番に適合している。"
         )
         sent2 = (
-            f"3番スコアは直近OBP（30%）を最重視しつつ、"
-            f"現在の長打力も重視している。"
+            f"3番スコアは直近 wOBA（25%）を中心に OBP・ISO・守備を加算した総合設計。"
             f"総合スコア {score:.1f} が候補中最高となり、選出した。"
         )
         return sent1 + sent2 + _reliability_note()
 
     elif role == "cleanup_power":
-        # 4番スコア = recent_obp×10 + recent_iso×42 + season_obp×10 + season_iso×33 + defense×5
-        # → ISO合計75%（直近42%がシーズン補正33%を上回る）。OBPは20%のみ
+        # 4番スコア = recent_woba×25 + recent_obp×05 + recent_iso×25 + season_obp×10 + season_iso×30 + defense×05
         sent1 = (
-            f"4番スコアは長打指数（ISO）に重点を置いた設計で、"
-            f"直近ISO（ウェイト42%）とシーズン補正ISO（33%）の合計75%が評価の中心だ。"
-            f"特に直近の長打力を最重視しており、OBP系は残り20%に過ぎない。"
+            f"4番スコアは長打指数（ISO）に重点を置きつつ、wOBA（25%）で長打の「買われ具合」も評価する設計だ。"
+            f"直近 ISO（25%）とシーズン ISO（30%）の合計 55% が評価の中心であり、OBP 系は残り 15% だ。"
         )
-        # 直近ISOが低い場合とそうでない場合を分ける
         if r_iso < 0.100:
             sent2 = (
                 f"この選手の直近長打指数は {r_iso:.3f}（{rank_str('recent_iso')}）と振るわないが、"
-                f"長打力を評価する指標のウェイト加算後のスコア {score:.1f} が、"
+                f"wOBA {r_woba:.3f}（{rank_str('recent_woba')}）を含めたウエイト加算後のスコア {score:.1f} が、"
                 f"守備位置制約を外した候補全員の中で4番スロットへの適合度が最も高かった。"
             )
         else:
             sent2 = (
-                f"直近長打指数 {r_iso:.3f}（{rank_str('recent_iso')}）が最大ウェイトで評価された"
-                f"スコア {score:.1f} が候補中最高となった。"
+                f"直近 wOBA {r_woba:.3f}（{rank_str('recent_woba')}）が示す通り、HR・長打・単打・四球各々の値を統合した総合気鋭が高く、"
+                f"長打指数 {r_iso:.3f}（{rank_str('recent_iso')}）も加わったスコア {score:.1f} が候補中最高となった。"
             )
         if r_obp == 0.0 and int(recent.get("pa", 0) or 0) > 0:
             sent3 = (
                 f"ただし直近出塁率は {r_obp:.3f}（ヒット・四球・死球なし）と最低評価であり、"
-                f"残り20%のOBP評価がスコアの足を引っ張っている点は留意が必要だ。"
+                f"OBP/wOBA ペナルティがスコアの足を引っ張っている点は留意が必要だ。"
             )
         elif r_obp < 0.200:
             sent3 = (
-                f"直近出塁率 {r_obp:.3f} はやや低調で、"
-                f"残り20%のOBP評価はスコアを押し下げているが、長打力の優位性が上回った。"
+                f"直近出塁率 {r_obp:.3f} はやや低調で、OBP 系の評価はスコアを抑えているが、長打力の優位性が上回った。"
             )
         else:
             sent3 = (
-                f"出塁率 {r_obp:.3f} も一定の水準を保っており、"
-                f"残り20%のOBP評価も大きく足を引っ張らなかった点も選出の後押しとなっている。"
+                f"出塁率 {r_obp:.3f} も一定の水準を保っており、長打力とバランスもとれた選出となった。"
             )
         return sent1 + sent2 + sent3 + _reliability_note()
 
     elif role == "five_hole_power":
-        # 5番スコア = recent_obp×15 + recent_iso×35 + season_obp×15 + season_iso×25 + defense×10
-        # → ISO系60%（直近35%がシーズン補正25%を上回る）、OBP系30%
+        # 5番スコア = recent_woba×20 + recent_obp×05 + recent_iso×25 + season_obp×15 + season_iso×25 + defense×10
         if r_iso < 0.050:
-            # 直近ISOがほぼゼロの場合：正直に説明
             sent1 = (
                 f"直近{window_games}試合の長打指数は {r_iso:.3f} と低調で、"
-                f"本来5番に求める直近の長打力という観点では候補中で恵まれた数値ではない。"
+                f"本来 5 番に求める直近の長打力という観点では候補中で恵まれた数値ではない。"
             )
             sent2 = (
-                f"5番スコアはISO系が合計60%を占め、"
-                f"さらに出塁率を合わせた指標を加算した結果、"
-                f"スコア {score:.1f} が残り候補の中で相対的に最高となり、繰り上がり選出となった。"
+                f"5 番スコアは wOBA（20%）・ISO 系（50%）を中心に評価する設計で、"
+                f"wOBA {r_woba:.3f}（{rank_str('recent_woba')}）を含めたスコア {score:.1f} が残り候補の中で相対的に最高となり、繰り上がり選出となった。"
             )
         else:
             sent1 = (
-                f"直近{window_games}試合の長打指数 {r_iso:.3f}（{rank_str('recent_iso')}）が示すように、"
-                f"現在の長打力が4番に次ぐ水準にある。"
+                f"直近{window_games}試合の wOBA {r_woba:.3f}（{rank_str('recent_woba')}）が示す総合気鋭、"
+                f"および長打指数 {r_iso:.3f}（{rank_str('recent_iso')}）が 4 番に次ぐ水準にある。"
             )
             sent2 = (
-                f"5番スコアはISO系が合計60%を占める設計で、"
-                f"特に直近の長打力を重視している。"
-                f"スコア {score:.1f} が候補中最高となり、中軸5番として選出した。"
+                f"5 番スコアは wOBA（20%）・ISO 系（50%）を中心とする設計で、"
+                f"スコア {score:.1f} が候補中最高となり、中軸 5 番として選出した。"
             )
         return sent1 + sent2 + _reliability_note()
 
     elif role == "six_hole_balance":
-        # 6番スコア = recent_obp×25 + recent_iso×25 + season_obp×25 + season_iso×15 + defense×10
+        # 6番スコア = recent_woba×20 + recent_obp×10 + recent_iso×15 + season_obp×25 + season_iso×15 + defense×15
         sent1 = (
-            f"直近{window_games}試合の出塁率 {r_obp:.3f}・長打指数 {r_iso:.3f} を中心に評価した。"
+            f"直近{window_games}試合の wOBA {r_woba:.3f}（{rank_str('recent_woba')}）を中心に、"
+            f"出塁率 {r_obp:.3f}・長打指数 {r_iso:.3f} を包括的に評価した。"
         )
         sent2 = (
-            f"6番スコアはOBP系とISO系をバランスよく評価する設計で、"
-            f"直近の出塁力と長打力を重視している。"
-            f"この選手のスコア {score:.1f} が残り候補の中で最高となり、6番に配置した。"
+            f"6 番スコアは wOBA（20%）・OBP 系・ISO 系・守備をバランスよく評価する設計で、"
+            f"この選手のスコア {score:.1f} が残り候補の中で最高となり 6 番に配置した。"
         )
         return sent1 + sent2 + _reliability_note()
 
     elif role == "seven_hole_season":
-        # 7番スコア = recent_obp×15 + recent_iso×13 + season_obp×30 + season_iso×12 + defense×30
+        # 7番スコア = recent_woba×10 + recent_obp×08 + recent_iso×10 + season_obp×27 + season_iso×15 + defense×30
         sent1 = (
-            f"7番スコアはシーズン通算の打撃成績と守備補正（30%）を重視する設計だ。"
+            f"7 番スコアはシーズン通算の打撃成績と守備補正（30%）を重視する設計だ。"
         )
         sent2 = (
-            f"直近出塁率 {r_obp:.3f}（{rank_str('recent_obp')}）に加え、"
-            f"守備補正 {defense:+.3f} も含めたスコア {score:.1f} が"
-            f"候補中最高となり、下位打線の安定役として選出した。"
+            f"直近 wOBA {r_woba:.3f}（{rank_str('recent_woba')}）および守備補正 {defense:+.3f} も含めた"
+            f"スコア {score:.1f} が候補中最高となり、下位打線の安定役として選出した。"
         )
         return sent1 + sent2 + _reliability_note()
 
     elif role == "glove_bottom":
-        # 8番スコア = recent_obp×10 + recent_iso×8 + season_obp×20 + season_iso×7 + defense×55
+        # 8番スコア = recent_woba×05 + recent_obp×05 + recent_iso×08 + season_obp×17 + season_iso×10 + defense×55
         sent1 = (
-            f"8番スコアは守備補正が全ウェイトの55%を占め、守備力が選出の最大要因となる設計だ。"
+            f"8 番スコアは守備補正が全ウエイトの 55% を占め、守備力が選出の最大要因となる設計だ。"
         )
         if defense > 0:
             sent2 = (
-                f"この選手の守備補正 {defense:+.3f}（{rank_str('defense')}）が55%のウェイトで効き、"
-                f"直近OBP {r_obp:.3f} などの打撃系指標が残り45%を補完した"
-                f"結果、スコア {score:.1f} が候補中最高となった。"
+                f"この選手の守備補正 {defense:+.3f}（{rank_str('defense')}）が 55% のウエイトで効き、"
+                f"直近 wOBA {r_woba:.3f}（{rank_str('recent_woba')}）などの打撃系指標が残り 45% を補完し"
+                f"た結果、スコア {score:.1f} が候補中最高となった。"
             )
         elif defense == 0:
             sent2 = (
                 f"この選手の守備補正は {defense:+.3f} と中立値だが、"
                 f"残り候補の守備補正もほぼ同水準であるため差がつかず、"
-                f"直近OBP {r_obp:.3f} などの打撃系指標の45%分で"
-                f"スコア {score:.1f} が相対的に最高となり、8番に繰り上がり選出となった。"
+                f"wOBA {r_woba:.3f} など打撃系指標の 45% 分でスコア {score:.1f} が相対的に最高となり、繰り上がり選出となった。"
             )
         else:
             sent2 = (
                 f"守備補正 {defense:+.3f} はマイナスだが、残り候補の中では相対的に高く、"
-                f"打撃系指標の45%分も加算したスコア {score:.1f} が候補中最高となった。"
+                f"wOBA {r_woba:.3f} など打撃系指標の 45% 分も加算したスコア {score:.1f} が候補中最高となった。"
             )
         return sent1 + sent2 + _reliability_note()
 
     elif role == "turnover_obp":
-        # 9番スコア = recent_obp×30 + recent_iso×13 + season_obp×35 + season_iso×7 + defense×15
+        # 9番スコア = recent_woba×15 + recent_obp×15 + recent_iso×10 + season_obp×35 + season_iso×10 + defense×15
         sent1 = (
-            f"9番スコアは出塁率を最重視する設計で、"
-            f"打線をつなぐ『出塁』が評価の最重要軸となる。"
+            f"9 番スコアは出塁率を最重視する設計で、"
+            f"打線をつなぐ「出塁」が評価の最重要軸となる。"
         )
         sent2 = (
-            f"直近{window_games}試合出塁率 {r_obp:.3f}（{rank_str('recent_obp')}）が主導して、"
+            f"直近{window_games}試合 wOBA {r_woba:.3f}（{rank_str('recent_woba')}）および出塁率 {r_obp:.3f}（{rank_str('recent_obp')}）が主導して、"
             f"スコア {score:.1f} が候補中最高となり、"
-            f"イニング先頭で出塁して上位打線に繋げる9番として選出した。"
+            f"イニング先頭で出塁して上位打線に繋げる 9 番として選出した。"
         )
         return sent1 + sent2 + _reliability_note()
 
     else:
         # fallback
         return (
-            f"直近{window_games}試合の出塁率 {r_obp:.3f}・長打指数 {r_iso:.3f} の総合評価により、"
+            f"直近{window_games}試合の wOBA {r_woba:.3f}・出塁率 {r_obp:.3f}・長打指数 {r_iso:.3f} の総合評価により、"
             f"このスロットへの割り当てスコア {score:.1f} が候補中最高となったため選出した。"
         ) + _reliability_note()
 
@@ -3203,8 +3221,9 @@ def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: di
         recent_r = recent_map.get(cname, {}).copy() or recent_map.get(
             _normalize_player_name(player_name), {}
         ).copy() or {
-            "obp": 0.0, "iso": 0.0,
+            "obp": 0.0, "iso": 0.0, "woba": 0.0,
             "adj_obp": NPB_LEAGUE_AVG_OBP, "adj_iso": NPB_LEAGUE_AVG_ISO,
+            "adj_woba": _LEAGUE_WOBA,
         }
         def_val  = _defense_value_for(cname, "", defense_map)
         eligible = (_get_player_profile(team_code).get(cname) or {}).get("eligible_positions", [])
@@ -3214,13 +3233,14 @@ def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: di
             best_s_obp = max(best_s_obp, float(sp.get("obp", 0.0) or 0.0))
             best_s_iso = max(best_s_iso, float(sp.get("iso", 0.0) or 0.0))
         all_stats_for_rank.append({
-            "name":       cname,
+            "name":        cname,
             # ランキングもベイズ補正済み値で評価（打席数の少なさを反映）
-            "recent_obp": float(recent_r.get("adj_obp", recent_r.get("obp", 0.0)) or 0.0),
-            "recent_iso": float(recent_r.get("adj_iso", recent_r.get("iso", 0.0)) or 0.0),
-            "season_obp": best_s_obp,
-            "season_iso": best_s_iso,
-            "defense":    def_val,
+            "recent_obp":  float(recent_r.get("adj_obp",  recent_r.get("obp",  0.0)) or 0.0),
+            "recent_iso":  float(recent_r.get("adj_iso",  recent_r.get("iso",  0.0)) or 0.0),
+            "recent_woba": float(recent_r.get("adj_woba", recent_r.get("woba", 0.0)) or 0.0),
+            "season_obp":  best_s_obp,
+            "season_iso":  best_s_iso,
+            "defense":     def_val,
         })
     ranks = _build_ranks(all_stats_for_rank)
 
@@ -4776,6 +4796,7 @@ def _render_predicted_lineup_html(data: dict, team_code: str = "広島") -> HTML
         r_games  = int(recent.get("games", 0) or 0)
         r_obp    = float(recent.get("obp", 0.0) or 0.0)
         r_iso    = float(recent.get("iso", 0.0) or 0.0)
+        r_woba   = float(recent.get("woba", 0.0) or 0.0)
         s_obp    = float(season.get("obp", 0.0) or 0.0)
         s_iso    = float(season.get("iso", 0.0) or 0.0)
         s_pa     = float(season.get("pa", 0.0) or 0.0)
@@ -4802,6 +4823,7 @@ def _render_predicted_lineup_html(data: dict, team_code: str = "広島") -> HTML
             s_slg      = round(s_obp + s_iso, 3)  # 概算（obp+iso ≈ slg 近似）
             disp_slg   = s_iso  # ISOはSLG-AVGなので長打率の代わりにISO表示
             disp_ops   = round(s_obp + s_obp + s_iso, 3)  # 概算OPS≈2*obp+iso
+            disp_woba  = None   # データなし・少ないので wOBA は非表示
             stat_badge = f'<span class="lu-stat-badge lu-badge-season">シーズン補正値</span>'
             if no_recent:
                 stat_note = f'<div class="lu-no-recent-note">直近{wg_val}試合の打席データなし</div>'
@@ -4816,6 +4838,7 @@ def _render_predicted_lineup_html(data: dict, team_code: str = "広島") -> HTML
             disp_iso   = r_iso
             disp_slg   = r_slg
             disp_ops   = r_ops
+            disp_woba  = r_woba
             stat_badge = f'<span class="lu-stat-badge lu-badge-recent">直近{wg_val}試合</span>'
             stat_note  = ""
             obp_label  = "出塁率"
@@ -4870,6 +4893,7 @@ def _render_predicted_lineup_html(data: dict, team_code: str = "広島") -> HTML
                 <div class="lu-sval">{disp_ops:.3f}</div>
               </div>
               {season_extra}
+              {'<div class="lu-stat lu-stat-woba"><div class="lu-slabel">wOBA</div><div class="lu-sval">' + f'{disp_woba:.3f}' + '</div></div>' if disp_woba is not None else ''}
               <div class="lu-stat">
                 <div class="lu-slabel">守備補正</div>
                 <div class="lu-sval {def_cls}">{defv:+.3f}</div>
@@ -5314,11 +5338,13 @@ def public_predicted_lineup(
                 snap_entry = snap.get(cname)
                 if snap_entry:
                     item["recent"] = {
-                        "games": snap_entry.get("games", 0),
-                        "pa":    snap_entry.get("pa",    0),
-                        "ab":    snap_entry.get("ab",    0),
-                        "obp":   snap_entry.get("obp",   0.0),
-                        "iso":   snap_entry.get("iso",   0.0),
+                        "games":     snap_entry.get("games",     0),
+                        "pa":        snap_entry.get("pa",        0),
+                        "ab":        snap_entry.get("ab",        0),
+                        "obp":       snap_entry.get("obp",       0.0),
+                        "iso":       snap_entry.get("iso",       0.0),
+                        "woba":      snap_entry.get("woba",      0.0),
+                        "adj_woba":  snap_entry.get("adj_woba",  _LEAGUE_WOBA),
                     }
         except Exception:
             pass  # スナップショット補正に失敗してもキャッシュ値で続行

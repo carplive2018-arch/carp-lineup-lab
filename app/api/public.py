@@ -2851,21 +2851,18 @@ def _build_reason(
         # 1番：出塁＋守備重視
         parts = [
             f"直近{window_games}試合出塁率 {r_obp:.3f}{r_obp_tag}",
-            f"シーズン{position}補正出塁率 {s_obp:.3f}{s_obp_tag}",
             f"守備補正 {defense:+.3f}{def_tag}",
         ]
     elif role in ("two_hole_bat",):
         # 2番：打撃バランス
         parts = [
             f"直近{window_games}試合出塁率 {r_obp:.3f}{r_obp_tag}",
-            f"シーズン補正出塁率 {s_obp:.3f}{s_obp_tag}",
             f"直近長打率 {r_iso:.3f}{r_iso_tag}",
         ]
     elif role in ("three_hole_iso_glove",):
         # 3番：長打＋守備
         parts = [
             f"直近{window_games}試合長打率 {r_iso:.3f}{r_iso_tag}",
-            f"シーズン{position}補正長打率 {s_iso:.3f}{s_iso_tag}",
             f"守備補正 {defense:+.3f}{def_tag}",
         ]
     elif role in ("cleanup_bat",):
@@ -2873,28 +2870,23 @@ def _build_reason(
         parts = [
             f"直近{window_games}試合長打率 {r_iso:.3f}{r_iso_tag}",
             f"直近出塁率 {r_obp:.3f}{r_obp_tag}",
-            f"シーズン補正長打率 {s_iso:.3f}{s_iso_tag}",
         ]
     elif role in ("five_hole_power",):
         # 5番：長打＋出塁
         parts = [
             f"直近{window_games}試合長打率 {r_iso:.3f}{r_iso_tag}",
-            f"シーズン補正出塁率 {s_obp:.3f}{s_obp_tag}",
-            f"シーズン補正長打率 {s_iso:.3f}{s_iso_tag}",
+            f"直近{window_games}試合出塁率 {r_obp:.3f}{r_obp_tag}",
         ]
     elif role in ("six_hole_balance",):
         # 6番：総合打撃バランス
         parts = [
             f"直近{window_games}試合出塁率 {r_obp:.3f}{r_obp_tag}",
             f"直近長打率 {r_iso:.3f}{r_iso_tag}",
-            f"シーズン補正出塁率 {s_obp:.3f}{s_obp_tag}",
-            f"シーズン補正長打率 {s_iso:.3f}{s_iso_tag}",
+            f"守備補正 {defense:+.3f}{def_tag}",
         ]
     elif role in ("seven_hole_season",):
         # 7番：シーズン成績重視＋守備
         parts = [
-            f"シーズン補正出塁率 {s_obp:.3f}{s_obp_tag}",
-            f"シーズン補正長打率 {s_iso:.3f}{s_iso_tag}",
             f"守備補正 {defense:+.3f}{def_tag}",
             f"直近{window_games}試合出塁率 {r_obp:.3f}{r_obp_tag}",
         ]
@@ -2902,13 +2894,11 @@ def _build_reason(
         # 8番：守備最重視
         parts = [
             f"守備補正 {defense:+.3f}{def_tag}",
-            f"シーズン補正出塁率 {s_obp:.3f}{s_obp_tag}",
             f"直近{window_games}試合出塁率 {r_obp:.3f}{r_obp_tag}",
         ]
     elif role in ("turnover_obp",):
         # 9番：繋ぎ出塁
         parts = [
-            f"シーズン補正出塁率 {s_obp:.3f}{s_obp_tag}",
             f"直近{window_games}試合出塁率 {r_obp:.3f}{r_obp_tag}",
             f"守備補正 {defense:+.3f}{def_tag}",
         ]
@@ -2916,8 +2906,6 @@ def _build_reason(
         parts = [
             f"直近{window_games}試合出塁率 {r_obp:.3f}{r_obp_tag}",
             f"直近長打率 {r_iso:.3f}{r_iso_tag}",
-            f"シーズン補正出塁率 {s_obp:.3f}{s_obp_tag}",
-            f"シーズン補正長打率 {s_iso:.3f}{s_iso_tag}",
         ]
 
     return "、".join(parts)
@@ -3014,11 +3002,7 @@ def _build_commentary(
             f"この選手の adj_obp は {adj_obp:.3f}（{rank_str('recent_obp')}）で、"
             f"候補の中で最も出塁能力が高く、打線の起点として最適と判断した。"
         )
-        sent3 = (
-            f"シーズン通算の{position}補正出塁率は {s_obp:.3f} で、"
-            f"直近の数値と合わせて安定した出塁が期待できる。"
-        )
-        return sent1 + sent2 + sent3 + _reliability_note()
+        return sent1 + sent2 + _reliability_note()
 
     elif role == "two_hole_bat":
         # 2番スコア = recent_obp×25 + recent_iso×25 + season_obp×25 + season_iso×15 + defense×10
@@ -3028,8 +3012,8 @@ def _build_commentary(
             f"1番走者を進める「つなぎ」と自身の長打による得点機創出を両立できる。"
         )
         sent2 = (
-            f"2番スコアはOBP系（直近25%＋シーズン補正25%）とISO系を評価する設計で、"
-            f"直近長打指数（25%）をシーズン補正長打率（15%）より重視している。"
+            f"2番スコアはOBP系とISO系をバランスよく評価する設計で、"
+            f"直近の出塁力と長打力を特に重視している。"
             f"この選手の総合スコア {score:.1f} が候補中最高と判定された。"
         )
         return sent1 + sent2 + _reliability_note()
@@ -3043,9 +3027,7 @@ def _build_commentary(
         )
         sent2 = (
             f"3番スコアは直近OBP（30%）を最重視しつつ、"
-            f"直近長打指数（25%）をシーズン補正長打率（15%）より重く評価する設計で、"
-            f"現在の長打力を特に重視している。"
-            f"シーズン補正出塁率 {s_obp:.3f}・補正長打率 {s_iso:.3f} も含めた"
+            f"現在の長打力も重視している。"
             f"総合スコア {score:.1f} が候補中最高となり、選出した。"
         )
         return sent1 + sent2 + _reliability_note()
@@ -3062,14 +3044,12 @@ def _build_commentary(
         if r_iso < 0.100:
             sent2 = (
                 f"この選手の直近長打指数は {r_iso:.3f}（{rank_str('recent_iso')}）と振るわないが、"
-                f"シーズン補正長打率 {s_iso:.3f}（{rank_str('season_iso')}）が補完し、"
-                f"長打力を評価する2指標のウェイト加算後のスコア {score:.1f} が、"
+                f"長打力を評価する指標のウェイト加算後のスコア {score:.1f} が、"
                 f"守備位置制約を外した候補全員の中で4番スロットへの適合度が最も高かった。"
             )
         else:
             sent2 = (
-                f"直近長打指数 {r_iso:.3f}（{rank_str('recent_iso')}）が最大ウェイト42%で評価され、"
-                f"シーズン補正長打率 {s_iso:.3f}（{rank_str('season_iso')}）の33%が加算された"
+                f"直近長打指数 {r_iso:.3f}（{rank_str('recent_iso')}）が最大ウェイトで評価された"
                 f"スコア {score:.1f} が候補中最高となった。"
             )
         if r_obp == 0.0 and int(recent.get("pa", 0) or 0) > 0:
@@ -3099,9 +3079,8 @@ def _build_commentary(
                 f"本来5番に求める直近の長打力という観点では候補中で恵まれた数値ではない。"
             )
             sent2 = (
-                f"ただし5番スコアはISO系（直近35%＋シーズン補正25%）が合計60%を占め、"
-                f"シーズン補正長打率 {s_iso:.3f}（{rank_str('season_iso')}）が直近不振を一定補完する。"
-                f"さらに出塁率とシーズン補正OBPを合わせた30%分も加算した結果、"
+                f"5番スコアはISO系が合計60%を占め、"
+                f"さらに出塁率を合わせた指標を加算した結果、"
                 f"スコア {score:.1f} が残り候補の中で相対的に最高となり、繰り上がり選出となった。"
             )
         else:
@@ -3110,9 +3089,8 @@ def _build_commentary(
                 f"現在の長打力が4番に次ぐ水準にある。"
             )
             sent2 = (
-                f"5番スコアはISO系（直近35%＋シーズン補正25%）が合計60%を占める設計で、"
+                f"5番スコアはISO系が合計60%を占める設計で、"
                 f"特に直近の長打力を重視している。"
-                f"シーズン補正長打率 {s_iso:.3f}（{rank_str('season_iso')}）も加算した"
                 f"スコア {score:.1f} が候補中最高となり、中軸5番として選出した。"
             )
         return sent1 + sent2 + _reliability_note()
@@ -3120,12 +3098,11 @@ def _build_commentary(
     elif role == "six_hole_balance":
         # 6番スコア = recent_obp×25 + recent_iso×25 + season_obp×25 + season_iso×15 + defense×10
         sent1 = (
-            f"直近{window_games}試合の出塁率 {r_obp:.3f}・長打指数 {r_iso:.3f} に加え、"
-            f"シーズン補正出塁率 {s_obp:.3f}・補正長打率 {s_iso:.3f} の4指標で評価した。"
+            f"直近{window_games}試合の出塁率 {r_obp:.3f}・長打指数 {r_iso:.3f} を中心に評価した。"
         )
         sent2 = (
-            f"6番スコアはOBP系（直近25%＋補正25%）とISO系（直近25%＋補正15%）で構成され、"
-            f"直近長打指数をシーズン補正長打率より重視する設計だ。"
+            f"6番スコアはOBP系とISO系をバランスよく評価する設計で、"
+            f"直近の出塁力と長打力を重視している。"
             f"この選手のスコア {score:.1f} が残り候補の中で最高となり、6番に配置した。"
         )
         return sent1 + sent2 + _reliability_note()
@@ -3133,13 +3110,11 @@ def _build_commentary(
     elif role == "seven_hole_season":
         # 7番スコア = recent_obp×15 + recent_iso×13 + season_obp×30 + season_iso×12 + defense×30
         sent1 = (
-            f"シーズン通算の補正出塁率 {s_obp:.3f}（{rank_str('season_obp')}）と"
-            f"補正長打率 {s_iso:.3f}（{rank_str('season_iso')}）が7番評価の中心となる。"
+            f"7番スコアはシーズン通算の打撃成績と守備補正（30%）を重視する設計だ。"
         )
         sent2 = (
-            f"7番スコアはシーズン補正OBP（30%）と守備補正（30%）を重視しつつ、"
-            f"ISO系では直近長打指数（13%）をシーズン補正長打率（12%）より若干重く評価する設計だ。"
-            f"直近出塁率 {r_obp:.3f} に加え守備補正 {defense:+.3f} も含めたスコア {score:.1f} が"
+            f"直近出塁率 {r_obp:.3f}（{rank_str('recent_obp')}）に加え、"
+            f"守備補正 {defense:+.3f} も含めたスコア {score:.1f} が"
             f"候補中最高となり、下位打線の安定役として選出した。"
         )
         return sent1 + sent2 + _reliability_note()
@@ -3148,19 +3123,18 @@ def _build_commentary(
         # 8番スコア = recent_obp×10 + recent_iso×8 + season_obp×20 + season_iso×7 + defense×55
         sent1 = (
             f"8番スコアは守備補正が全ウェイトの55%を占め、守備力が選出の最大要因となる設計だ。"
-            f"ISO系では直近長打指数（8%）をシーズン補正長打率（7%）より重く評価している。"
         )
         if defense > 0:
             sent2 = (
                 f"この選手の守備補正 {defense:+.3f}（{rank_str('defense')}）が55%のウェイトで効き、"
-                f"打撃系指標（シーズン補正OBP {s_obp:.3f}・直近OBP {r_obp:.3f}）が残り45%を補完した"
+                f"直近OBP {r_obp:.3f} などの打撃系指標が残り45%を補完した"
                 f"結果、スコア {score:.1f} が候補中最高となった。"
             )
         elif defense == 0:
             sent2 = (
                 f"この選手の守備補正は {defense:+.3f} と中立値だが、"
                 f"残り候補の守備補正もほぼ同水準であるため差がつかず、"
-                f"打撃系指標（シーズン補正OBP {s_obp:.3f}・直近OBP {r_obp:.3f}）の45%分で"
+                f"直近OBP {r_obp:.3f} などの打撃系指標の45%分で"
                 f"スコア {score:.1f} が相対的に最高となり、8番に繰り上がり選出となった。"
             )
         else:
@@ -3173,14 +3147,12 @@ def _build_commentary(
     elif role == "turnover_obp":
         # 9番スコア = recent_obp×30 + recent_iso×13 + season_obp×35 + season_iso×7 + defense×15
         sent1 = (
-            f"9番スコアはシーズン補正OBP（35%）と直近OBP（30%）が合計65%を占め、"
-            f"打線をつなぐ『出塁』が評価の最重要軸となる設計だ。"
-            f"ISO系では直近長打指数（13%）をシーズン補正長打率（7%）より重視している。"
+            f"9番スコアは出塁率を最重視する設計で、"
+            f"打線をつなぐ『出塁』が評価の最重要軸となる。"
         )
         sent2 = (
-            f"シーズン補正出塁率 {s_obp:.3f}（{rank_str('season_obp')}）と"
-            f"直近{window_games}試合出塁率 {r_obp:.3f}（{rank_str('recent_obp')}）の"
-            f"合算が主導して、スコア {score:.1f} が候補中最高となり、"
+            f"直近{window_games}試合出塁率 {r_obp:.3f}（{rank_str('recent_obp')}）が主導して、"
+            f"スコア {score:.1f} が候補中最高となり、"
             f"イニング先頭で出塁して上位打線に繋げる9番として選出した。"
         )
         return sent1 + sent2 + _reliability_note()
@@ -3188,8 +3160,7 @@ def _build_commentary(
     else:
         # fallback
         return (
-            f"直近{window_games}試合の出塁率 {r_obp:.3f}・長打指数 {r_iso:.3f}、"
-            f"シーズン補正出塁率 {s_obp:.3f}・補正長打率 {s_iso:.3f} の総合評価により、"
+            f"直近{window_games}試合の出塁率 {r_obp:.3f}・長打指数 {r_iso:.3f} の総合評価により、"
             f"このスロットへの割り当てスコア {score:.1f} が候補中最高となったため選出した。"
         ) + _reliability_note()
 
@@ -4835,7 +4806,7 @@ def _render_predicted_lineup_html(data: dict, team_code: str = "広島") -> HTML
             if no_recent:
                 stat_note = f'<div class="lu-no-recent-note">直近{wg_val}試合の打席データなし</div>'
             else:
-                stat_note = f'<div class="lu-no-recent-note">直近{wg_val}試合は{r_pa}打席（参考値として補正出塁: {r_obp:.3f}）</div>'
+                stat_note = f'<div class="lu-no-recent-note">直近{wg_val}試合は{r_pa}打席（サンプル少）</div>'
             obp_label  = "出塁率"
             iso_label  = "長打指数"
             slg_label  = "長打率"
@@ -4852,19 +4823,8 @@ def _render_predicted_lineup_html(data: dict, team_code: str = "広島") -> HTML
             slg_label  = "長打率"
             ops_label  = "OPS"
 
-        # シーズン補正の行：直近あり時は補足、直近なし/少ない時は既にメイン表示済みなので省略
-        if use_season:
-            season_extra = ""
-        else:
-            season_extra = f"""
-              <div class="lu-stat">
-                <div class="lu-slabel">補正出塁</div>
-                <div class="lu-sval">{s_obp:.3f}</div>
-              </div>
-              <div class="lu-stat">
-                <div class="lu-slabel">補正長打</div>
-                <div class="lu-sval">{s_iso:.3f}</div>
-              </div>"""
+        # シーズン補正出塁・補正長打は非表示（廃止）
+        season_extra = ""
 
         rows_html.append(f"""
         <div class="lu-row" data-id="{order}">

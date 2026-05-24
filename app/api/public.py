@@ -354,28 +354,211 @@ PLAYER_DEFENSE_FALLBACK = {
 PLAYER_DEFENSE = dict(PLAYER_DEFENSE_FALLBACK)
 
 SEASON_OVERALL_BATTING = {
-    "坂倉 将吾": {"obp": 0.330, "iso": 0.130},
-    "小園 海斗": {"obp": 0.310, "iso": 0.110},
-    "菊池 涼介": {"obp": 0.290, "iso": 0.080},
-    "モンテロ": {"obp": 0.320, "iso": 0.180},
-    "持丸 泰輝": {"obp": 0.310, "iso": 0.150},
-    "石原 貴規": {"obp": 0.280, "iso": 0.070},
-    "矢野 雅哉": {"obp": 0.290, "iso": 0.050},
-    "二俣 翔一": {"obp": 0.300, "iso": 0.090},
-    "秋山 翔吾": {"obp": 0.330, "iso": 0.100},
-    "大盛 穂": {"obp": 0.300, "iso": 0.080},
-    "野間 峻祥": {"obp": 0.310, "iso": 0.070},
-    "平川 蓮": {"obp": 0.290, "iso": 0.080},
-    "ファビアン": {"obp": 0.320, "iso": 0.180},
-    "佐々木 泰": {"obp": 0.300, "iso": 0.110},
-    "勝田 成": {"obp": 0.290, "iso": 0.070},
-    "堂林 翔太": {"obp": 0.310, "iso": 0.150},
-    "末包 昇大": {"obp": 0.310, "iso": 0.180},
-    "田村 俊介": {"obp": 0.310, "iso": 0.085},
-    "中村 貴浩": {"obp": 0.300, "iso": 0.140},
-    "名原 典彦": {"obp": 0.290, "iso": 0.090},
-    "岸本 大希": {"obp": 0.290, "iso": 0.080},
-    "内田 湘大": {"obp": 0.290, "iso": 0.110},
+    # ── 広島東洋カープ（2026シーズン実績） ──
+    "坂倉 将吾": {"obp": 0.390, "iso": 0.213},
+    "小園 海斗": {"obp": 0.287, "iso": 0.048},
+    "菊池 涼介": {"obp": 0.361, "iso": 0.053},
+    "モンテロ": {"obp": 0.295, "iso": 0.190},
+    "持丸 泰輝": {"obp": 0.325, "iso": 0.123},
+    "石原 貴規": {"obp": 0.286, "iso": 0.250},
+    "矢野 雅哉": {"obp": 0.235, "iso": 0.200},
+    "二俣 翔一": {"obp": 0.282, "iso": 0.139},
+    "秋山 翔吾": {"obp": 0.273, "iso": 0.135},
+    "大盛 穂": {"obp": 0.233, "iso": 0.077},
+    "野間 峻祥": {"obp": 0.281, "iso": 0.017},
+    "平川 蓮": {"obp": 0.238, "iso": 0.040},
+    "ファビアン": {"obp": 0.194, "iso": 0.108},
+    "佐々木 泰": {"obp": 0.234, "iso": 0.085},
+    "勝田 成": {"obp": 0.233, "iso": 0.030},
+    "二俣 翔一": {"obp": 0.282, "iso": 0.139},
+    "名原 典彦": {"obp": 0.444, "iso": 0.223},
+    # ── 阪神タイガース（2026シーズン実績） ──
+    "佐藤 輝明": {"obp": 0.450, "iso": 0.360},
+    "大山 悠輔": {"obp": 0.382, "iso": 0.176},
+    "森下 翔太": {"obp": 0.360, "iso": 0.255},
+    "中野 拓夢": {"obp": 0.320, "iso": 0.044},
+    "近本 光司": {"obp": 0.336, "iso": 0.042},
+    "木浪 聖也": {"obp": 0.337, "iso": 0.045},
+    "小幡 竜平": {"obp": 0.303, "iso": 0.036},
+    "坂本 誠志郎": {"obp": 0.289, "iso": 0.050},
+    "前川 右京": {"obp": 0.277, "iso": 0.137},
+    "髙寺 望夢": {"obp": 0.376, "iso": 0.108},
+    "福島 圭音": {"obp": 0.333, "iso": 0.090},
+    "梅野 隆太郎": {"obp": 0.333, "iso": 0.000},
+    "伏見 寅威": {"obp": 0.222, "iso": 0.017},
+    "立石 正広": {"obp": 0.412, "iso": 0.059},
+    "熊谷 敬宥": {"obp": 0.316, "iso": 0.055},
+    "嶋村 麟士朗": {"obp": 0.308, "iso": 0.230},
+    "岡城 快生": {"obp": 0.240, "iso": 0.084},
+    # ── 読売ジャイアンツ（2026シーズン実績） ──
+    "キャベッジ": {"obp": 0.282, "iso": 0.182},
+    "ダルベック": {"obp": 0.339, "iso": 0.217},
+    "吉川 尚輝": {"obp": 0.254, "iso": 0.000},
+    "大城 卓三": {"obp": 0.432, "iso": 0.228},
+    "増田 陸": {"obp": 0.268, "iso": 0.101},
+    "浦田 俊輔": {"obp": 0.307, "iso": 0.052},
+    "泉口 友汰": {"obp": 0.277, "iso": 0.111},
+    "坂本 勇人": {"obp": 0.232, "iso": 0.118},
+    "佐々木 俊輔": {"obp": 0.283, "iso": 0.175},
+    "岸田 行倫": {"obp": 0.306, "iso": 0.051},
+    "丸 佳浩": {"obp": 0.250, "iso": 0.167},
+    "平山 功太": {"obp": 0.325, "iso": 0.139},
+    "松本 剛": {"obp": 0.253, "iso": 0.025},
+    "中山 礼都": {"obp": 0.206, "iso": 0.034},
+    "若林 楽人": {"obp": 0.222, "iso": 0.039},
+    "山瀬 慎之助": {"obp": 0.231, "iso": 0.307},
+    "小濱 佑斗": {"obp": 0.304, "iso": 0.048},
+    # ── 横浜DeNAベイスターズ（2026シーズン実績） ──
+    "度会 隆輝": {"obp": 0.352, "iso": 0.107},
+    "佐野 恵太": {"obp": 0.335, "iso": 0.119},
+    "宮崎 敏郎": {"obp": 0.358, "iso": 0.132},
+    "牧 秀悟": {"obp": 0.424, "iso": 0.141},
+    "筒香 嘉智": {"obp": 0.359, "iso": 0.185},
+    "山本 祐大": {"obp": 0.346, "iso": 0.091},
+    "蝦名 達夫": {"obp": 0.308, "iso": 0.059},
+    "三森 大貴": {"obp": 0.302, "iso": 0.013},
+    "林 琢真": {"obp": 0.286, "iso": 0.130},
+    "松尾 汐恩": {"obp": 0.286, "iso": 0.061},
+    "京田 陽太": {"obp": 0.299, "iso": 0.041},
+    "勝又 温史": {"obp": 0.387, "iso": 0.055},
+    "ヒュンメル": {"obp": 0.304, "iso": 0.124},
+    "宮下 朝陽": {"obp": 0.150, "iso": 0.103},
+    "成瀬 脩人": {"obp": 0.250, "iso": 0.023},
+    "戸柱 恭孝": {"obp": 0.375, "iso": 0.071},
+    "宮崎 敏郎": {"obp": 0.358, "iso": 0.132},
+    # ── 東京ヤクルトスワローズ（2026シーズン実績） ──
+    "サンタナ": {"obp": 0.370, "iso": 0.257},
+    "岩田 幸宏": {"obp": 0.301, "iso": 0.058},
+    "武岡 龍世": {"obp": 0.331, "iso": 0.128},
+    "長岡 秀樹": {"obp": 0.319, "iso": 0.070},
+    "古賀 優大": {"obp": 0.306, "iso": 0.057},
+    "内山 壮真": {"obp": 0.375, "iso": 0.132},
+    "丸山 和郁": {"obp": 0.366, "iso": 0.161},
+    "増田 珠": {"obp": 0.416, "iso": 0.169},
+    "オスナ": {"obp": 0.271, "iso": 0.076},
+    "赤羽 由紘": {"obp": 0.306, "iso": 0.153},
+    "鈴木 叶": {"obp": 0.231, "iso": 0.143},
+    "並木 秀尊": {"obp": 0.289, "iso": 0.068},
+    "伊藤 琉偉": {"obp": 0.253, "iso": 0.112},
+    "田中 陽翔": {"obp": 0.227, "iso": 0.024},
+    "茂木 栄五郎": {"obp": 0.300, "iso": 0.000},
+    # ── 中日ドラゴンズ（2026シーズン実績） ──
+    "村松 開人": {"obp": 0.399, "iso": 0.179},
+    "細川 成也": {"obp": 0.400, "iso": 0.147},
+    "板山 祐太郎": {"obp": 0.364, "iso": 0.300},
+    "石伊 雄太": {"obp": 0.297, "iso": 0.169},
+    "田中 幹也": {"obp": 0.273, "iso": 0.051},
+    "福永 裕基": {"obp": 0.354, "iso": 0.050},
+    "鵜飼 航丞": {"obp": 0.333, "iso": 0.165},
+    "高橋 周平": {"obp": 0.333, "iso": 0.018},
+    "阿部 寿樹": {"obp": 0.386, "iso": 0.158},
+    "木下 拓哉": {"obp": 0.265, "iso": 0.042},
+    "花田 旭": {"obp": 0.275, "iso": 0.132},
+    "石川 昂弥": {"obp": 0.265, "iso": 0.122},
+    "カリステ": {"obp": 0.258, "iso": 0.082},
+    "土田 龍空": {"obp": 0.250, "iso": 0.207},
+    "大島 洋平": {"obp": 0.242, "iso": 0.048},
+    "ボスラー": {"obp": 0.290, "iso": 0.113},
+    "サノー": {"obp": 0.280, "iso": 0.218},
+    "加藤 匠馬": {"obp": 0.389, "iso": 0.066},
+    "山本 泰寛": {"obp": 0.276, "iso": 0.116},
+    # ── 埼玉西武ライオンズ（2026シーズン実績） ──
+    "渡部 聖弥": {"obp": 0.295, "iso": 0.095},
+    "平沢 大河": {"obp": 0.376, "iso": 0.131},
+    "長谷川 信哉": {"obp": 0.320, "iso": 0.241},
+    "滝澤 夏央": {"obp": 0.377, "iso": 0.048},
+    "源田 壮亮": {"obp": 0.285, "iso": 0.055},
+    "古賀 悠斗": {"obp": 0.354, "iso": 0.085},
+    "桑原 将志": {"obp": 0.383, "iso": 0.176},
+    "カナリオ": {"obp": 0.308, "iso": 0.109},
+    "小島 大河": {"obp": 0.276, "iso": 0.093},
+    "山村 崇嘉": {"obp": 0.279, "iso": 0.077},
+    "林 安可": {"obp": 0.264, "iso": 0.134},
+    "西川 愛也": {"obp": 0.226, "iso": 0.102},
+    "石井 一成": {"obp": 0.271, "iso": 0.121},
+    "ネビン": {"obp": 0.471, "iso": 0.450},
+    "外崎 修汰": {"obp": 0.286, "iso": 0.133},
+    "柘植 世那": {"obp": 0.389, "iso": 0.000},
+    # ── 東北楽天ゴールデンイーグルス（2026シーズン実績） ──
+    "村林 一輝": {"obp": 0.345, "iso": 0.117},
+    "辰己 涼介": {"obp": 0.402, "iso": 0.120},
+    "黒川 史陽": {"obp": 0.346, "iso": 0.058},
+    "太田 光": {"obp": 0.336, "iso": 0.049},
+    "浅村 栄斗": {"obp": 0.342, "iso": 0.148},
+    "小深田 大翔": {"obp": 0.265, "iso": 0.043},
+    "中島 大輔": {"obp": 0.259, "iso": 0.129},
+    "小郷 裕哉": {"obp": 0.271, "iso": 0.040},
+    "平良 竜哉": {"obp": 0.328, "iso": 0.258},
+    "佐藤 直樹": {"obp": 0.304, "iso": 0.265},
+    "渡邊 佳明": {"obp": 0.351, "iso": 0.056},
+    "伊藤 裕季也": {"obp": 0.245, "iso": 0.250},
+    "YG安田": {"obp": 0.220, "iso": 0.158},
+    "伊藤 光": {"obp": 0.241, "iso": 0.000},
+    # ── 福岡ソフトバンクホークス（2026シーズン実績） ──
+    "近藤 健介": {"obp": 0.409, "iso": 0.258},
+    "栗原 陵矢": {"obp": 0.335, "iso": 0.270},
+    "柳田 悠岐": {"obp": 0.303, "iso": 0.132},
+    "周東 佑京": {"obp": 0.354, "iso": 0.078},
+    "牧原 大成": {"obp": 0.318, "iso": 0.062},
+    "山川 穂高": {"obp": 0.298, "iso": 0.214},
+    "今宮 健太": {"obp": 0.271, "iso": 0.050},
+    "海野 隆司": {"obp": 0.239, "iso": 0.087},
+    "柳町 達": {"obp": 0.299, "iso": 0.069},
+    "庄子 雄大": {"obp": 0.413, "iso": 0.079},
+    "川瀬 晃": {"obp": 0.200, "iso": 0.000},
+    "野村 勇": {"obp": 0.217, "iso": 0.018},
+    "谷川原 健太": {"obp": 0.261, "iso": 0.043},
+    "中村 晃": {"obp": 0.214, "iso": 0.038},
+    "正木 智也": {"obp": 0.433, "iso": 0.178},
+    "笹川 吉康": {"obp": 0.200, "iso": 0.125},
+    # ── 北海道日本ハムファイターズ（2026シーズン実績） ──
+    "清宮 幸太郎": {"obp": 0.351, "iso": 0.176},
+    "郡司 裕也": {"obp": 0.326, "iso": 0.071},
+    "万波 中正": {"obp": 0.324, "iso": 0.242},
+    "水野 達稀": {"obp": 0.345, "iso": 0.114},
+    "レイエス": {"obp": 0.362, "iso": 0.179},
+    "田宮 裕涼": {"obp": 0.307, "iso": 0.131},
+    "奈良間 大己": {"obp": 0.319, "iso": 0.120},
+    "野村 佑希": {"obp": 0.285, "iso": 0.188},
+    "矢澤 宏太": {"obp": 0.224, "iso": 0.231},
+    "西川 遥輝": {"obp": 0.364, "iso": 0.140},
+    "淺間 大基": {"obp": 0.250, "iso": 0.189},
+    "大塚 瑠晏": {"obp": 0.351, "iso": 0.133},
+    "水谷 瞬": {"obp": 0.250, "iso": 0.125},
+    "五十幡 亮汰": {"obp": 0.219, "iso": 0.000},
+    "カストロ": {"obp": 0.310, "iso": 0.186},
+    "細川 凌平": {"obp": 0.474, "iso": 0.461},
+    # ── 千葉ロッテマリーンズ（2026シーズン実績） ──
+    "西川 史礁": {"obp": 0.349, "iso": 0.111},
+    "藤原 恭大": {"obp": 0.405, "iso": 0.094},
+    "佐藤 都志也": {"obp": 0.372, "iso": 0.234},
+    "友杉 篤輝": {"obp": 0.350, "iso": 0.062},
+    "小川 龍成": {"obp": 0.346, "iso": 0.024},
+    "寺地 隆成": {"obp": 0.261, "iso": 0.070},
+    "ソト": {"obp": 0.282, "iso": 0.138},
+    "髙部 瑛斗": {"obp": 0.265, "iso": 0.022},
+    "ポランコ": {"obp": 0.288, "iso": 0.189},
+    "山口 航輝": {"obp": 0.239, "iso": 0.279},
+    "松川 虎生": {"obp": 0.224, "iso": 0.041},
+    "上田 希由翔": {"obp": 0.234, "iso": 0.182},
+    "池田 来翔": {"obp": 0.297, "iso": 0.027},
+    "山本 大斗": {"obp": 0.276, "iso": 0.102},
+    # ── オリックス・バファローズ（2026シーズン実績） ──
+    "太田 椋": {"obp": 0.372, "iso": 0.156},
+    "西川 龍馬": {"obp": 0.301, "iso": 0.083},
+    "森 友哉": {"obp": 0.325, "iso": 0.152},
+    "宗 佑磨": {"obp": 0.354, "iso": 0.160},
+    "中川 圭太": {"obp": 0.322, "iso": 0.107},
+    "紅林 弘太郎": {"obp": 0.273, "iso": 0.112},
+    "渡部 遼人": {"obp": 0.368, "iso": 0.130},
+    "若月 健矢": {"obp": 0.226, "iso": 0.034},
+    "シーモア": {"obp": 0.198, "iso": 0.103},
+    "廣岡 大志": {"obp": 0.235, "iso": 0.000},
+    "来田 涼斗": {"obp": 0.265, "iso": 0.063},
+    "大城 滉二": {"obp": 0.313, "iso": 0.062},
+    "西野 真弘": {"obp": 0.212, "iso": 0.020},
+    "麦谷 祐介": {"obp": 0.148, "iso": 0.200},
+    "野口 智哉": {"obp": 0.241, "iso": 0.100},
 }
 
 DH_LINEUP_SLOTS = [
@@ -796,32 +979,53 @@ def _normalize_player_name(name: str) -> str:
     return text
 
 
-def _canonical_player_name(name: str) -> str:
+def _canonical_player_name(name: str, team_code: str | None = None) -> str:
+    """選手名を正式名（スペースあり）に正規化する。
+    team_code が指定された場合は、そのチームのプロファイルも検索対象に追加する。
+    """
     normalized = _normalize_player_name(name)
 
     if not normalized:
         return name
 
+    # まず PLAYER_NAME_ALIASES を確認（_update_player_name_aliases で自動補完済み）
     if normalized in PLAYER_NAME_ALIASES:
         return PLAYER_NAME_ALIASES[normalized]
 
-    _profile = _get_player_profile()
-    for full_name in _profile.keys():
+    # SEASON_OVERALL_BATTING のキーでも逆引き（スペースあり正式名→スペースなし）
+    for full_name in SEASON_OVERALL_BATTING:
         if _normalize_player_name(full_name) == normalized:
             return full_name
 
-    surname_matches = []
-    for full_name in _profile.keys():
-        parts = [p for p in full_name.replace("　", " ").split(" ") if p]
-        if not parts:
-            continue
+    # チーム指定がある場合はそのプロファイルを優先検索
+    profiles_to_search = []
+    if team_code:
+        team_profile = _get_player_profile(team_code)
+        if team_profile:
+            profiles_to_search.append(team_profile)
 
-        surname_normalized = _normalize_player_name(parts[0])
-        if surname_normalized == normalized:
-            surname_matches.append(full_name)
+    # 広島プロファイルも常に含める（後方互換）
+    carp_profile = _get_player_profile("広島")
+    if carp_profile and (not team_code or team_code != "広島"):
+        profiles_to_search.append(carp_profile)
 
-    if len(surname_matches) == 1:
-        return surname_matches[0]
+    for _profile in profiles_to_search:
+        for full_name in _profile.keys():
+            if _normalize_player_name(full_name) == normalized:
+                return full_name
+
+    # 姓のみマッチ（チームプロファイル優先）
+    for _profile in profiles_to_search:
+        surname_matches = []
+        for full_name in _profile.keys():
+            parts = [p for p in full_name.replace("　", " ").split(" ") if p]
+            if not parts:
+                continue
+            surname_normalized = _normalize_player_name(parts[0])
+            if surname_normalized == normalized:
+                surname_matches.append(full_name)
+        if len(surname_matches) == 1:
+            return surname_matches[0]
 
     return name
 
@@ -1377,18 +1581,22 @@ def _get_adjusted_position_batting(player_name: str, position: str, team_code: s
     if not season_data:
         season_data = _get_season_position_batting(team_code) or {}
 
-    canonical_name = _canonical_player_name(player_name)
+    canonical_name = _canonical_player_name(player_name, team_code)
     normalized_name = _normalize_player_name(canonical_name)
 
     player_stats = (
         season_data.get(canonical_name)
         or season_data.get(normalized_name)
+        or season_data.get(_normalize_player_name(player_name))
         or {}
     )
 
+    # SEASON_OVERALL_BATTING は全12球団対応済み
+    # スペースなし名前でも検索できるよう正規化マッチング
     overall = (
         SEASON_OVERALL_BATTING.get(canonical_name)
         or SEASON_OVERALL_BATTING.get(normalized_name)
+        or SEASON_OVERALL_BATTING.get(_normalize_player_name(player_name))
         or {"obp": 0.0, "iso": 0.0}
     )
     overall_obp = float(overall.get("obp", 0.0) or 0.0)
@@ -2121,7 +2329,7 @@ def _aggregate_recent_batting_stats(window_games: int, team_code: str = "広島"
         seen_in_game: set[str] = set()
 
         for row in rows:
-            canonical_name = _canonical_player_name(row.get("player_name", ""))
+            canonical_name = _canonical_player_name(row.get("player_name", ""), team_code)
             if not canonical_name:
                 continue
 
@@ -2353,7 +2561,7 @@ def _recent_snapshot_map(window_games: int, team_code: str = "広島") -> dict[s
     result: dict[str, dict] = {}
 
     for player_name, stats in aggregated.get("player_totals", {}).items():
-        canonical_name = _canonical_player_name(player_name)
+        canonical_name = _canonical_player_name(player_name, team_code)
         pa  = _calc_recent_pa(stats)
         ab  = int(stats.get("at_bats", 0) or 0)
         raw_obp = _calc_recent_obp(stats)
@@ -2363,6 +2571,7 @@ def _recent_snapshot_map(window_games: int, team_code: str = "広島") -> dict[s
         overall = (
             SEASON_OVERALL_BATTING.get(canonical_name)
             or SEASON_OVERALL_BATTING.get(player_name)
+            or SEASON_OVERALL_BATTING.get(_normalize_player_name(player_name))
             or {}
         )
         prior_obp = float(overall.get("obp", NPB_LEAGUE_AVG_OBP) or NPB_LEAGUE_AVG_OBP)
@@ -2438,7 +2647,7 @@ def _get_prediction_candidate_names(now: datetime | None = None, team_code: str 
     return candidates
 
 def _defense_value_for(name: str, position: str = "", defense_map: dict | None = None, team_code: str = "広島") -> float:
-    canonical_name = _canonical_player_name(name)
+    canonical_name = _canonical_player_name(name, team_code)
     defense_map = defense_map or _get_player_defense(team_code)
 
     player_def = (
@@ -2471,14 +2680,16 @@ def _slot_score(
     weights キー: recent_obp / recent_iso / season_obp / season_iso / defense
     各指標を 0〜100 スケールに正規化してウエイト合計で算出。
     """
-    canonical_name = _canonical_player_name(player_name)
+    canonical_name = _canonical_player_name(player_name, team_code)
 
-    recent = recent_map.get(canonical_name, {
+    recent = recent_map.get(canonical_name, {}).copy() or recent_map.get(
+        _normalize_player_name(player_name), {}
+    ).copy() or {
         "games": 0, "pa": 0, "ab": 0,
         "obp": 0.0, "iso": 0.0,
         "adj_obp": NPB_LEAGUE_AVG_OBP, "adj_iso": NPB_LEAGUE_AVG_ISO,
         "reliability": 0.0, "raw": {},
-    })
+    }
     season_pos = _get_adjusted_position_batting(canonical_name, position, team_code)
     defense    = _defense_value_for(canonical_name, position, defense_map)
 
@@ -2965,11 +3176,13 @@ def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: di
     # ── 全候補の指標を事前集計してランキングを作る ──
     all_stats_for_rank: list[dict] = []
     for player_name in candidate_names:
-        cname    = _canonical_player_name(player_name)
-        recent_r = recent_map.get(cname, {
+        cname    = _canonical_player_name(player_name, team_code)
+        recent_r = recent_map.get(cname, {}).copy() or recent_map.get(
+            _normalize_player_name(player_name), {}
+        ).copy() or {
             "obp": 0.0, "iso": 0.0,
             "adj_obp": NPB_LEAGUE_AVG_OBP, "adj_iso": NPB_LEAGUE_AVG_ISO,
-        })
+        }
         def_val  = _defense_value_for(cname, "", defense_map)
         eligible = (_get_player_profile(team_code).get(cname) or {}).get("eligible_positions", [])
         best_s_obp, best_s_iso = 0.0, 0.0
@@ -2998,7 +3211,7 @@ def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: di
         best_pick = None
 
         for player_name in candidate_names:
-            canonical_name = _canonical_player_name(player_name)
+            canonical_name = _canonical_player_name(player_name, team_code)
             if canonical_name in used_players:
                 continue
 
@@ -3060,7 +3273,7 @@ def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: di
         if best_pick is None and slot_def.get("min_adj_iso") is not None:
             fallback_slot = {k: v for k, v in slot_def.items() if k != "min_adj_iso"}
             for player_name in candidate_names:
-                canonical_name = _canonical_player_name(player_name)
+                canonical_name = _canonical_player_name(player_name, team_code)
                 if canonical_name in used_players:
                     continue
                 eligible_positions = (
@@ -4009,7 +4222,7 @@ def _render_season_stats_html(active_page: str = "", window_games: int = 5, team
         # 選手ごとに「全ポジション中で最もPAが多い打撃成績」を集約
         seen: dict[str, dict] = {}
         for player_name in _get_player_profile(team_code).keys():
-            cname = _canonical_player_name(player_name)
+            cname = _canonical_player_name(player_name, team_code)
             if cname in seen:
                 continue
             pdata = (
@@ -4190,7 +4403,7 @@ def _render_season_stats_html(active_page: str = "", window_games: int = 5, team
 
         seen: dict[str, dict] = {}
         for player_name in _get_player_profile(team_code).keys():
-            cname = _canonical_player_name(player_name)
+            cname = _canonical_player_name(player_name, team_code)
             if cname in seen:
                 continue
             pdata = (
@@ -5764,7 +5977,7 @@ def _build_hot_batters_data(window_games: int = 5, team_code: str = "広島") ->
         except Exception:
             continue
         for raw_name, s in risp.items():
-            cname = _canonical_player_name(raw_name)
+            cname = _canonical_player_name(raw_name, team_code)
             if not cname:
                 continue
             ct = chance_totals.setdefault(cname, {"rbi_hits": 0, "chance_pa": 0})

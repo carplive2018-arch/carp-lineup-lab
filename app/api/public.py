@@ -4748,10 +4748,13 @@ def _render_predicted_lineup_html(data: dict, team_code: str = "広島") -> HTML
         order    = int(item.get("order", 0) or 0)
         pos_code = str(item.get("position", "") or "")
         pos_ja   = POSITION_LABELS.get(pos_code, pos_code)
+        r_pa     = int(recent.get("pa", 0) or 0)
+        r_games  = int(recent.get("games", 0) or 0)
         r_obp    = float(recent.get("obp", 0.0) or 0.0)
         r_iso    = float(recent.get("iso", 0.0) or 0.0)
         s_obp    = float(season.get("obp", 0.0) or 0.0)
         s_iso    = float(season.get("iso", 0.0) or 0.0)
+        s_pa     = float(season.get("pa", 0.0) or 0.0)
         r_avg    = float(recent.get("avg", 0.0) or 0.0)
         r_slg    = round(r_avg + r_iso, 3)
         r_ops    = round(r_obp + r_slg, 3)
@@ -4760,6 +4763,48 @@ def _render_predicted_lineup_html(data: dict, team_code: str = "広島") -> HTML
         def_cls  = "def-pos" if defv > 0 else ("def-neg" if defv < 0 else "")
         reason      = escape(str(item.get("reason", "")))
         commentary  = escape(str(item.get("commentary", "")))
+        wg_val      = int(data.get("window_games", 5) or 5)
+
+        # 直近出場なし（pa=0）の場合はシーズン補正値をメイン表示する
+        no_recent = (r_pa == 0)
+        if no_recent:
+            # シーズン補正値をメインに表示
+            disp_obp   = s_obp
+            disp_iso   = s_iso
+            s_slg      = round(s_obp + s_iso, 3)  # 概算（obp+iso ≈ slg 近似）
+            disp_slg   = s_iso  # ISOはSLG-AVGなので長打率の代わりにISO表示
+            disp_ops   = round(s_obp + s_obp + s_iso, 3)  # 概算OPS≈2*obp+iso
+            stat_badge = f'<span class="lu-stat-badge lu-badge-season">シーズン補正値</span>'
+            stat_note  = f'<div class="lu-no-recent-note">直近{wg_val}試合の打席データなし</div>'
+            obp_label  = "出塁率"
+            iso_label  = "長打指数"
+            slg_label  = "長打率"
+            ops_label  = "OPS"
+        else:
+            disp_obp   = r_obp
+            disp_iso   = r_iso
+            disp_slg   = r_slg
+            disp_ops   = r_ops
+            stat_badge = f'<span class="lu-stat-badge lu-badge-recent">直近{wg_val}試合</span>'
+            stat_note  = ""
+            obp_label  = "出塁率"
+            iso_label  = "長打指数"
+            slg_label  = "長打率"
+            ops_label  = "OPS"
+
+        # シーズン補正の行：直近あり時は補足、直近なし時は既にメイン表示済みなので省略
+        if no_recent:
+            season_extra = ""
+        else:
+            season_extra = f"""
+              <div class="lu-stat">
+                <div class="lu-slabel">補正出塁</div>
+                <div class="lu-sval">{s_obp:.3f}</div>
+              </div>
+              <div class="lu-stat">
+                <div class="lu-slabel">補正長打</div>
+                <div class="lu-sval">{s_iso:.3f}</div>
+              </div>"""
 
         rows_html.append(f"""
         <div class="lu-row" data-id="{order}">
@@ -4785,31 +4830,26 @@ def _render_predicted_lineup_html(data: dict, team_code: str = "広島") -> HTML
 
           <!-- ── 指標パネル ── -->
           <div class="lu-panel" data-panel="stats">
+            {stat_badge}
+            {stat_note}
             <div class="lu-stats-grid">
               <div class="lu-stat">
-                <div class="lu-slabel">出塁率</div>
-                <div class="lu-sval">{r_obp:.3f}</div>
+                <div class="lu-slabel">{obp_label}</div>
+                <div class="lu-sval">{disp_obp:.3f}</div>
               </div>
               <div class="lu-stat">
-                <div class="lu-slabel">長打指数</div>
-                <div class="lu-sval">{r_iso:.3f}</div>
+                <div class="lu-slabel">{iso_label}</div>
+                <div class="lu-sval">{disp_iso:.3f}</div>
               </div>
               <div class="lu-stat">
-                <div class="lu-slabel">長打率</div>
-                <div class="lu-sval">{r_slg:.3f}</div>
+                <div class="lu-slabel">{slg_label}</div>
+                <div class="lu-sval">{disp_slg:.3f}</div>
               </div>
               <div class="lu-stat lu-stat-ops">
-                <div class="lu-slabel">OPS</div>
-                <div class="lu-sval">{r_ops:.3f}</div>
+                <div class="lu-slabel">{ops_label}</div>
+                <div class="lu-sval">{disp_ops:.3f}</div>
               </div>
-              <div class="lu-stat">
-                <div class="lu-slabel">補正出塁</div>
-                <div class="lu-sval">{s_obp:.3f}</div>
-              </div>
-              <div class="lu-stat">
-                <div class="lu-slabel">補正長打</div>
-                <div class="lu-sval">{s_iso:.3f}</div>
-              </div>
+              {season_extra}
               <div class="lu-stat">
                 <div class="lu-slabel">守備補正</div>
                 <div class="lu-sval {def_cls}">{defv:+.3f}</div>

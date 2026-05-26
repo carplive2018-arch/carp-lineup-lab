@@ -3601,69 +3601,80 @@ def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: di
     used_positions: set[str] = set()   # 同一守備位置の重複を防ぐ
     lineup: list[dict]       = []
 
-    for slot_def in sorted(slot_defs, key=lambda s: s["order"]):
-        best_pick = None
-
-        for player_name in candidate_names:
-            canonical_name = _canonical_player_name(player_name, team_code)
-            if canonical_name in used_players:
+    # ── v1 スロット選出ヘルパー ──────────────────────────────────────────────
+    def _pick_best_for_slot(
+        slot: dict,
+        names: list[str],
+        pa_floor: int = 0,          # 0=制限なし, 1=直近打席1以上のみ
+    ) -> dict | None:
+        """names を走査し slot に最適な選手を返す。
+        pa_floor > 0 のとき recent.pa < pa_floor の選手はスキップする。
+        """
+        pick = None
+        for pname in names:
+            cname = _canonical_player_name(pname, team_code)
+            if cname in used_players:
                 continue
-
-            # 守備位置はそのプレーヤーの最も高いスコアになるポジションを採用
-            # ただし used_positions に含まれないポジションのみ候補とする
-            # PLAYER_PROFILE 未登録の場合は DH のみ（守備位置不明なため）
+            # PA フロア（直近打席数フィルタ）
+            if pa_floor > 0:
+                r_pa = int((recent_map.get(cname) or {}).get("pa", 0) or 0)
+                if r_pa < pa_floor:
+                    continue
             eligible_positions = (
-                (_get_player_profile(team_code).get(canonical_name) or {}).get("eligible_positions", [])
+                (_get_player_profile(team_code).get(cname) or {}).get("eligible_positions", [])
                 or [POS_DH]
             )
-            # まだ使われていないポジションに絞る
-            # NO_DH のときは DH を候補から除外する
             available_positions = [
                 p for p in eligible_positions
                 if p not in used_positions
                 and (use_dh or p != POS_DH)
             ]
             if not available_positions:
-                continue  # この選手が出場できるポジションがすべて埋まっている
-
-            best_pos_score   = None
-            best_pos         = available_positions[0]
-            best_recent      = {}
-            best_season_pos  = {}
-            best_defense     = 0.0
-
+                continue
+            best_pos_score  = None
+            best_pos        = available_positions[0]
+            best_recent     = {}
+            best_season_pos = {}
+            best_defense    = 0.0
             for position in available_positions:
-                score, recent, season_pos, defense = _slot_score(
-                    canonical_name, position, slot_def, recent_map, defense_map, team_code,
+                score, recent_s, season_pos_s, defense_s = _slot_score(
+                    cname, position, slot, recent_map, defense_map, team_code,
                     all_recent_vals=recent_map,
                 )
-                # -inf はハードカット（hard_cut_woba_bottom_pct 未達等）→ 不適格
                 if math.isinf(score) and score < 0:
                     continue
                 if best_pos_score is None or score > best_pos_score:
                     best_pos_score  = score
                     best_pos        = position
-                    best_recent     = recent
-                    best_season_pos = season_pos
-                    best_defense    = defense
-
-            # 全ポジションがハードカットされた場合はこの選手をスキップ
+                    best_recent     = recent_s
+                    best_season_pos = season_pos_s
+                    best_defense    = defense_s
             if best_pos_score is None:
                 continue
-
-            if best_pick is None or best_pos_score > best_pick["score"]:
-                best_pick = {
-                    "order":      int(slot_def.get("order", 0) or 0),
-                    "position":   best_pos,
-                    "player_name": canonical_name,
-                    "score":      round(best_pos_score, 3),
-                    "recent":     best_recent,
-                    "season_pos": best_season_pos,
-                    "defense":    round(best_defense, 3),
-                    "role":       slot_def.get("role", ""),
+            if pick is None or best_pos_score > pick["score"]:
+                pick = {
+                    "order":       int(slot.get("order", 0) or 0),
+                    "position":    best_pos,
+                    "player_name": cname,
+                    "score":       round(best_pos_score, 3),
+                    "recent":      best_recent,
+                    "season_pos":  best_season_pos,
+                    "defense":     round(best_defense, 3),
+                    "role":        slot.get("role", ""),
                 }
+        return pick
+    # ──────────────────────────────────────────────────────────────────────────
 
-        # ── フォールバック：hard_cut_woba_bottom_pct で全候補が弾かれた場合 ──
+    for slot_def in sorted(slot_defs, key=lambda s: s["order"]):
+
+        # ── パス1: PA>=1 の選手のみで最適候補を選出 ──
+        best_pick = _pick_best_for_slot(slot_def, candidate_names, pa_floor=1)
+
+        # ── パス2: PA>=1 で誰も取れなかった場合のみ PA=0 も含む全候補で再試行 ──
+        if best_pick is None:
+            best_pick = _pick_best_for_slot(slot_def, candidate_names, pa_floor=0)
+
+        # ── フォールバック：hard_cut 系制約で全候補が弾かれた場合 ──
         # hard_cut_woba_bottom_pct / hard_cut_iso_zero の両制約を外して再選出する
         if best_pick is None and (
             slot_def.get("hard_cut_woba_bottom_pct") is not None
@@ -3673,52 +3684,10 @@ def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: di
                 k: v for k, v in slot_def.items()
                 if k not in ("hard_cut_woba_bottom_pct", "hard_cut_iso_zero")
             }
-            for player_name in candidate_names:
-                canonical_name = _canonical_player_name(player_name, team_code)
-                if canonical_name in used_players:
-                    continue
-                eligible_positions = (
-                    (_get_player_profile(team_code).get(canonical_name) or {}).get("eligible_positions", [])
-                    or [POS_DH]
-                )
-                available_positions = [
-                    p for p in eligible_positions
-                    if p not in used_positions
-                    and (use_dh or p != POS_DH)
-                ]
-                if not available_positions:
-                    continue
-                best_pos_score  = None
-                best_pos        = available_positions[0]
-                best_recent     = {}
-                best_season_pos = {}
-                best_defense    = 0.0
-                for position in available_positions:
-                    score, recent, season_pos, defense = _slot_score(
-                        canonical_name, position, fallback_slot, recent_map, defense_map, team_code,
-                        all_recent_vals=recent_map,
-                    )
-                    if math.isinf(score) and score < 0:
-                        continue
-                    if best_pos_score is None or score > best_pos_score:
-                        best_pos_score  = score
-                        best_pos        = position
-                        best_recent     = recent
-                        best_season_pos = season_pos
-                        best_defense    = defense
-                if best_pos_score is None:
-                    continue
-                if best_pick is None or best_pos_score > best_pick["score"]:
-                    best_pick = {
-                        "order":       int(slot_def.get("order", 0) or 0),
-                        "position":    best_pos,
-                        "player_name": canonical_name,
-                        "score":       round(best_pos_score, 3),
-                        "recent":      best_recent,
-                        "season_pos":  best_season_pos,
-                        "defense":     round(best_defense, 3),
-                        "role":        slot_def.get("role", ""),
-                    }
+            # フォールバックもまず PA>=1 → なければ PA=0 の順で試みる
+            best_pick = _pick_best_for_slot(fallback_slot, candidate_names, pa_floor=1)
+            if best_pick is None:
+                best_pick = _pick_best_for_slot(fallback_slot, candidate_names, pa_floor=0)
 
         if best_pick is None:
             continue
@@ -3938,10 +3907,15 @@ def _do_build_predicted_lineup_v2(
     ranks = _build_ranks(all_stats_for_rank)
 
     # adj_woba 降順でプール全体をソートしてランク付き候補リストを作成
+    # 複合ソートキー: (PA=0フラグ, -adj_woba)
+    # → PA>=1 の選手が常に PA=0 の選手より上位になる
     pool_sorted: list[tuple[str, dict]] = sorted(
-        pool.items(), key=lambda kv: kv[1]["adj_woba"], reverse=True
+        pool.items(),
+        key=lambda kv: (1 if kv[1]["pa"] == 0 else 0, -kv[1]["adj_woba"]),
     )
     n_pool = len(pool_sorted)
+    # PA>=1 の選手数（pool_top_pct カットの基準に使用）
+    n_pool_active = sum(1 for _, e in pool_sorted if e["pa"] >= 1)
 
     # ── ステージ2: 配置ルールを順番に適用 ──
     used_players: set[str]   = set()
@@ -3951,34 +3925,38 @@ def _do_build_predicted_lineup_v2(
     for rule in placement_rules:
         order = rule["order"]
 
-        # pool_top_pct: adj_woba上位N%に絞る（Noneは全員）
+        # pool_top_pct: adj_woba 上位 N% に絞る（None=全員）
+        # ・カット基準は「PA>=1 の選手数（n_pool_active）」を使う
+        #   → PA=0 の選手が上位 N% に入り込まないようにする
+        # ・used_players を除いた残り候補から適用
         top_pct = rule.get("pool_top_pct")
-        if top_pct is not None and n_pool > 0:
-            cut_idx = max(1, int(math.ceil(n_pool * top_pct)))
+        if top_pct is not None and n_pool_active > 0:
+            cut_idx = max(1, int(math.ceil(n_pool_active * top_pct)))
+            # pool_sorted は (PA=0フラグ, -adj_woba) 複合ソート済みなので
+            # 先頭 cut_idx 件は必ず PA>=1 の上位 N% になる
             candidates_for_slot = [
                 (cn, entry) for cn, entry in pool_sorted[:cut_idx]
                 if cn not in used_players
             ]
-            # 上位に絞り込んだ結果が空の場合は全員を対象にしてフォールバック
+            # 上位に絞り込んだ結果が空の場合は PA>=1 全員にフォールバック
             if not candidates_for_slot:
                 candidates_for_slot = [
                     (cn, entry) for cn, entry in pool_sorted
-                    if cn not in used_players
+                    if cn not in used_players and entry["pa"] >= 1
                 ]
         else:
+            # pool_top_pct=None のスロット（3・5・6・7・8・9 番）は PA>=1 の全員
+            candidates_for_slot = [
+                (cn, entry) for cn, entry in pool_sorted
+                if cn not in used_players and entry["pa"] >= 1
+            ]
+
+        # PA>=1 が 0 人の場合のみ PA=0 も含む全候補にフォールバック
+        if not candidates_for_slot:
             candidates_for_slot = [
                 (cn, entry) for cn, entry in pool_sorted
                 if cn not in used_players
             ]
-
-        # PA>=1 ソフトフィルタ: 直近ウィンドウで1打席以上の選手を優先
-        # （adj_* はPA=0でもprior値を持つため、打席なし選手が誤選出されるのを防ぐ）
-        active_candidates = [
-            (cn, e) for cn, e in candidates_for_slot if e["pa"] >= 1
-        ]
-        if active_candidates:
-            candidates_for_slot = active_candidates
-        # PA=0しか残らない場合はフォールバックとして全員を対象にする（上記 candidates_for_slot を維持）
 
         # no_iso_zero: raw_iso=0 かつ PA>=5 の選手を除外（4番向け）
         if rule.get("no_iso_zero"):

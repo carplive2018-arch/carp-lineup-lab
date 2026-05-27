@@ -4169,8 +4169,11 @@ def _wants_html(request: Request, view: str | None) -> bool:
     return "text/html" in accept
 
 
-def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
-    _desc = description or "広島東洋カープの打撃成績・予想打順・得点圏打率・WAR・走塁守備指標をリアルタイムで分析するファンサイトです。"
+def _html_page(title: str, body: str, description: str = "", canonical_path: str = "") -> HTMLResponse:
+    _desc = description or "NPB全12球団の打撃成績・予想打順・得点圏打率・WAR・走塁守備指標をリアルタイムで分析するファンサイトです。"
+    _site_url = "https://www.koidanshi.com"
+    _canonical = f"{_site_url}{canonical_path}" if canonical_path else _site_url
+    _json_ld = '{"@context":"https://schema.org","@type":"WebSite","name":"鯉男の打席分析室","url":"https://www.koidanshi.com","description":"NPB全12球団の打撃成績・予想打順・得点圏打率・WAR・走塁守備指標をリアルタイムで分析するファンサイト。ベイズ補正・セイバーメトリクス指標を活用したデータ分析を提供します。","inLanguage":"ja","potentialAction":{"@type":"SearchAction","target":{"@type":"EntryPoint","urlTemplate":"https://www.koidanshi.com/public/select?page=predicted-lineup"},"query-input":"required name=search_term_string"}}'
     return HTMLResponse(
         f"""<!doctype html>
 <html lang="ja">
@@ -4180,10 +4183,14 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
   <title>{escape(title)} | 鯉男の打席分析室</title>
   <meta name="description" content="{escape(_desc)}">
   <meta name="robots" content="index, follow">
+  <link rel="canonical" href="{_canonical}">
   <meta property="og:title" content="{escape(title)} | 鯉男の打席分析室">
   <meta property="og:description" content="{escape(_desc)}">
   <meta property="og:type" content="website">
   <meta property="og:locale" content="ja_JP">
+  <meta property="og:url" content="{_canonical}">
+  <meta property="og:site_name" content="鯉男の打席分析室">
+  <script type="application/ld+json">{_json_ld}</script>
   <style>
     /* ── リセット & ベース ── */
     *, *::before, *::after {{ box-sizing: border-box; }}
@@ -4738,6 +4745,13 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
   <!-- Google AdSense -->
   <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9923885942831563"
        crossorigin="anonymous"></script>
+  <!-- Google AdSense 自動広告 -->
+  <script>
+    (adsbygoogle = window.adsbygoogle || []).push({{
+      google_ad_client: "ca-pub-9923885942831563",
+      enable_page_level_ads: true
+    }});
+  </script>
 </head>
 <body>
   <!-- サイトヘッダー -->
@@ -4748,6 +4762,7 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
     <nav class="site-header-nav">
       <a href="/public/game-recap?view=html">試合一覧</a>
       <a href="/public/risp?view=html">得点圏</a>
+      <a href="/public/about">このサイトについて</a>
       <a href="/public/privacy">プライバシーポリシー</a>
     </nav>
   </header>
@@ -4759,10 +4774,10 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
     <aside class="ad-col">
       <div class="ad-unit" id="ad-left-1">
         <ins class="adsbygoogle"
-             style="display:inline-block;width:160px;height:600px"
+             style="display:block;width:160px;height:600px"
              data-ad-client="ca-pub-9923885942831563"
-             data-ad-slot="auto"
-             data-ad-format="auto"></ins>
+             data-ad-slot="1234567890"
+             data-ad-format="vertical"></ins>
         <script>(adsbygoogle = window.adsbygoogle || []).push({{}});</script>
       </div>
     </aside>
@@ -4782,6 +4797,7 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
           <a href="/public/game-recap?view=html">試合一覧</a>
           <a href="/public/fielding-baserunning?view=html">走塁・守備</a>
           <a href="/public/war-ranking?view=html">WAR</a>
+          <a href="/public/about">このサイトについて</a>
           <a href="/public/privacy">プライバシーポリシー</a>
           <a href="/public/terms">利用規約</a>
         </div>
@@ -4794,10 +4810,10 @@ def _html_page(title: str, body: str, description: str = "") -> HTMLResponse:
     <aside class="ad-col">
       <div class="ad-unit" id="ad-right-1">
         <ins class="adsbygoogle"
-             style="display:inline-block;width:160px;height:600px"
+             style="display:block;width:160px;height:600px"
              data-ad-client="ca-pub-9923885942831563"
-             data-ad-slot="auto"
-             data-ad-format="auto"></ins>
+             data-ad-slot="0987654321"
+             data-ad-format="vertical"></ins>
         <script>(adsbygoogle = window.adsbygoogle || []).push({{}});</script>
       </div>
     </aside>
@@ -8960,6 +8976,7 @@ def public_privacy(request: Request):
         "プライバシーポリシー",
         body,
         description="鯉男の打席分析室のプライバシーポリシーページです。個人情報の取り扱い、Cookieの使用、広告配信に関する方針を説明します。",
+        canonical_path="/public/privacy",
     )
 
 
@@ -8989,7 +9006,7 @@ def public_terms(request: Request):
       <p>本規約は、鯉男の打席分析室（以下「本サービス」）の利用に関する条件を定めるものです。ユーザーは本規約に同意したうえで本サービスをご利用ください。</p>
 
       <h2>第2条（サービスの内容）</h2>
-      <p>本サービスは、広島東洋カープの打撃成績・試合データを独自に集計・分析し、ファン向けの統計情報として提供する情報サイトです。</p>
+      <p>本サービスは、NPBプロ野球12球団（セ・リーグ：広島東洋カープ・阪神タイガース・読売ジャイアンツ・横浜DeNAベイスターズ・中日ドラゴンズ・東京ヤクルトスワローズ、パ・リーグ：福岡ソフトバンクホークス・埼玉西武ライオンズ・東北楽天ゴールデンイーグルス・千葉ロッテマリーンズ・オリックス・バファローズ・北海道日本ハムファイターズ）の打撃成績・試合データを独自に集計・分析し、ファン向けの統計情報として提供する情報サイトです。</p>
 
       <h2>第3条（データの利用について）</h2>
       <ul>
@@ -9031,8 +9048,193 @@ def public_terms(request: Request):
         "利用規約",
         body,
         description="鯉男の打席分析室の利用規約ページです。サービスの利用条件、禁止事項、免責事項について説明します。",
+        canonical_path="/public/terms",
     )
+# ---------------------------------------------------------------------------
 
+@router.get("/public/about", include_in_schema=False)
+def public_about(request: Request):
+    """サイト紹介・About ページ"""
+    body = """
+    <style>
+      .about-wrap { max-width: 860px; margin: 0 auto; padding: 0 16px 60px; }
+      .about-wrap h1 { font-size: 24px; font-weight: 700; color: #ffd54a; margin: 32px 0 8px; }
+      .about-wrap h2 { font-size: 17px; font-weight: 700; color: #a0b8d8; margin: 32px 0 8px; border-left: 4px solid #ffd54a; padding-left: 12px; }
+      .about-wrap h3 { font-size: 14px; font-weight: 700; color: #c8d8f4; margin: 20px 0 6px; }
+      .about-wrap p, .about-wrap li { font-size: 14px; color: #8899b8; line-height: 1.9; margin: 8px 0; }
+      .about-wrap ul { padding-left: 24px; }
+      .about-wrap .updated { font-size: 12px; color: #5a6e94; margin-bottom: 24px; }
+      .about-wrap a { color: #5b9bd5; text-decoration: none; }
+      .about-wrap a:hover { text-decoration: underline; }
+      .about-highlight {
+        background: #0c1424; border: 1px solid #1a2540; border-left: 4px solid #ffd54a;
+        border-radius: 8px; padding: 16px 20px; margin: 20px 0;
+      }
+      .about-highlight p { color: #c8d8f4; margin: 0; line-height: 1.8; }
+      .feature-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+      .feature-table th { background: #0f1d35; color: #8494b8; font-size: 12px; font-weight: 600;
+        text-align: left; padding: 8px 12px; border-bottom: 1px solid #1a2540; }
+      .feature-table td { color: #a0b4cc; font-size: 13px; padding: 9px 12px;
+        border-bottom: 1px solid #111c30; vertical-align: top; line-height: 1.7; }
+      .feature-table tr:last-child td { border-bottom: none; }
+      .metric-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; margin: 16px 0; }
+      .metric-card { background: #0c1424; border: 1px solid #1a2540; border-radius: 8px; padding: 14px 16px; }
+      .metric-name { font-size: 13px; font-weight: 700; color: #ffd54a; margin-bottom: 4px; }
+      .metric-desc { font-size: 12px; color: #6878a0; line-height: 1.7; }
+      .data-source-list { list-style: none; padding: 0; }
+      .data-source-list li { display: flex; gap: 10px; align-items: flex-start;
+        font-size: 13px; color: #8494b8; padding: 6px 0; border-bottom: 1px solid #111c30; }
+      .data-source-list li:last-child { border-bottom: none; }
+      .ds-badge { background: #1a3060; color: #7aa8d8; font-size: 10px; font-weight: 700;
+        padding: 2px 7px; border-radius: 999px; white-space: nowrap; flex-shrink: 0; margin-top: 2px; }
+      @media (max-width: 600px) {
+        .about-wrap h1 { font-size: 20px; }
+        .about-wrap h2 { font-size: 15px; }
+        .metric-grid { grid-template-columns: 1fr; }
+      }
+    </style>
+    <div class="about-wrap">
+      <h1>このサイトについて</h1>
+      <p class="updated">最終更新日：2025年6月1日</p>
+
+      <div class="about-highlight">
+        <p>
+          「鯉男の打席分析室」は、NPBプロ野球12球団の打撃データをセイバーメトリクス指標で
+          リアルタイム分析する非公式ファンサイトです。<br>
+          直近試合のホットな打者・チームの打線構成を、データに基づいて客観的に可視化することを目的に運営しています。
+        </p>
+      </div>
+
+      <h2>サイトの特徴</h2>
+      <p>
+        本サービスは、公開されているNPBの試合データを独自に収集・加工し、
+        以下のような分析機能を12球団すべてに対して無料で提供しています。
+      </p>
+
+      <table class="feature-table">
+        <thead>
+          <tr><th>機能</th><th>概要</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>📋 今日の予想打順</td>
+            <td>直近5〜10試合のデータをベイズ補正してスコアリング。出塁率・長打力・守備力を打順役割（1番リードオフ / 4番クリーンアップ等）別ウェイトで評価し、最適な9人の打順を自動算出します。DH制対応。</td>
+          </tr>
+          <tr>
+            <td>📊 直近打撃成績ランキング</td>
+            <td>直近5〜10試合の打率・出塁率・OPS・ISO（長打指数）・wOBAをリアルタイム集計。シーズン通算との比較も可能です。</td>
+          </tr>
+          <tr>
+            <td>🏃 得点圏・出塁・打点ランキング</td>
+            <td>テキスト速報を独自解析し、得点圏打率・出塁率・打点を集計。シーズン通算ランキングも対応。</td>
+          </tr>
+          <tr>
+            <td>🧤 走塁・守備指標</td>
+            <td>UBR（走塁貢献度）・TZR（守備範囲得点）・捕手フレーミング等のセイバーメトリクス指標をシーズン通算で表示します。</td>
+          </tr>
+          <tr>
+            <td>📈 WAR ランキング</td>
+            <td>打撃・走塁・守備を総合した選手貢献度指標 WAR をランキング表示。シーズンを通じてチームに何勝もたらしたかを一覧で確認できます。</td>
+          </tr>
+          <tr>
+            <td>🔥 ホットバッター</td>
+            <td>直近の調子が突出して良い選手を独自スコアで抽出。wOBA・OPS・打率の直近上昇率を複合評価します。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>使用している指標について</h2>
+      <p>本サービスでは以下のセイバーメトリクス指標を中心に分析を行っています。</p>
+
+      <div class="metric-grid">
+        <div class="metric-card">
+          <div class="metric-name">wOBA（加重出塁率）</div>
+          <div class="metric-desc">単打・二塁打・本塁打・四球など各打席結果に得点価値ウェイトを付けた総合的な打撃指標。打者の実質的な攻撃力を測ります。</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-name">ISO（純長打率）</div>
+          <div class="metric-desc">長打率 − 打率。単打以外の「余分な塁打ち能力」を示す長打力指標です。</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-name">OBP（出塁率）</div>
+          <div class="metric-desc">安打・四球・死球による出塁の合計を打席数で割った値。1番・2番打者の評価に特に重要。</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-name">OPS</div>
+          <div class="metric-desc">出塁率 + 長打率。計算の単純さに比べて打者評価の精度が高い実用的指標。</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-name">UBR（走塁貢献度）</div>
+          <div class="metric-desc">走塁による得点貢献を数値化した指標。盗塁・進塁の判断力などを反映します。</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-name">TZR（守備範囲得点）</div>
+          <div class="metric-desc">守備位置ごとの平均的な守備者に対して何点分多く（少なく）守備で貢献したかを示す指標。</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-name">WAR（勝利貢献度）</div>
+          <div class="metric-desc">打撃・走塁・守備を総合し、平均的な選手に比べて何勝分チームに貢献したかを示す指標。</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-name">ベイズ補正</div>
+          <div class="metric-desc">直近打席数が少ない選手の指標をリーグ平均（事前分布）に向けて補正し、サンプル誤差を軽減する統計的手法。</div>
+        </div>
+      </div>
+
+      <h2>データソース</h2>
+      <ul class="data-source-list">
+        <li>
+          <span class="ds-badge">主要</span>
+          <span>Yahoo!スポーツ（試合テキスト速報・打撃成績・出場選手情報）</span>
+        </li>
+        <li>
+          <span class="ds-badge">補助</span>
+          <span>NPB Basement（守備指標・走塁指標・WAR等のセイバーメトリクスデータ）</span>
+        </li>
+        <li>
+          <span class="ds-badge">補助</span>
+          <span>NPB公式サイト（一軍登録選手・守備位置情報）</span>
+        </li>
+      </ul>
+      <p style="font-size:12px;color:#5a6e94;margin-top:8px">
+        ※ 本サービスが提供するデータは上記ソースを独自集計・加工したものです。
+        データの正確性・完全性については保証しかねます。情報は参考目的でご利用ください。
+      </p>
+
+      <h2>運営について</h2>
+      <p>
+        本サービスは、NPBプロ野球を愛するファンによる個人運営の非公式サイトです。
+        NPB各球団および日本野球機構（NPB）とは一切関係ありません。
+      </p>
+      <p>
+        サイト名の「鯉男」は広島東洋カープのファンを指すスラングに由来しますが、
+        分析対象はセ・パ両リーグ全12球団を網羅しています。
+      </p>
+      <p>
+        データ分析手法の改善・新機能の追加など、継続的にサービスを改善しています。
+        ご意見・ご要望・不具合報告などは、各SNSやメール等でお気軽にお知らせください。
+      </p>
+
+      <h2>免責事項</h2>
+      <p>
+        本サービスが提供する予想打順・統計データはあくまで参考情報です。
+        実際の試合結果・選手起用とは異なる場合があります。
+        本サービスの利用により生じたいかなる損害についても、運営者は一切の責任を負いません。
+      </p>
+
+      <div style="margin-top:40px;display:flex;gap:16px;flex-wrap:wrap;">
+        <a href="/public/top">← トップページへ戻る</a>
+        <a href="/public/privacy">プライバシーポリシー</a>
+        <a href="/public/terms">利用規約</a>
+      </div>
+    </div>
+    """
+    return _html_page(
+        "このサイトについて",
+        body,
+        description="鯉男の打席分析室はNPBプロ野球12球団の打撃データをセイバーメトリクスで分析する非公式ファンサイトです。予想打順・wOBA・WAR・守備走塁指標をリアルタイムで提供します。",
+        canonical_path="/public/about",
+    )
 
 
 # ─────────────────────────────────────────────

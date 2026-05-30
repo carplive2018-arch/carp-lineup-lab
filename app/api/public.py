@@ -2798,6 +2798,76 @@ def _do_build_recent_batting(window_games: int, aggregated: dict, cache_bucket: 
     return result
 
 
+def _season_snapshot_map(team_code: str = "広島") -> dict[str, dict]:
+    """通算成績スナップショットを選手名→dict で返す。
+
+    SEASON_OVERALL_BATTING（手動定数）と _get_adjusted_position_batting（proran）
+    を組み合わせて打順評価用の adj_* フィールドを生成する。
+
+    精度打順・ホット打順では「直近 N 試合」を使うが、
+    通算打順では「今シーズンの通算成績」をそのまま adj として使う。
+    """
+    candidate_names = _get_prediction_candidate_names(team_code=team_code)
+    result: dict[str, dict] = {}
+
+    for player_name in candidate_names:
+        cname = _canonical_player_name(player_name, team_code)
+
+        # ① SEASON_OVERALL_BATTING から通算 OBP / ISO を取得
+        overall = (
+            SEASON_OVERALL_BATTING.get(cname)
+            or SEASON_OVERALL_BATTING.get(player_name)
+            or SEASON_OVERALL_BATTING.get(_normalize_player_name(player_name))
+            or {}
+        )
+        s_obp  = float(overall.get("obp",  NPB_LEAGUE_AVG_OBP) or NPB_LEAGUE_AVG_OBP)
+        s_iso  = float(overall.get("iso",  NPB_LEAGUE_AVG_ISO)  or NPB_LEAGUE_AVG_ISO)
+        # wOBA 近似: シーズン全体 wOBA がなければ OBP ベースで推定
+        s_woba = float(overall.get("woba", _LEAGUE_WOBA) or _LEAGUE_WOBA)
+        s_con  = float(overall.get("con",  0.77) or 0.77)
+        s_run  = float(overall.get("run",  0.05) or 0.05)
+
+        # ② シーズン打席数: proran ポジション別から概算
+        eligible = (
+            (_get_player_profile(team_code).get(cname) or {}).get("eligible_positions", [])
+            or []
+        )
+        best_pa = 0.0
+        for pos in eligible:
+            sp = _get_adjusted_position_batting(cname, pos, team_code)
+            best_pa = max(best_pa, float(sp.get("pa", 0.0) or 0.0))
+
+        # PA が取れない場合はシーズン途中選手として 30 を設定（フィルタを通過させる）
+        s_pa = best_pa if best_pa > 0 else 30.0
+
+        result[cname] = {
+            # 表示用（生の観測値として通算成績を格納）
+            "games":    0,          # 通算試合数は使わない
+            "pa":       int(s_pa),  # pa_floor チェック用（>= 1 を常に満たす）
+            "ab":       int(s_pa),
+            "obp":      _round3(s_obp),
+            "iso":      _round3(s_iso),
+            "woba":     _round3(s_woba),
+            "con":      _round3(s_con),
+            "run":      _round3(s_run),
+            # スコア計算用（= 通算値をそのまま adj として使う）
+            "adj_obp":  _round3(s_obp),
+            "adj_iso":  _round3(s_iso),
+            "adj_woba": _round3(s_woba),
+            "adj_con":  _round3(s_con),
+            "adj_run":  _round3(s_run),
+            # prior は不要だが互換性のため格納
+            "prior_obp":  _round3(s_obp),
+            "prior_iso":  _round3(s_iso),
+            "prior_woba": _round3(s_woba),
+            "reliability": 1.0,     # 通算成績は常に信頼度 MAX
+            "mode":     "season",
+            "raw":      overall,
+        }
+
+    return result
+
+
 def _recent_snapshot_map(
     window_games: int,
     team_code: str = "広島",
@@ -2810,10 +2880,18 @@ def _recent_snapshot_map(
         adj = (pa × raw + PRIOR_PA × prior_val) / (pa + PRIOR_PA)
 
     mode="hot":
-        ベイズ収縮なし（PRIOR_PA=0）。直近 window_games 試合の生の値をそのまま使う。
+        ベイズ収縮なし（PRIOR_PA=0）。直近 window_games 試合の
+        加重移動平均（新しい試合を重視）で評価する。
         PA=0 の選手は adj 値がゼロになり自然に下位に沈む。
-        「今週当たっている選手」を純粋に反映したい場合に使用。
+
+    mode="season":
+        通算成績（SEASON_OVERALL_BATTING）をそのまま adj として使用。
+        window_games は無視される。
     """
+    # ── season モード：通算スナップショットを返す ──
+    if mode == "season":
+        return _season_snapshot_map(team_code)
+
     aggregated = _aggregate_recent_batting_stats(window_games, team_code)
     result: dict[str, dict] = {}
 
@@ -3399,6 +3477,7 @@ def _build_reason(
     defense: float,
     ranks: dict[str, dict[str, int]],
     window_games: int,
+    mode: str = "precision",
 ) -> str:
     """指標の順位を交えた日本語の根拠文を生成する。"""
     r_obp  = recent.get("obp",  0.0)
@@ -3406,6 +3485,9 @@ def _build_reason(
     r_woba = recent.get("woba", 0.0)
     r_con  = recent.get("con",  0.75)
     r_run  = recent.get("run",  0.0)
+
+    # season モードは「通算」、それ以外は「直近N試合」
+    _pfx = "通算" if mode == "season" else f"直近{window_games}試合"
 
     player_ranks = ranks.get(player_name, {})
 
@@ -3426,7 +3508,7 @@ def _build_reason(
     if role in ("leadoff_obp",):
         # 1番：出塁起点（OBP最重視＋RUN/CON）
         parts = [
-            f"直近{window_games}試合 出塁率 {r_obp:.3f}{r_obp_tag}",
+            f"{_pfx} 出塁率 {r_obp:.3f}{r_obp_tag}",
             f"wOBA {r_woba:.3f}{r_woba_tag}",
             f"走力 {r_run:.3f}{r_run_tag}",
             f"コンタクト率 {r_con:.3f}{r_con_tag}",
@@ -3434,7 +3516,7 @@ def _build_reason(
     elif role in ("strong_connector",):
         # 2番：強打の接着剤（wOBA最重視＋OBP/CON）
         parts = [
-            f"直近{window_games}試合 wOBA {r_woba:.3f}{r_woba_tag}",
+            f"{_pfx} wOBA {r_woba:.3f}{r_woba_tag}",
             f"出塁率 {r_obp:.3f}{r_obp_tag}",
             f"コンタクト率 {r_con:.3f}{r_con_tag}",
             f"長打指数 {r_iso:.3f}{r_iso_tag}",
@@ -3442,7 +3524,7 @@ def _build_reason(
     elif role in ("versatile_upper",):
         # 3番：万能上位（wOBA最重視＋全指標バランス）
         parts = [
-            f"直近{window_games}試合 wOBA {r_woba:.3f}{r_woba_tag}",
+            f"{_pfx} wOBA {r_woba:.3f}{r_woba_tag}",
             f"出塁率 {r_obp:.3f}{r_obp_tag}",
             f"長打指数 {r_iso:.3f}{r_iso_tag}",
             f"コンタクト率 {r_con:.3f}{r_con_tag}",
@@ -3450,14 +3532,14 @@ def _build_reason(
     elif role in ("cleanup_power",):
         # 4番：主砲（wOBA最重視＋ISO）
         parts = [
-            f"直近{window_games}試合 wOBA {r_woba:.3f}{r_woba_tag}",
+            f"{_pfx} wOBA {r_woba:.3f}{r_woba_tag}",
             f"長打指数 {r_iso:.3f}{r_iso_tag}",
             f"出塁率 {r_obp:.3f}{r_obp_tag}",
         ]
     elif role in ("second_slugger",):
         # 5番：返す2枚目（wOBA＋ISO長打継続）
         parts = [
-            f"直近{window_games}試合 wOBA {r_woba:.3f}{r_woba_tag}",
+            f"{_pfx} wOBA {r_woba:.3f}{r_woba_tag}",
             f"長打指数 {r_iso:.3f}{r_iso_tag}",
             f"出塁率 {r_obp:.3f}{r_obp_tag}",
             f"コンタクト率 {r_con:.3f}{r_con_tag}",
@@ -3465,7 +3547,7 @@ def _build_reason(
     elif role in ("bridge_lower",):
         # 6番：中軸下の橋（wOBA/OBP/守備バランス）
         parts = [
-            f"直近{window_games}試合 wOBA {r_woba:.3f}{r_woba_tag}",
+            f"{_pfx} wOBA {r_woba:.3f}{r_woba_tag}",
             f"出塁率 {r_obp:.3f}{r_obp_tag}",
             f"長打指数 {r_iso:.3f}{r_iso_tag}",
             f"守備補正 {defense:+.3f}{def_tag}",
@@ -3474,7 +3556,7 @@ def _build_reason(
         # 7番：守備込み下位中核（守備＋wOBA）
         parts = [
             f"守備補正 {defense:+.3f}{def_tag}",
-            f"直近{window_games}試合 wOBA {r_woba:.3f}{r_woba_tag}",
+            f"{_pfx} wOBA {r_woba:.3f}{r_woba_tag}",
             f"出塁率 {r_obp:.3f}{r_obp_tag}",
             f"コンタクト率 {r_con:.3f}{r_con_tag}",
         ]
@@ -3482,14 +3564,14 @@ def _build_reason(
         # 8番：守備型下位（守備最重視）
         parts = [
             f"守備補正 {defense:+.3f}{def_tag}",
-            f"直近{window_games}試合 wOBA {r_woba:.3f}{r_woba_tag}",
+            f"{_pfx} wOBA {r_woba:.3f}{r_woba_tag}",
             f"出塁率 {r_obp:.3f}{r_obp_tag}",
             f"コンタクト率 {r_con:.3f}{r_con_tag}",
         ]
     elif role in ("pre_pitcher",):
         # 8番（DH無）：投手前の出塁役（OBP/CON重視）
         parts = [
-            f"直近{window_games}試合 出塁率 {r_obp:.3f}{r_obp_tag}",
+            f"{_pfx} 出塁率 {r_obp:.3f}{r_obp_tag}",
             f"コンタクト率 {r_con:.3f}{r_con_tag}",
             f"守備補正 {defense:+.3f}{def_tag}",
             f"wOBA {r_woba:.3f}{r_woba_tag}",
@@ -3497,14 +3579,14 @@ def _build_reason(
     elif role in ("second_leadoff",):
         # 9番（DH有）：第2の1番（OBP＋RUN/CON）
         parts = [
-            f"直近{window_games}試合 出塁率 {r_obp:.3f}{r_obp_tag}",
+            f"{_pfx} 出塁率 {r_obp:.3f}{r_obp_tag}",
             f"走力 {r_run:.3f}{r_run_tag}",
             f"コンタクト率 {r_con:.3f}{r_con_tag}",
             f"wOBA {r_woba:.3f}{r_woba_tag}",
         ]
     else:
         parts = [
-            f"直近{window_games}試合 wOBA {r_woba:.3f}{r_woba_tag}",
+            f"{_pfx} wOBA {r_woba:.3f}{r_woba_tag}",
             f"出塁率 {r_obp:.3f}{r_obp_tag}",
             f"長打指数 {r_iso:.3f}{r_iso_tag}",
         ]
@@ -3545,8 +3627,12 @@ def _build_commentary(
     ranks: dict[str, dict[str, int]],
     window_games: int,
     score: float,
+    mode: str = "precision",
 ) -> str:
     """打順決定の論理的な解説文（2〜3文）を生成する。"""
+    # season モードは「通算」、それ以外は「直近N試合」
+    _pfx = "通算" if mode == "season" else f"直近{window_games}試合"
+
     # 生の観測値（表示用）
     r_obp  = recent.get("obp",  0.0)
     r_iso  = recent.get("iso",  0.0)
@@ -3565,16 +3651,18 @@ def _build_commentary(
     prior_obp    = float(recent.get("prior_obp",  s_obp or NPB_LEAGUE_AVG_OBP) or NPB_LEAGUE_AVG_OBP)
     prior_woba   = float(recent.get("prior_woba", _LEAGUE_WOBA) or _LEAGUE_WOBA)
 
-    # ── 打席数に応じた信頼度注記 ──
+    # ── 打席数に応じた信頼度注記（season モードは不要） ──
     def _reliability_note() -> str:
+        if mode == "season":
+            return ""  # 通算成績は常に信頼度MAX
         if pa == 0:
             return (
-                f"（注: 直近{window_games}試合の打席データなし。"
+                f"（注: {_pfx}の打席データなし。"
                 f"シーズン期待値 wOBA={prior_woba:.3f} を基準として評価している）"
             )
         if reliability < 0.40:
             return (
-                f"（注: 直近{window_games}試合は{pa}打席と少ないため、"
+                f"（注: {_pfx}は{pa}打席と少ないため、"
                 f"直近 wOBA {r_woba:.3f} をシーズン期待値 {prior_woba:.3f} 方向へ補正し"
                 f" adj_woba={adj_woba:.3f} として評価している）"
             )
@@ -3614,7 +3702,7 @@ def _build_commentary(
             f"wOBA（20%）で出塁の質も加味する。"
         )
         sent2 = (
-            f"この選手は直近{window_games}試合の出塁率 {r_obp:.3f}（{rank_str('recent_obp')}）"
+            f"この選手は{_pfx}の出塁率 {r_obp:.3f}（{rank_str('recent_obp')}）"
             f"、wOBA {r_woba:.3f}（{rank_str('recent_woba')}）"
             f"、コンタクト率 {r_con:.3f}（{rank_str('recent_con')}）の組み合わせで総合スコア {score:.1f} が候補中最高となった。"
         )
@@ -3627,7 +3715,7 @@ def _build_commentary(
             f"1番走者を進めながら自身も長打を狙える「強打の接着剤」を選ぶ。"
         )
         sent2 = (
-            f"直近{window_games}試合の wOBA {r_woba:.3f}（{rank_str('recent_woba')}）"
+            f"{_pfx}の wOBA {r_woba:.3f}（{rank_str('recent_woba')}）"
             f"、出塁率 {r_obp:.3f}（{rank_str('recent_obp')}）"
             f"、コンタクト率 {r_con:.3f}（{rank_str('recent_con')}）を評価しスコア {score:.1f} が候補中最高と判定した。"
         )
@@ -3646,7 +3734,7 @@ def _build_commentary(
             )
         else:
             sent2 = (
-                f"直近 wOBA {r_woba:.3f}（{rank_str('recent_woba')}）が示す総合打撃力と、"
+                f"{_pfx} wOBA {r_woba:.3f}（{rank_str('recent_woba')}）が示す総合打撃力と、"
                 f"出塁率 {r_obp:.3f}・長打指数 {r_iso:.3f}・コンタクト率 {r_con:.3f} が高水準で、"
                 f"スコア {score:.1f} が候補中最高となった。"
             )
@@ -3660,12 +3748,12 @@ def _build_commentary(
         )
         if r_iso < 0.110:
             sent2 = (
-                f"直近長打指数は {r_iso:.3f}（{rank_str('recent_iso')}）とやや低調だが、"
+                f"{_pfx}長打指数は {r_iso:.3f}（{rank_str('recent_iso')}）とやや低調だが、"
                 f"wOBA {r_woba:.3f}（{rank_str('recent_woba')}）を含めたスコア {score:.1f} が残り候補の中で最高となった。"
             )
         else:
             sent2 = (
-                f"直近 wOBA {r_woba:.3f}（{rank_str('recent_woba')}）が総合打撃力の高さを示し、"
+                f"{_pfx} wOBA {r_woba:.3f}（{rank_str('recent_woba')}）が総合打撃力の高さを示し、"
                 f"長打指数 {r_iso:.3f}（{rank_str('recent_iso')}）も加えたスコア {score:.1f} が候補中最高となった。"
             )
         if r_obp == 0.0 and pa > 0:
@@ -3682,7 +3770,7 @@ def _build_commentary(
         # 5番：返す2枚目（wOBA＋ISO）
         if r_iso < 0.095:
             sent1 = (
-                f"直近{window_games}試合の長打指数は {r_iso:.3f} と低調で、"
+                f"{_pfx}の長打指数は {r_iso:.3f} と低調で、"
                 f"本来5番に求める長打力の観点では候補中で恵まれた数値ではない。"
             )
             sent2 = (
@@ -3691,7 +3779,7 @@ def _build_commentary(
             )
         else:
             sent1 = (
-                f"直近{window_games}試合の wOBA {r_woba:.3f}（{rank_str('recent_woba')}）が示す総合打撃力と、"
+                f"{_pfx}の wOBA {r_woba:.3f}（{rank_str('recent_woba')}）が示す総合打撃力と、"
                 f"長打指数 {r_iso:.3f}（{rank_str('recent_iso')}）が4番に次ぐ水準にある。"
             )
             sent2 = (
@@ -3707,7 +3795,7 @@ def _build_commentary(
             f"中軸4・5番の残塁を返しつつ下位打線の起点にもなれる選手を選ぶ。"
         )
         sent2 = (
-            f"直近 wOBA {r_woba:.3f}（{rank_str('recent_woba')}）・出塁率 {r_obp:.3f}（{rank_str('recent_obp')}）"
+            f"{_pfx} wOBA {r_woba:.3f}（{rank_str('recent_woba')}）・出塁率 {r_obp:.3f}（{rank_str('recent_obp')}）"
             f"・守備補正 {defense:+.3f}（{rank_str('defense')}）の組み合わせでスコア {score:.1f} が候補中最高となった。"
         )
         return sent1 + sent2 + _reliability_note()
@@ -3718,7 +3806,7 @@ def _build_commentary(
             f"7番スコアは守備（25%）とwOBA（25%）を同比重で評価し、OBP（15%）・CON（10%）も加算する設計だ。"
         )
         sent2 = (
-            f"守備補正 {defense:+.3f}（{rank_str('defense')}）と直近 wOBA {r_woba:.3f}（{rank_str('recent_woba')}）の合算スコア {score:.1f} が候補中最高となり、下位打線の安定役として選出した。"
+            f"守備補正 {defense:+.3f}（{rank_str('defense')}）と{_pfx} wOBA {r_woba:.3f}（{rank_str('recent_woba')}）の合算スコア {score:.1f} が候補中最高となり、下位打線の安定役として選出した。"
         )
         return sent1 + sent2 + _reliability_note()
 
@@ -3730,13 +3818,13 @@ def _build_commentary(
         if defense > 0:
             sent2 = (
                 f"守備補正 {defense:+.3f}（{rank_str('defense')}）が35%のウエイトで効き、"
-                f"直近 wOBA {r_woba:.3f}（{rank_str('recent_woba')}）などの打撃系指標が残り45%を補完し"
+                f"{_pfx} wOBA {r_woba:.3f}（{rank_str('recent_woba')}）などの打撃系指標が残り45%を補完し"
                 f"スコア {score:.1f} が候補中最高となった。"
             )
         else:
             sent2 = (
                 f"守備補正 {defense:+.3f} は中立/マイナスだが残り候補の中では相対的に高く、"
-                f"wOBA {r_woba:.3f} など打撃系指標も加算したスコア {score:.1f} が候補中最高となった。"
+                f"{_pfx} wOBA {r_woba:.3f} など打撃系指標も加算したスコア {score:.1f} が候補中最高となった。"
             )
         return sent1 + sent2 + _reliability_note()
 
@@ -3747,7 +3835,7 @@ def _build_commentary(
             f"コンタクト率（CON 18%）・守備（DEF 20%）を重視する設計だ。"
         )
         sent2 = (
-            f"直近出塁率 {r_obp:.3f}（{rank_str('recent_obp')}）・コンタクト率 {r_con:.3f}（{rank_str('recent_con')}）"
+            f"{_pfx}出塁率 {r_obp:.3f}（{rank_str('recent_obp')}）・コンタクト率 {r_con:.3f}（{rank_str('recent_con')}）"
             f"・守備補正 {defense:+.3f}（{rank_str('defense')}）の組み合わせでスコア {score:.1f} が候補中最高となった。"
         )
         return sent1 + sent2 + _reliability_note()
@@ -3759,7 +3847,7 @@ def _build_commentary(
             f"イニング先頭で出塁し上位打線に繋げるのが役割だ。"
         )
         sent2 = (
-            f"直近出塁率 {r_obp:.3f}（{rank_str('recent_obp')}）・走力 {r_run:.3f}（{rank_str('recent_run')}）"
+            f"{_pfx}出塁率 {r_obp:.3f}（{rank_str('recent_obp')}）・走力 {r_run:.3f}（{rank_str('recent_run')}）"
             f"・wOBA {r_woba:.3f}（{rank_str('recent_woba')}）を評価したスコア {score:.1f} が候補中最高となった。"
         )
         return sent1 + sent2 + _reliability_note()
@@ -3767,7 +3855,7 @@ def _build_commentary(
     else:
         # fallback
         return (
-            f"直近{window_games}試合の wOBA {r_woba:.3f}・出塁率 {r_obp:.3f}・長打指数 {r_iso:.3f} の総合評価により、"
+            f"{_pfx}の wOBA {r_woba:.3f}・出塁率 {r_obp:.3f}・長打指数 {r_iso:.3f} の総合評価により、"
             f"このスロットへの割り当てスコア {score:.1f} が候補中最高となったため選出した。"
         ) + _reliability_note()
 
@@ -3953,11 +4041,13 @@ def _do_build_predicted_lineup(
         reason = _build_reason(
             best_pick["player_name"], position, best_pick["role"],
             recent, season_pos, best_pick["defense"], ranks, window_games,
+            mode=mode,
         )
         commentary = _build_commentary(
             best_pick["player_name"], position, best_pick["role"],
             recent, season_pos, best_pick["defense"], ranks, window_games,
             best_pick["score"],
+            mode=mode,
         )
         lineup.append({
             "order":    best_pick["order"],
@@ -6109,8 +6199,11 @@ def _render_predicted_lineup_html(
     _base_url_h = f"/public/predicted-lineup?window_games={wg}&use_dh={str(dh).lower()}&team={team_code}&view=html&mode=hot"
     _mode_p_cls = " mode-active" if _mode == "precision" else ""
     _mode_h_cls = " mode-active" if _mode == "hot" else ""
+    _mode_s_cls = " mode-active" if _mode == "season" else ""
+    _base_url_s = f"/public/predicted-lineup?window_games={wg}&use_dh={str(dh).lower()}&team={team_code}&view=html&mode=season"
 
-    # ── 直近試合数選択ボタン（3/5/7/10） ──
+    # ── 直近試合数選択ボタン（3/5/7/10）— season モード時は非表示 ──
+    _wg_switcher_style = ' style="display:none"' if _mode == "season" else ''
     _wg_options = [3, 5, 7, 10]
     _wg_btns_list = []
     for _w in _wg_options:
@@ -6131,6 +6224,18 @@ def _render_predicted_lineup_html(
             <div class="mode-banner-desc">
               ベイズ補正なし。直近{wg}試合の成績を<strong>加重移動平均</strong>（新しい試合を重視）で評価します。
               最新試合の重みを最大に、最古試合の重みを最小に設定。直近{wg}試合に出場していない選手は候補から外れます。
+            </div>
+          </div>
+        </div>"""
+    elif _mode == "season":
+        _mode_banner = f"""
+        <div class="mode-banner mode-banner-season">
+          <span class="mode-banner-icon">📊</span>
+          <div class="mode-banner-body">
+            <div class="mode-banner-title">通算打順（シーズン通算成績ベース）</div>
+            <div class="mode-banner-desc">
+              直近試合データに依存しない、シーズン通算成績（OBP・ISO・wOBA 等）をそのまま指標として使用します。
+              直近の好不調に左右されない安定した評価です。
             </div>
           </div>
         </div>"""
@@ -6406,6 +6511,7 @@ def _render_predicted_lineup_html(
       }}
       .mode-btn-precision.mode-active {{ border-color: #56cff8; color: #56cff8; background: #0d2035; }}
       .mode-btn-hot.mode-active       {{ border-color: #ff8c42; color: #ff8c42; background: #1e0f00; }}
+      .mode-btn-season.mode-active    {{ border-color: #4acc88; color: #4acc88; background: #041a10; }}
 
       /* ── 直近試合数切替 ── */
       .wg-switcher {{
@@ -6443,7 +6549,6 @@ def _render_predicted_lineup_html(
         font-weight: 800;
       }}
 
-      /* ── モード説明バナー ── */
       .mode-banner {{
         display: flex;
         gap: 10px;
@@ -6460,6 +6565,10 @@ def _render_predicted_lineup_html(
       .mode-banner-hot {{
         background: #1e0d00;
         border-color: #5c2a00;
+      }}
+      .mode-banner-season {{
+        background: rgba(4,26,16,0.85);
+        border-color: #1a5e38;
       }}
       .mode-banner-icon {{ font-size: 20px; flex-shrink: 0; margin-top: 1px; }}
       .mode-banner-title {{
@@ -6558,9 +6667,12 @@ def _render_predicted_lineup_html(
         <a class="mode-btn mode-btn-hot{_mode_h_cls}" href="{_base_url_h}">
           🔥 ホット打順
         </a>
+        <a class="mode-btn mode-btn-season{_mode_s_cls}" href="{_base_url_s}">
+          📊 通算打順
+        </a>
       </div>
       <!-- 直近試合数選択 -->
-      <div class="wg-switcher">
+      <div class="wg-switcher"{_wg_switcher_style}>
         <span class="wg-label">直近</span>
         {_wg_btns}
       </div>
@@ -6665,7 +6777,7 @@ def public_predicted_lineup(
 ):
     try:
         window_games = max(1, min(window_games, 10))
-        _mode = mode if mode in ("precision", "hot") else "precision"
+        _mode = mode if mode in ("precision", "hot", "season") else "precision"
         data = _build_simple_predicted_lineup(
             window_games=window_games, use_dh=use_dh, team_code=team, mode=_mode
         )

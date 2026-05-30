@@ -2510,27 +2510,41 @@ def _aggregate_recent_batting_stats(window_games: int, team_code: str = "広島"
             "sacrifice_flies": 0,
         }
 
+    # game_snapshots: 試合ごとの選手成績スナップショット配列（新しい試合が index=0）
+    # 各要素 = dict[canonical_name -> stat_line]
+    game_snapshots: list[dict[str, dict]] = []
+
     for game in games:
         try:
             rows = _parse_carp_batting_rows(game["box_url"], team_code)
         except Exception as e:
             print("DEBUG_RECENT_GAME_PARSE_ERROR", game.get("box_url"), str(e))
+            game_snapshots.append({})
             continue
 
         seen_in_game: set[str] = set()
+        game_stat: dict[str, dict] = {}
 
         for row in rows:
             canonical_name = _canonical_player_name(row.get("player_name", ""), team_code)
             if not canonical_name:
                 continue
 
+            # flat合算用（後方互換性維持）
             stat_line = player_totals.setdefault(
+                canonical_name,
+                _empty_stat_line(canonical_name),
+            )
+
+            # 試合別スナップショット用
+            game_line = game_stat.setdefault(
                 canonical_name,
                 _empty_stat_line(canonical_name),
             )
 
             if canonical_name not in seen_in_game:
                 stat_line["games"] += 1
+                game_line["games"] += 1
                 seen_in_game.add(canonical_name)
 
             for key in [
@@ -2550,7 +2564,10 @@ def _aggregate_recent_batting_stats(window_games: int, team_code: str = "広島"
             ]:
                 value = int(row.get(key, 0) or 0)
                 stat_line[key] += value
+                game_line[key] += value
                 team_totals[key] += value
+
+        game_snapshots.append(game_stat)
 
     # ── 選手名正規化クリーンアップ ──
     # box.html が姓のみ表示の場合、_parse_carp_batting_rows が返す player_name は
@@ -2575,10 +2592,31 @@ def _aggregate_recent_batting_stats(window_games: int, team_code: str = "広島"
             normalized_totals[canonical] = merged
     player_totals = normalized_totals
 
+    # game_snapshots も同様に選手名を正規化
+    normalized_snapshots: list[dict[str, dict]] = []
+    for snap in game_snapshots:
+        norm_snap: dict[str, dict] = {}
+        for raw_key, sline in snap.items():
+            canonical = _canonical_player_name(raw_key, team_code)
+            existing = norm_snap.get(canonical)
+            if existing:
+                for k in ["games", "at_bats", "runs", "hits", "rbi", "steals",
+                          "doubles", "triples", "homeruns", "walks",
+                          "hit_by_pitch", "strikeouts", "sacrifice_bunts", "sacrifice_flies"]:
+                    existing[k] = existing.get(k, 0) + sline.get(k, 0)
+                existing["games"] = max(existing.get("games", 0), sline.get("games", 0))
+            else:
+                merged = dict(sline)
+                merged["player_name"] = canonical
+                norm_snap[canonical] = merged
+        normalized_snapshots.append(norm_snap)
+    game_snapshots = normalized_snapshots
+
     result = {
         "games": games,
         "player_totals": player_totals,
         "team_totals": team_totals,
+        "game_snapshots": game_snapshots,  # 試合別スナップショット（index=0が最新）
     }
 
     cache_bucket[cache_key] = {
@@ -2760,20 +2798,221 @@ def _do_build_recent_batting(window_games: int, aggregated: dict, cache_bucket: 
     return result
 
 
-def _recent_snapshot_map(window_games: int, team_code: str = "広島") -> dict[str, dict]:
+def _recent_snapshot_map(
+    window_games: int,
+    team_code: str = "広島",
+    mode: str = "precision",
+) -> dict[str, dict]:
     """直近 window_games 試合の打撃スナップショットを選手名→dict で返す。
 
-    各エントリに生の観測値 (obp/iso) に加え、ベイズ収縮済み値 (adj_obp/adj_iso) を格納する。
-    打席数が少ないほどシーズン期待値に引き戻されるため、5試合・2打席の選手が
-    偶然OBP=1.000を叩き出しても過大評価されなくなる。
-
-    ベイズ収縮式:
+    mode="precision"（デフォルト）:
+        ベイズ収縮あり。打席数が少ない選手はシーズン期待値に引き戻す。
         adj = (pa × raw + PRIOR_PA × prior_val) / (pa + PRIOR_PA)
-    prior_val は SEASON_OVERALL_BATTING の個人値、なければ NPB リーグ平均。
+
+    mode="hot":
+        ベイズ収縮なし（PRIOR_PA=0）。直近 window_games 試合の生の値をそのまま使う。
+        PA=0 の選手は adj 値がゼロになり自然に下位に沈む。
+        「今週当たっている選手」を純粋に反映したい場合に使用。
     """
     aggregated = _aggregate_recent_batting_stats(window_games, team_code)
     result: dict[str, dict] = {}
 
+    # hotモードは事前分布の重みをゼロにする
+    _obp_prior_pa  = 0 if mode == "hot" else RECENT_OBP_PRIOR_PA
+    _iso_prior_ab  = 0 if mode == "hot" else RECENT_ISO_PRIOR_AB
+    _woba_prior_pa = 0 if mode == "hot" else RECENT_WOBA_PRIOR_PA
+
+    # ── hot モード: 加重移動平均で「直近ほど重視」スナップショットを合成 ──
+    # game_snapshots[0] = 最新試合, game_snapshots[-1] = 最古試合
+    # 重み: [N, N-1, ..., 1] → 最新試合の重みが最大
+    if mode == "hot":
+        game_snapshots: list[dict[str, dict]] = aggregated.get("game_snapshots", [])
+        n_snaps = len(game_snapshots)
+        if n_snaps > 0:
+            # 重みベクトル: index=0（最新）が n_snaps、index=-1（最古）が 1
+            weights = [float(n_snaps - i) for i in range(n_snaps)]
+            weight_sum = sum(weights)  # n*(n+1)/2
+
+            # 加重合算用バッファ: player_name → {stat: weighted_sum}
+            _wt_buf: dict[str, dict[str, float]] = {}
+            _wt_pa:  dict[str, float] = {}
+
+            for snap, w in zip(game_snapshots, weights):
+                for cname, sline in snap.items():
+                    if cname not in _wt_buf:
+                        _wt_buf[cname] = {k: 0.0 for k in [
+                            "at_bats", "runs", "hits", "rbi", "steals",
+                            "doubles", "triples", "homeruns", "walks",
+                            "hit_by_pitch", "strikeouts",
+                            "sacrifice_bunts", "sacrifice_flies", "games",
+                        ]}
+                        _wt_pa[cname] = 0.0
+                    for k in _wt_buf[cname]:
+                        _wt_buf[cname][k] += w * int(sline.get(k, 0) or 0)
+                    # 加重 PA（出塁機会）も計算
+                    g_pa = (
+                        int(sline.get("at_bats", 0) or 0)
+                        + int(sline.get("walks", 0) or 0)
+                        + int(sline.get("hit_by_pitch", 0) or 0)
+                        + int(sline.get("sacrifice_flies", 0) or 0)
+                    )
+                    _wt_pa[cname] += w * g_pa
+
+            # 加重平均 stat_line を生成（スケールを維持するため weight_sum で除算せず
+            # 整数換算して各試合分相当に正規化する）
+            # → 指標計算（OBP, ISO, wOBA）はこの合算値から直接計算
+            weighted_totals: dict[str, dict] = {}
+            for cname, wbuf in _wt_buf.items():
+                wt_line = {k: wbuf[k] for k in wbuf}
+                wt_line["player_name"] = cname
+                weighted_totals[cname] = wt_line
+
+            # weighted_totals を使って指標計算するためにローカル関数を定義
+            def _calc_wt_pa(wt: dict) -> float:
+                return (
+                    wt.get("at_bats", 0.0)
+                    + wt.get("walks", 0.0)
+                    + wt.get("hit_by_pitch", 0.0)
+                    + wt.get("sacrifice_flies", 0.0)
+                )
+
+            def _calc_wt_obp(wt: dict) -> float:
+                h   = wt.get("hits", 0.0)
+                ab  = wt.get("at_bats", 0.0)
+                bb  = wt.get("walks", 0.0)
+                hbp = wt.get("hit_by_pitch", 0.0)
+                sf  = wt.get("sacrifice_flies", 0.0)
+                denom = ab + bb + hbp + sf
+                return _round3((h + bb + hbp) / denom) if denom > 0 else 0.0
+
+            def _calc_wt_iso(wt: dict) -> float:
+                ab = wt.get("at_bats", 0.0)
+                if ab <= 0:
+                    return 0.0
+                tb = (
+                    wt.get("hits", 0.0)
+                    + wt.get("doubles", 0.0)
+                    + 2.0 * wt.get("triples", 0.0)
+                    + 3.0 * wt.get("homeruns", 0.0)
+                )
+                slg = tb / ab
+                avg = wt.get("hits", 0.0) / ab
+                return _round3(slg - avg)
+
+            def _calc_wt_woba(wt: dict) -> float:
+                wt_pa = _calc_wt_pa(wt)
+                if wt_pa <= 0:
+                    return 0.0
+                h   = wt.get("hits", 0.0)
+                d2  = wt.get("doubles", 0.0)
+                d3  = wt.get("triples", 0.0)
+                hr  = wt.get("homeruns", 0.0)
+                bb  = wt.get("walks", 0.0)
+                hbp = wt.get("hit_by_pitch", 0.0)
+                singles = h - d2 - d3 - hr
+                woba = (
+                    _WOBA_BB  * bb
+                  + _WOBA_HBP * hbp
+                  + _WOBA_1B  * singles
+                  + _WOBA_2B  * d2
+                  + _WOBA_3B  * d3
+                  + _WOBA_HR  * hr
+                ) / wt_pa
+                return _round3(woba)
+
+            # 加重合算値から各選手の指標を計算し result に格納
+            for player_name, stats in aggregated.get("player_totals", {}).items():
+                canonical_name = _canonical_player_name(player_name, team_code)
+                # overall（シーズン成績） — hot でも prior は参照用として保持
+                overall = (
+                    SEASON_OVERALL_BATTING.get(canonical_name)
+                    or SEASON_OVERALL_BATTING.get(player_name)
+                    or SEASON_OVERALL_BATTING.get(_normalize_player_name(player_name))
+                    or {}
+                )
+                prior_obp  = float(overall.get("obp",  NPB_LEAGUE_AVG_OBP) or NPB_LEAGUE_AVG_OBP)
+                prior_iso  = float(overall.get("iso",  NPB_LEAGUE_AVG_ISO)  or NPB_LEAGUE_AVG_ISO)
+                prior_woba = float(overall.get("woba", _LEAGUE_WOBA) or _LEAGUE_WOBA)
+
+                wt = weighted_totals.get(canonical_name) or weighted_totals.get(player_name)
+                if wt:
+                    # 加重指標（最新試合を重視した評価値）
+                    wt_pa    = _calc_wt_pa(wt)
+                    wt_ab    = wt.get("at_bats", 0.0)
+                    wt_obp   = _calc_wt_obp(wt)
+                    wt_iso   = _calc_wt_iso(wt)
+                    wt_woba  = _calc_wt_woba(wt)
+                    wt_so    = wt.get("strikeouts", 0.0)
+                    wt_con   = _round3(1.0 - wt_so / wt_pa) if wt_pa > 0 else 0.0
+                    wt_g     = wt.get("games", 0.0)
+                    wt_st    = wt.get("steals", 0.0)
+                    _RUN_CAP = 0.5
+                    wt_run   = _round3(min((wt_st / wt_g) / _RUN_CAP, 1.0)) if wt_g > 0 else 0.0
+
+                    # hot モード: adj = 加重移動平均値（PA=0なら0）
+                    adj_obp  = wt_obp  if wt_pa > 0 else 0.0
+                    adj_iso  = wt_iso  if wt_ab > 0 else 0.0
+                    adj_woba = wt_woba if wt_pa > 0 else 0.0
+                    adj_con  = wt_con  if wt_pa > 0 else 0.0
+                    adj_run  = wt_run  if wt_g  > 0 else 0.0
+                    # 表示用の生値は flat合算から計算（UI互換性維持）
+                    flat_pa  = _calc_recent_pa(stats)
+                    flat_ab  = int(stats.get("at_bats", 0) or 0)
+                    raw_obp  = _calc_recent_obp(stats)
+                    raw_iso  = _calc_iso_from_stats(stats)
+                    raw_woba = _calc_woba(stats, flat_pa)
+                    flat_so  = int(stats.get("strikeouts", 0) or 0)
+                    raw_con  = _round3(1.0 - flat_so / flat_pa) if flat_pa > 0 else 0.75
+                    flat_g   = int(stats.get("games", 0) or 0)
+                    flat_st  = int(stats.get("steals", 0) or 0)
+                    raw_run  = _round3(min((flat_st / flat_g) / 0.5, 1.0)) if flat_g > 0 else 0.0
+                    reliability = 1.0 if wt_pa > 0 else 0.0
+                    pa  = flat_pa
+                    ab  = flat_ab
+                    g   = flat_g
+                else:
+                    # game_snapshots に出場記録がない選手は flat合算のフォールバック
+                    pa  = _calc_recent_pa(stats)
+                    ab  = int(stats.get("at_bats", 0) or 0)
+                    g   = int(stats.get("games", 0) or 0)
+                    raw_obp  = _calc_recent_obp(stats)
+                    raw_iso  = _calc_iso_from_stats(stats)
+                    raw_woba = _calc_woba(stats, pa)
+                    so = int(stats.get("strikeouts", 0) or 0)
+                    raw_con  = _round3(1.0 - so / pa) if pa > 0 else 0.75
+                    st = int(stats.get("steals", 0) or 0)
+                    raw_run  = _round3(min((st / g) / 0.5, 1.0)) if g > 0 else 0.0
+                    adj_obp  = raw_obp  if pa > 0 else 0.0
+                    adj_iso  = raw_iso  if ab > 0 else 0.0
+                    adj_woba = raw_woba if pa > 0 else 0.0
+                    adj_con  = raw_con  if pa > 0 else 0.0
+                    adj_run  = raw_run  if g  > 0 else 0.0
+                    reliability = 1.0 if pa > 0 else 0.0
+
+                result[canonical_name] = {
+                    "games":       int(stats.get("games", 0) or 0),
+                    "pa":          pa,
+                    "ab":          ab,
+                    "obp":         raw_obp,
+                    "iso":         raw_iso,
+                    "woba":        raw_woba,
+                    "con":         raw_con,
+                    "run":         raw_run,
+                    "adj_obp":     _round3(adj_obp),
+                    "adj_iso":     _round3(adj_iso),
+                    "adj_woba":    _round3(adj_woba),
+                    "adj_con":     _round3(adj_con),
+                    "adj_run":     _round3(adj_run),
+                    "prior_obp":   _round3(prior_obp),
+                    "prior_iso":   _round3(prior_iso),
+                    "prior_woba":  _round3(prior_woba),
+                    "reliability": _round3(reliability),
+                    "mode":        mode,
+                    "raw": stats,
+                }
+            return result
+
+    # ── precision モード（または game_snapshots が空の場合のフォールバック）──
     for player_name, stats in aggregated.get("player_totals", {}).items():
         canonical_name = _canonical_player_name(player_name, team_code)
         pa  = _calc_recent_pa(stats)
@@ -2812,14 +3051,14 @@ def _recent_snapshot_map(window_games: int, team_code: str = "広島") -> dict[s
         prior_run  = float(overall.get("run",  0.05) or 0.05)
 
         # pa=0 でも prior が返るため 0 打席の選手も prior 値を持つ
-        adj_obp  = (pa * raw_obp  + RECENT_OBP_PRIOR_PA  * prior_obp)  / (pa + RECENT_OBP_PRIOR_PA)
-        adj_iso  = (ab * raw_iso  + RECENT_ISO_PRIOR_AB  * prior_iso)  / (ab + RECENT_ISO_PRIOR_AB)
-        adj_woba = (pa * raw_woba + RECENT_WOBA_PRIOR_PA * prior_woba) / (pa + RECENT_WOBA_PRIOR_PA)
-        adj_con  = (pa * raw_con  + RECENT_OBP_PRIOR_PA  * prior_con)  / (pa + RECENT_OBP_PRIOR_PA)
-        adj_run  = (pa * raw_run  + RECENT_OBP_PRIOR_PA  * prior_run)  / (pa + RECENT_OBP_PRIOR_PA)
+        adj_obp  = (pa * raw_obp  + _obp_prior_pa  * prior_obp)  / (pa + _obp_prior_pa)
+        adj_iso  = (ab * raw_iso  + _iso_prior_ab  * prior_iso)  / (ab + _iso_prior_ab)
+        adj_woba = (pa * raw_woba + _woba_prior_pa * prior_woba) / (pa + _woba_prior_pa)
+        adj_con  = (pa * raw_con  + _obp_prior_pa  * prior_con)  / (pa + _obp_prior_pa)
+        adj_run  = (pa * raw_run  + _obp_prior_pa  * prior_run)  / (pa + _obp_prior_pa)
 
         # 信頼度 (Avail): 0.0（0打席）〜 1.0（PRIOR_PA打席以上で≒1）
-        reliability = pa / (pa + RECENT_OBP_PRIOR_PA) if pa > 0 else 0.0
+        reliability = pa / (pa + _obp_prior_pa) if pa > 0 else 0.0
 
         result[canonical_name] = {
             "games":       int(stats.get("games", 0) or 0),
@@ -2830,15 +3069,16 @@ def _recent_snapshot_map(window_games: int, team_code: str = "広島") -> dict[s
             "woba":        raw_woba,           # 表示用（生の観測値）
             "con":         raw_con,            # 表示用（生の観測値）
             "run":         raw_run,            # 表示用（生の観測値）
-            "adj_obp":     _round3(adj_obp),   # スコア計算用（収縮済み）
-            "adj_iso":     _round3(adj_iso),   # スコア計算用（収縮済み）
-            "adj_woba":    _round3(adj_woba),  # スコア計算用（収縮済み）
-            "adj_con":     _round3(adj_con),   # スコア計算用（収縮済み）
-            "adj_run":     _round3(adj_run),   # スコア計算用（収縮済み）
+            "adj_obp":     _round3(adj_obp),   # スコア計算用
+            "adj_iso":     _round3(adj_iso),   # スコア計算用
+            "adj_woba":    _round3(adj_woba),  # スコア計算用
+            "adj_con":     _round3(adj_con),   # スコア計算用
+            "adj_run":     _round3(adj_run),   # スコア計算用
             "prior_obp":   _round3(prior_obp),
             "prior_iso":   _round3(prior_iso),
             "prior_woba":  _round3(prior_woba),
             "reliability": _round3(reliability),
+            "mode":        mode,
             "raw": stats,
         }
 
@@ -3532,9 +3772,14 @@ def _build_commentary(
         ) + _reliability_note()
 
 
-def _build_simple_predicted_lineup(window_games: int, use_dh: bool, team_code: str = "広島") -> dict:
+def _build_simple_predicted_lineup(
+    window_games: int,
+    use_dh: bool,
+    team_code: str = "広島",
+    mode: str = "precision",
+) -> dict:
     cache_bucket = _cache_get_bucket("predicted_lineup")
-    cache_key = f"w{window_games}:dh{int(use_dh)}:{team_code}"
+    cache_key = f"w{window_games}:dh{int(use_dh)}:{team_code}:{mode}"
     cache_entry = cache_bucket.get(cache_key)
 
     if _cache_alive(cache_entry):
@@ -3547,19 +3792,26 @@ def _build_simple_predicted_lineup(window_games: int, use_dh: bool, team_code: s
     if stale and isinstance(stale, dict):
         def _bg_rebuild():
             try:
-                _do_build_predicted_lineup(window_games, use_dh, cache_bucket, cache_key, team_code)
+                _do_build_predicted_lineup(window_games, use_dh, cache_bucket, cache_key, team_code, mode=mode)
             except Exception as e:
                 print("DEBUG_PREDICTED_LINEUP_BG_ERROR", str(e))
         cache_bucket[cache_key] = {**cache_entry, "expires_at": _cache_now() + 60}
         threading.Thread(target=_bg_rebuild, daemon=True, name=f"bg-lineup-{cache_key}").start()
         return stale
 
-    return _do_build_predicted_lineup(window_games, use_dh, cache_bucket, cache_key, team_code)
+    return _do_build_predicted_lineup(window_games, use_dh, cache_bucket, cache_key, team_code, mode=mode)
 
 
-def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: dict, cache_key: str, team_code: str = "広島") -> dict:
+def _do_build_predicted_lineup(
+    window_games: int,
+    use_dh: bool,
+    cache_bucket: dict,
+    cache_key: str,
+    team_code: str = "広島",
+    mode: str = "precision",
+) -> dict:
     slot_defs = DH_LINEUP_SLOTS if use_dh else NO_DH_LINEUP_SLOTS
-    recent_map      = _recent_snapshot_map(window_games, team_code)
+    recent_map      = _recent_snapshot_map(window_games, team_code, mode=mode)
     defense_map     = _get_player_defense(team_code)
     candidate_names = _get_prediction_candidate_names(team_code=team_code)
 
@@ -3738,6 +3990,7 @@ def _do_build_predicted_lineup(window_games: int, use_dh: bool, cache_bucket: di
     result = {
         "use_dh":       use_dh,
         "window_games": window_games,
+        "mode":         mode,
         "generated_at": _now_jst().isoformat(),
         "lineup":       lineup,
     }
@@ -5337,7 +5590,9 @@ def _render_season_stats_html(active_page: str = "", window_games: int = 5, team
 def _common_nav(active_page: str = "", window_games: int = 5, team_code: str = "広島") -> str:
     """全ページ共通ナビゲーションバー HTML を返す。
     active_page: 'recent-batting' / 'risp' / 'fielding' / 'war' /
+                 'predicted-lineup-3t' / 'predicted-lineup-3f' /
                  'predicted-lineup-5t' / 'predicted-lineup-5f' /
+                 'predicted-lineup-7t' / 'predicted-lineup-7f' /
                  'predicted-lineup-10t' / 'predicted-lineup-10f' / 'game-recap'
     """
     def _a(label: str, href: str, page_key: str) -> str:
@@ -5385,10 +5640,8 @@ def _common_nav(active_page: str = "", window_games: int = 5, team_code: str = "
       <div class="nav-section">
         <span class="nav-label">予想打順</span>
         <div class="nav-group">
-          {_a("5試合 DH有",  f"/public/predicted-lineup?window_games=5&use_dh=true&team={tc}",   "predicted-lineup-5t")}
-          {_a("5試合 DH無",  f"/public/predicted-lineup?window_games=5&use_dh=false&team={tc}",  "predicted-lineup-5f")}
-          {_a("10試合 DH有", f"/public/predicted-lineup?window_games=10&use_dh=true&team={tc}",  "predicted-lineup-10t")}
-          {_a("10試合 DH無", f"/public/predicted-lineup?window_games=10&use_dh=false&team={tc}", "predicted-lineup-10f")}
+          {_a("DH有", f"/public/predicted-lineup?window_games={wg}&use_dh=true&team={tc}",  "predicted-lineup-" + str(wg) + "t")}
+          {_a("DH無", f"/public/predicted-lineup?window_games={wg}&use_dh=false&team={tc}", "predicted-lineup-" + str(wg) + "f")}
         </div>
       </div>
       <div class="nav-section">
@@ -5697,7 +5950,11 @@ def _render_compare_html(combined: dict, team_code: str = "広島") -> HTMLRespo
     return _html_page(f"打順比較 {team}", body)
 
 
-def _render_predicted_lineup_html(data: dict, team_code: str = "広島") -> HTMLResponse:
+def _render_predicted_lineup_html(
+    data: dict,
+    team_code: str = "広島",
+    mode: str = "precision",
+) -> HTMLResponse:
     lineup = data.get("lineup", [])
 
     # ── 打順行（1行レイアウト）を生成 ──
@@ -5839,12 +6096,56 @@ def _render_predicted_lineup_html(data: dict, team_code: str = "広島") -> HTML
     wg     = int(data.get("window_games", 5) or 5)
     dh     = bool(data.get("use_dh", True))
     dh_str = 'あり' if dh else 'なし'
+    _mode  = mode  # precision or hot
 
     def _lu_cls(w, d):
         return " active" if (w == wg and d == dh) else ""
 
     def _rb_cls2(w):
         return " active" if w == wg else ""
+
+    # ── モード切替ナビ用 URL ──
+    _base_url_p = f"/public/predicted-lineup?window_games={wg}&use_dh={str(dh).lower()}&team={team_code}&view=html&mode=precision"
+    _base_url_h = f"/public/predicted-lineup?window_games={wg}&use_dh={str(dh).lower()}&team={team_code}&view=html&mode=hot"
+    _mode_p_cls = " mode-active" if _mode == "precision" else ""
+    _mode_h_cls = " mode-active" if _mode == "hot" else ""
+
+    # ── 直近試合数選択ボタン（3/5/7/10） ──
+    _wg_options = [3, 5, 7, 10]
+    _wg_btns_list = []
+    for _w in _wg_options:
+        _w_cls = " wg-active" if _w == wg else ""
+        _w_url = f"/public/predicted-lineup?window_games={_w}&use_dh={str(dh).lower()}&team={team_code}&view=html&mode={_mode}"
+        _wg_btns_list.append(
+            f'<a class="wg-btn{_w_cls}" href="{_w_url}">{_w}試合</a>'
+        )
+    _wg_btns = "\n".join(_wg_btns_list)
+
+    # ── モード説明バナー ──
+    if _mode == "hot":
+        _mode_banner = f"""
+        <div class="mode-banner mode-banner-hot">
+          <span class="mode-banner-icon">🔥</span>
+          <div class="mode-banner-body">
+            <div class="mode-banner-title">ホット打順（直近{wg}試合・加重移動平均ベース）</div>
+            <div class="mode-banner-desc">
+              ベイズ補正なし。直近{wg}試合の成績を<strong>加重移動平均</strong>（新しい試合を重視）で評価します。
+              最新試合の重みを最大に、最古試合の重みを最小に設定。直近{wg}試合に出場していない選手は候補から外れます。
+            </div>
+          </div>
+        </div>"""
+    else:
+        _mode_banner = f"""
+        <div class="mode-banner mode-banner-precision">
+          <span class="mode-banner-icon">🎯</span>
+          <div class="mode-banner-body">
+            <div class="mode-banner-title">精度打順（ベイズ補正あり）</div>
+            <div class="mode-banner-desc">
+              直近{wg}試合の成績にシーズン通算成績を組み合わせてベイズ補正した指標で打順を決定します。
+              打席数が少なくてもサンプル誤差が抑えられ、安定した評価になります。
+            </div>
+          </div>
+        </div>"""
 
     rows_body = (
         ''.join(rows_html)
@@ -6075,6 +6376,104 @@ def _render_predicted_lineup_html(data: dict, team_code: str = "広島") -> HTML
         white-space: normal;
       }}
 
+      /* ── モード切替 ── */
+      .mode-switcher {{
+        display: flex;
+        gap: 6px;
+        margin: 10px 0 2px;
+        flex-wrap: wrap;
+      }}
+      .mode-btn {{
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 5px 14px;
+        font-size: 12px;
+        font-weight: 700;
+        border-radius: 6px;
+        border: 1.5px solid #1a2d50;
+        background: #0c1424;
+        color: #6878a0;
+        text-decoration: none;
+        transition: background 0.15s, border-color 0.15s, color 0.15s;
+        cursor: pointer;
+      }}
+      .mode-btn:hover {{ background: #1a2d50; color: #c8d8f4; }}
+      .mode-btn.mode-active {{
+        background: #1a2d50;
+        border-color: #ffd54a;
+        color: #ffd54a;
+      }}
+      .mode-btn-precision.mode-active {{ border-color: #56cff8; color: #56cff8; background: #0d2035; }}
+      .mode-btn-hot.mode-active       {{ border-color: #ff8c42; color: #ff8c42; background: #1e0f00; }}
+
+      /* ── 直近試合数切替 ── */
+      .wg-switcher {{
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        margin: 6px 0 2px;
+        flex-wrap: wrap;
+      }}
+      .wg-label {{
+        font-size: 11px;
+        color: #6878a0;
+        font-weight: 600;
+        margin-right: 2px;
+      }}
+      .wg-btn {{
+        display: inline-flex;
+        align-items: center;
+        padding: 4px 11px;
+        font-size: 11.5px;
+        font-weight: 700;
+        border-radius: 6px;
+        border: 1.5px solid #1a2d50;
+        background: #0c1424;
+        color: #6878a0;
+        text-decoration: none;
+        transition: background 0.15s, border-color 0.15s, color 0.15s;
+        cursor: pointer;
+      }}
+      .wg-btn:hover {{ background: #1a2d50; color: #c8d8f4; }}
+      .wg-btn.wg-active {{
+        background: #0d2035;
+        border-color: #4aaa88;
+        color: #4aaa88;
+        font-weight: 800;
+      }}
+
+      /* ── モード説明バナー ── */
+      .mode-banner {{
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        padding: 10px 14px;
+        border-radius: 8px;
+        margin-bottom: 6px;
+        border: 1px solid;
+      }}
+      .mode-banner-precision {{
+        background: #071a2e;
+        border-color: #1a4060;
+      }}
+      .mode-banner-hot {{
+        background: #1e0d00;
+        border-color: #5c2a00;
+      }}
+      .mode-banner-icon {{ font-size: 20px; flex-shrink: 0; margin-top: 1px; }}
+      .mode-banner-title {{
+        font-size: 13px;
+        font-weight: 700;
+        color: #c8d8f4;
+        margin-bottom: 3px;
+      }}
+      .mode-banner-desc {{
+        font-size: 11.5px;
+        color: #7a8eb0;
+        line-height: 1.7;
+      }}
+
       /* ══ スマホ（≤600px） ══ */
       @media (max-width: 600px) {{
         .lu-grid {{ gap: 4px; }}
@@ -6151,8 +6550,24 @@ def _render_predicted_lineup_html(data: dict, team_code: str = "広島") -> HTML
     <div class="hero">
       <h1>予想打順</h1>
       <div class="muted">DH {dh_str} / 直近 {wg} 試合ベース / 生成時刻 {escape(str(data.get("generated_at", "")))}</div>
+      <!-- モード切替 -->
+      <div class="mode-switcher">
+        <a class="mode-btn mode-btn-precision{_mode_p_cls}" href="{_base_url_p}">
+          🎯 精度打順
+        </a>
+        <a class="mode-btn mode-btn-hot{_mode_h_cls}" href="{_base_url_h}">
+          🔥 ホット打順
+        </a>
+      </div>
+      <!-- 直近試合数選択 -->
+      <div class="wg-switcher">
+        <span class="wg-label">直近</span>
+        {_wg_btns}
+      </div>
       {_common_nav("predicted-lineup-" + str(wg) + ("t" if dh else "f"), wg, team_code)}
     </div>
+
+    {_mode_banner}
 
     <div class="lu-grid">
       {rows_body}
@@ -6246,17 +6661,21 @@ def public_predicted_lineup(
     use_dh: bool = True,
     team: str = "広島",
     view: str | None = None,
+    mode: str = "precision",
 ):
     try:
         window_games = max(1, min(window_games, 10))
-        data = _build_simple_predicted_lineup(window_games=window_games, use_dh=use_dh, team_code=team)
+        _mode = mode if mode in ("precision", "hot") else "precision"
+        data = _build_simple_predicted_lineup(
+            window_games=window_games, use_dh=use_dh, team_code=team, mode=_mode
+        )
 
         # ── キャッシュ内の `recent` が古い（pa=0）場合の補正 ──
         # predicted_lineup キャッシュは TTL=20分。その間に recent データが変化しても
         # キャッシュから古い recent.pa=0 が返ることがある。
         # ここで毎リクエスト最新の _recent_snapshot_map から recent を注入して補正する。
         try:
-            snap = _recent_snapshot_map(window_games, team)
+            snap = _recent_snapshot_map(window_games, team, mode=_mode)
             for item in data.get("lineup", []):
                 cname = item.get("player_name", "")
                 snap_entry = snap.get(cname)
@@ -6282,7 +6701,7 @@ def public_predicted_lineup(
             pass  # スナップショット補正に失敗してもキャッシュ値で続行
 
         if _wants_html(request, view):
-            return _render_predicted_lineup_html(data, team_code=team)
+            return _render_predicted_lineup_html(data, team_code=team, mode=_mode)
 
         return _no_cache_json(data)
     except Exception as e:

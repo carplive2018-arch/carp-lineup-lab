@@ -6670,7 +6670,14 @@ def _render_predicted_lineup_html(
       {rows_body}
     </div>
     """
-    return _html_page("予想打順", body)
+    # ── description / canonical をモード・チームに応じて生成 ──
+    _mode_label = {"precision": "精度打順（ベイズ補正）", "hot": "ホット打順（加重移動平均）", "season": "通算打順（シーズン累計）"}.get(_mode, "精度打順")
+    _page_desc = (
+        f"{team_code}の{_mode_label}を直近打撃成績・守備指標・出塁率・wOBA等の"
+        f"セイバーメトリクス指標で算出。1番〜9番の役割別ウェイトで最適な打線を自動生成します。"
+    )
+    _canonical = f"/public/predicted-lineup?window_games={wg}&use_dh={str(dh).lower()}&team={team_code}&view=html&mode={_mode}"
+    return _html_page(f"予想打順（{team_code}）", body, description=_page_desc, canonical_path=_canonical)
 
 def _no_cache_json(data: dict) -> JSONResponse:
     return JSONResponse(
@@ -9450,7 +9457,7 @@ def public_privacy(request: Request):
     </style>
     <div class="policy-wrap">
       <h1>プライバシーポリシー</h1>
-      <p class="updated">最終更新日：2025年6月1日</p>
+      <p class="updated">最終更新日：2026年6月6日</p>
 
       <h2>1. 基本方針</h2>
       <p>鯉男の打席分析室（以下「本サービス」）は、ユーザーの個人情報保護を重要視し、個人情報の保護に関する法律（個人情報保護法）および関連法令を遵守します。</p>
@@ -9516,7 +9523,7 @@ def public_terms(request: Request):
     </style>
     <div class="terms-wrap">
       <h1>利用規約</h1>
-      <p class="updated">最終更新日：2025年6月1日</p>
+      <p class="updated">最終更新日：2026年6月6日</p>
 
       <h2>第1条（適用）</h2>
       <p>本規約は、鯉男の打席分析室（以下「本サービス」）の利用に関する条件を定めるものです。ユーザーは本規約に同意したうえで本サービスをご利用ください。</p>

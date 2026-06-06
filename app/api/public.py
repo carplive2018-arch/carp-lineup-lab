@@ -5085,16 +5085,9 @@ def _html_page(title: str, body: str, description: str = "", canonical_path: str
       .footer-links {{ gap: 12px; }}
     }}
   </style>
-  <!-- Google AdSense -->
+  <!-- Google AdSense 自動広告 -->
   <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9923885942831563"
        crossorigin="anonymous"></script>
-  <!-- Google AdSense 自動広告 -->
-  <script>
-    (adsbygoogle = window.adsbygoogle || []).push({{
-      google_ad_client: "ca-pub-9923885942831563",
-      enable_page_level_ads: true
-    }});
-  </script>
 </head>
 <body>
   <!-- サイトヘッダー -->
@@ -5116,12 +5109,8 @@ def _html_page(title: str, body: str, description: str = "", canonical_path: str
     <!-- 左広告 -->
     <aside class="ad-col">
       <div class="ad-unit" id="ad-left-1">
-        <ins class="adsbygoogle"
-             style="display:block;width:160px;height:600px"
-             data-ad-client="ca-pub-9923885942831563"
-             data-ad-slot="1234567890"
-             data-ad-format="vertical"></ins>
-        <script>(adsbygoogle = window.adsbygoogle || []).push({{}});</script>
+        <!-- Google AdSense 広告スロット（審査通過後に有効化予定） -->
+        <div class="ad-unit-label">広告</div>
       </div>
     </aside>
 
@@ -5152,12 +5141,8 @@ def _html_page(title: str, body: str, description: str = "", canonical_path: str
     <!-- 右広告 -->
     <aside class="ad-col">
       <div class="ad-unit" id="ad-right-1">
-        <ins class="adsbygoogle"
-             style="display:block;width:160px;height:600px"
-             data-ad-client="ca-pub-9923885942831563"
-             data-ad-slot="0987654321"
-             data-ad-format="vertical"></ins>
-        <script>(adsbygoogle = window.adsbygoogle || []).push({{}});</script>
+        <!-- Google AdSense 広告スロット（審査通過後に有効化予定） -->
+        <div class="ad-unit-label">広告</div>
       </div>
     </aside>
 
@@ -9590,10 +9575,11 @@ def public_about(request: Request):
     <style>
       .about-wrap { max-width: 860px; margin: 0 auto; padding: 0 16px 60px; }
       .about-wrap h1 { font-size: 24px; font-weight: 700; color: #ffd54a; margin: 32px 0 8px; }
-      .about-wrap h2 { font-size: 17px; font-weight: 700; color: #a0b8d8; margin: 32px 0 8px; border-left: 4px solid #ffd54a; padding-left: 12px; }
-      .about-wrap h3 { font-size: 14px; font-weight: 700; color: #c8d8f4; margin: 20px 0 6px; }
-      .about-wrap p, .about-wrap li { font-size: 14px; color: #8899b8; line-height: 1.9; margin: 8px 0; }
-      .about-wrap ul { padding-left: 24px; }
+      .about-wrap h2 { font-size: 17px; font-weight: 700; color: #a0b8d8; margin: 36px 0 10px; border-left: 4px solid #ffd54a; padding-left: 12px; }
+      .about-wrap h3 { font-size: 14px; font-weight: 700; color: #c8d8f4; margin: 22px 0 8px; }
+      .about-wrap p  { font-size: 14px; color: #8899b8; line-height: 1.9; margin: 10px 0; }
+      .about-wrap li { font-size: 14px; color: #8899b8; line-height: 1.9; margin: 6px 0; }
+      .about-wrap ul, .about-wrap ol { padding-left: 24px; }
       .about-wrap .updated { font-size: 12px; color: #5a6e94; margin-bottom: 24px; }
       .about-wrap a { color: #5b9bd5; text-decoration: none; }
       .about-wrap a:hover { text-decoration: underline; }
@@ -9601,114 +9587,282 @@ def public_about(request: Request):
         background: #0c1424; border: 1px solid #1a2540; border-left: 4px solid #ffd54a;
         border-radius: 8px; padding: 16px 20px; margin: 20px 0;
       }
-      .about-highlight p { color: #c8d8f4; margin: 0; line-height: 1.8; }
+      .about-highlight p { color: #c8d8f4; margin: 0; line-height: 1.9; }
       .feature-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
       .feature-table th { background: #0f1d35; color: #8494b8; font-size: 12px; font-weight: 600;
         text-align: left; padding: 8px 12px; border-bottom: 1px solid #1a2540; }
       .feature-table td { color: #a0b4cc; font-size: 13px; padding: 9px 12px;
-        border-bottom: 1px solid #111c30; vertical-align: top; line-height: 1.7; }
+        border-bottom: 1px solid #111c30; vertical-align: top; line-height: 1.75; }
       .feature-table tr:last-child td { border-bottom: none; }
       .metric-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; margin: 16px 0; }
       .metric-card { background: #0c1424; border: 1px solid #1a2540; border-radius: 8px; padding: 14px 16px; }
       .metric-name { font-size: 13px; font-weight: 700; color: #ffd54a; margin-bottom: 4px; }
-      .metric-desc { font-size: 12px; color: #6878a0; line-height: 1.7; }
+      .metric-desc { font-size: 12.5px; color: #6878a0; line-height: 1.8; }
       .data-source-list { list-style: none; padding: 0; }
       .data-source-list li { display: flex; gap: 10px; align-items: flex-start;
-        font-size: 13px; color: #8494b8; padding: 6px 0; border-bottom: 1px solid #111c30; }
+        font-size: 13px; color: #8494b8; padding: 8px 0; border-bottom: 1px solid #111c30; }
       .data-source-list li:last-child { border-bottom: none; }
       .ds-badge { background: #1a3060; color: #7aa8d8; font-size: 10px; font-weight: 700;
         padding: 2px 7px; border-radius: 999px; white-space: nowrap; flex-shrink: 0; margin-top: 2px; }
+      .algo-step { background: #0a1528; border: 1px solid #1a2540; border-radius: 8px;
+        padding: 14px 18px; margin: 10px 0; }
+      .algo-step-num { display: inline-block; background: #ffd54a; color: #070d1a;
+        font-size: 11px; font-weight: 800; padding: 1px 7px; border-radius: 4px; margin-right: 8px; }
+      .algo-step p { margin: 6px 0 0; font-size: 13px; color: #8899b8; line-height: 1.85; }
+      .faq-item { border-bottom: 1px solid #111c30; padding: 14px 0; }
+      .faq-item:last-child { border-bottom: none; }
+      .faq-q { font-size: 14px; font-weight: 700; color: #c8d8f4; margin-bottom: 6px; }
+      .faq-q::before { content: "Q. "; color: #ffd54a; }
+      .faq-a { font-size: 13px; color: #7888a8; line-height: 1.85; }
+      .faq-a::before { content: "A. "; color: #4acc88; font-weight: 700; }
+      .score-weight-table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12.5px; }
+      .score-weight-table th { background: #0f1d35; color: #6878a0; text-align: left;
+        padding: 6px 10px; border-bottom: 1px solid #1a2540; }
+      .score-weight-table td { padding: 6px 10px; border-bottom: 1px solid #0d1828;
+        color: #8899b8; vertical-align: top; }
+      .score-weight-table tr:last-child td { border-bottom: none; }
       @media (max-width: 600px) {
         .about-wrap h1 { font-size: 20px; }
         .about-wrap h2 { font-size: 15px; }
         .metric-grid { grid-template-columns: 1fr; }
+        .feature-table { font-size: 12px; }
       }
     </style>
+
     <div class="about-wrap">
       <h1>このサイトについて</h1>
-      <p class="updated">最終更新日：2025年6月1日</p>
+      <p class="updated">最終更新日：2026年6月6日</p>
 
       <div class="about-highlight">
         <p>
           「鯉男の打席分析室」は、NPBプロ野球12球団の打撃データをセイバーメトリクス指標で
           リアルタイム分析する非公式ファンサイトです。<br>
           直近試合のホットな打者・チームの打線構成を、データに基づいて客観的に可視化することを目的に運営しています。
+          プロ野球観戦の新たな視点として、数値で選手の貢献を「見える化」します。
         </p>
       </div>
 
-      <h2>サイトの特徴</h2>
+      <h2>サイトの特徴と機能</h2>
       <p>
         本サービスは、公開されているNPBの試合データを独自に収集・加工し、
         以下のような分析機能を12球団すべてに対して無料で提供しています。
+        単なるスコア表示ではなく、「なぜその選手がその打順に選ばれたか」をデータで説明することにこだわっています。
       </p>
 
       <table class="feature-table">
         <thead>
-          <tr><th>機能</th><th>概要</th></tr>
+          <tr><th>機能</th><th>概要と独自性</th></tr>
         </thead>
         <tbody>
           <tr>
-            <td>📋 今日の予想打順</td>
-            <td>直近5〜10試合のデータをベイズ補正してスコアリング。出塁率・長打力・守備力を打順役割（1番リードオフ / 4番クリーンアップ等）別ウェイトで評価し、最適な9人の打順を自動算出します。DH制対応。</td>
+            <td>📋 予想打順（3モード）</td>
+            <td>
+              直近N試合のデータを3つのモードで評価：<br>
+              <strong>精度打順</strong>（ベイズ補正あり）・<strong>ホット打順</strong>（加重移動平均）・<strong>通算打順</strong>（シーズン累計）。
+              出塁率・長打力・守備力を打順役割ごとの重み付けで評価し、最適な9人を自動算出します。DH制対応。
+            </td>
           </tr>
           <tr>
             <td>📊 直近打撃成績ランキング</td>
-            <td>直近5〜10試合の打率・出塁率・OPS・ISO（長打指数）・wOBAをリアルタイム集計。シーズン通算との比較も可能です。</td>
+            <td>直近3〜10試合の打率・出塁率・OPS・ISO（長打指数）・wOBAをリアルタイム集計。シーズン通算との比較も可能です。「今ホットな打者」を数値で確認できます。</td>
           </tr>
           <tr>
             <td>🏃 得点圏・出塁・打点ランキング</td>
-            <td>テキスト速報を独自解析し、得点圏打率・出塁率・打点を集計。シーズン通算ランキングも対応。</td>
+            <td>試合テキスト速報を独自解析し、得点圏打率・出塁率・打点を集計。チャンス場面での勝負強さを可視化します。シーズン通算ランキングも対応。</td>
           </tr>
           <tr>
-            <td>🧤 走塁・守備指標</td>
-            <td>UBR（走塁貢献度）・TZR（守備範囲得点）・捕手フレーミング等のセイバーメトリクス指標をシーズン通算で表示します。</td>
+            <td>🧤 走塁・守備指標（UBR / TZR / Framing）</td>
+            <td>走塁貢献度（UBR）・守備範囲得点（TZR）・捕手フレーミング等のセイバーメトリクス指標をシーズン通算で表示。スコアブックには現れない貢献を数値化します。</td>
           </tr>
           <tr>
             <td>📈 WAR ランキング</td>
-            <td>打撃・走塁・守備を総合した選手貢献度指標 WAR をランキング表示。シーズンを通じてチームに何勝もたらしたかを一覧で確認できます。</td>
+            <td>打撃・走塁・守備を総合した選手貢献度指標 WARをランキング表示。「チームに何勝もたらしたか」を1つの数値で比較できます。</td>
           </tr>
           <tr>
             <td>🔥 ホットバッター</td>
-            <td>直近の調子が突出して良い選手を独自スコアで抽出。wOBA・OPS・打率の直近上昇率を複合評価します。</td>
+            <td>直近の調子が突出して良い選手を独自スコアで抽出。wOBA・OPS・打率の直近上昇傾向を複合評価し、今日スタメンで注目すべき打者をピックアップします。</td>
           </tr>
         </tbody>
       </table>
 
+      <h2>予想打順アルゴリズムの仕組み</h2>
+      <p>
+        予想打順は単純なランキング並び替えではなく、打順ごとの「役割」に応じた
+        独自スコアリングモデルで算出しています。以下がその主な計算フローです。
+      </p>
+
+      <div class="algo-step">
+        <span class="algo-step-num">STEP 1</span>データ収集とスナップショット生成
+        <p>
+          直近N試合（3/5/7/10試合から選択可）の試合テキスト速報から各打者の打撃結果を抽出。
+          打席ごとの結果（単打・二塁打・三塁打・本塁打・四球・死球・アウト等）を集計し、
+          OBP・ISO・wOBA・コンタクト率・走力の各指標を算出します。
+        </p>
+      </div>
+
+      <div class="algo-step">
+        <span class="algo-step-num">STEP 2</span>ベイズ補正（精度打順モードのみ）
+        <p>
+          直近打席数が少ない選手（例：直近5試合で10打席未満）の指標は、サンプル誤差が大きくなります。
+          そこでシーズン通算成績（事前分布）と直近成績を打席数に応じた重みで混合するベイズ補正を適用。
+          少打席でも安定した評価が可能になります。混合比率は打席数に応じて自動調整されます。
+        </p>
+      </div>
+
+      <div class="algo-step">
+        <span class="algo-step-num">STEP 3</span>打順役割別スコアリング
+        <p>
+          1番（リードオフ）はOBP重視、4番（クリーンアップ）はwOBA・ISO重視というように、
+          打順ごとに異なる指標ウェイトを設定。守備位置ごとの補正値（守備貢献指標TZR等）も加算し、
+          全候補の中でスコアが最高の選手をその打順に配置します。
+        </p>
+      </div>
+
+      <div class="algo-step">
+        <span class="algo-step-num">STEP 4</span>打順・守備位置の重複排除
+        <p>
+          同一選手が複数の打順候補に入らないよう、スコアの高い打順から順に選手を確定していきます。
+          また、キャッチャー・ピッチャー・外野手等の守備ポジション制約も考慮した上で最終的な打順を出力します。
+        </p>
+      </div>
+
+      <h3>打順別 指標ウェイト一覧</h3>
+      <table class="score-weight-table">
+        <thead>
+          <tr><th>打順</th><th>役割</th><th>主要ウェイト</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>1番</td><td>リードオフ</td><td>OBP 35% ・ wOBA 20% ・ RUN 15% ・ CON 10%</td></tr>
+          <tr><td>2番</td><td>強打の接着剤</td><td>wOBA 35% ・ OBP 20% ・ CON 15%</td></tr>
+          <tr><td>3番</td><td>万能上位</td><td>wOBA 35% ・ ISO 15% ・ OBP 15% ・ CON 10%</td></tr>
+          <tr><td>4番</td><td>クリーンアップ</td><td>wOBA 45% ・ ISO 25% ・ OBP 15%</td></tr>
+          <tr><td>5番</td><td>返す2枚目</td><td>wOBA 35% ・ ISO 25% ・ CON 10%</td></tr>
+          <tr><td>6番</td><td>中軸下の橋</td><td>wOBA 25% ・ OBP 20% ・ DEF 15% ・ ISO 15%</td></tr>
+          <tr><td>7番</td><td>守備込み下位</td><td>DEF 25% ・ wOBA 25% ・ OBP 15% ・ CON 10%</td></tr>
+          <tr><td>8番</td><td>守備型下位</td><td>DEF 35% ・ Avail 20% ・ OBP 15% ・ wOBA 15%</td></tr>
+          <tr><td>9番(DH有)</td><td>第2のリードオフ</td><td>OBP 30% ・ RUN 20% ・ CON 15% ・ wOBA 20%</td></tr>
+        </tbody>
+      </table>
+
       <h2>使用している指標について</h2>
-      <p>本サービスでは以下のセイバーメトリクス指標を中心に分析を行っています。</p>
+      <p>
+        本サービスでは以下のセイバーメトリクス指標を中心に分析を行っています。
+        従来の打率・打点・本塁打といった指標に加え、より実態に即した選手評価が可能です。
+      </p>
 
       <div class="metric-grid">
         <div class="metric-card">
           <div class="metric-name">wOBA（加重出塁率）</div>
-          <div class="metric-desc">単打・二塁打・本塁打・四球など各打席結果に得点価値ウェイトを付けた総合的な打撃指標。打者の実質的な攻撃力を測ります。</div>
+          <div class="metric-desc">
+            Weighted On-Base Average の略。単打・二塁打・三塁打・本塁打・四球・死球など
+            各打席結果に得点価値ウェイトを付けた総合的な打撃指標。
+            打者の実質的な攻撃力を1つの数値で表します。NPBでは0.310前後がリーグ平均です。
+          </div>
         </div>
         <div class="metric-card">
           <div class="metric-name">ISO（純長打率）</div>
-          <div class="metric-desc">長打率 − 打率。単打以外の「余分な塁打ち能力」を示す長打力指標です。</div>
+          <div class="metric-desc">
+            Isolated Power の略。長打率 − 打率で計算。
+            単打以外の「余分な塁打ち能力」＝純粋な長打力を示す指標です。
+            0.150以上が長打力あり、0.200以上はパワーヒッターの水準とされます。
+          </div>
         </div>
         <div class="metric-card">
           <div class="metric-name">OBP（出塁率）</div>
-          <div class="metric-desc">安打・四球・死球による出塁の合計を打席数で割った値。1番・2番打者の評価に特に重要。</div>
+          <div class="metric-desc">
+            On-Base Percentage の略。安打・四球・死球による出塁の合計を打席数で割った値。
+            打線の起点となる1番・2番打者の評価に特に重要で、
+            セイバーメトリクスでは打率より重視されます。0.350以上が優秀とされます。
+          </div>
         </div>
         <div class="metric-card">
-          <div class="metric-name">OPS</div>
-          <div class="metric-desc">出塁率 + 長打率。計算の単純さに比べて打者評価の精度が高い実用的指標。</div>
+          <div class="metric-name">OPS（出塁率＋長打率）</div>
+          <div class="metric-desc">
+            出塁率（OBP）＋ 長打率（SLG）の合計。計算の単純さに比べて
+            打者の総合的な攻撃力評価の精度が高い実用的指標。
+            0.800以上が優秀、0.900以上は一流打者の水準です。
+          </div>
         </div>
         <div class="metric-card">
           <div class="metric-name">UBR（走塁貢献度）</div>
-          <div class="metric-desc">走塁による得点貢献を数値化した指標。盗塁・進塁の判断力などを反映します。</div>
+          <div class="metric-desc">
+            Ultimate Base Running の略。走塁による得点貢献を数値化した指標。
+            盗塁・進塁の判断・タッチアップ等を総合的に評価。
+            プラスが走塁貢献あり、マイナスは走塁でのロスを意味します。
+          </div>
         </div>
         <div class="metric-card">
           <div class="metric-name">TZR（守備範囲得点）</div>
-          <div class="metric-desc">守備位置ごとの平均的な守備者に対して何点分多く（少なく）守備で貢献したかを示す指標。</div>
+          <div class="metric-desc">
+            Total Zone Rating の略。守備位置ごとの平均的な守備者に対して
+            何点分多く（少なく）守備で貢献したかを示す指標。
+            プラスが守備貢献あり、マイナスは守備でのロスを意味します。
+          </div>
         </div>
         <div class="metric-card">
           <div class="metric-name">WAR（勝利貢献度）</div>
-          <div class="metric-desc">打撃・走塁・守備を総合し、平均的な選手に比べて何勝分チームに貢献したかを示す指標。</div>
+          <div class="metric-desc">
+            Wins Above Replacement の略。打撃・走塁・守備を総合し、
+            「控えレベルの選手」に比べて何勝分チームに貢献したかを示す指標。
+            2以上はレギュラー水準、5以上はオールスター級とされます。
+          </div>
         </div>
         <div class="metric-card">
-          <div class="metric-name">ベイズ補正</div>
-          <div class="metric-desc">直近打席数が少ない選手の指標をリーグ平均（事前分布）に向けて補正し、サンプル誤差を軽減する統計的手法。</div>
+          <div class="metric-name">ベイズ補正（事後推定）</div>
+          <div class="metric-desc">
+            直近試合の打席数が少ない場合のサンプル誤差を軽減する統計手法。
+            シーズン通算成績（事前分布）と直近成績を打席数に応じた重みで混合し、
+            信頼性の高い評価値を得ます。標本サイズが増えるほど直近データの影響が大きくなります。
+          </div>
+        </div>
+      </div>
+
+      <h2>よくある質問（FAQ）</h2>
+
+      <div class="faq-item">
+        <div class="faq-q">予想打順は実際の試合で使われますか？</div>
+        <div class="faq-a">
+          本サービスの予想打順はデータ分析に基づく参考情報であり、
+          実際の試合で各球団が使用する打順とは異なります。
+          監督の起用方針・選手のコンディション・相手投手との相性等、
+          データに現れない要素が実際の打順決定には多く含まれます。
+        </div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">データはどのくらいの頻度で更新されますか？</div>
+        <div class="faq-a">
+          試合データは試合終了後に自動収集・更新されます。
+          予想打順・直近打撃データは最大20分のキャッシュが適用されており、
+          バックグラウンドで定期的に最新データへ更新されます。
+          試合当日のデータ反映は試合終了後しばらく経過してからとなります。
+        </div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">セイバーメトリクスとは何ですか？</div>
+        <div class="faq-a">
+          野球の統計データを用いて選手・チームを客観的に分析する学問・手法の総称です。
+          1980年代に米国で発展し、現在はMLB・NPBの各球団が公式の選手評価に活用しています。
+          従来の打率・打点・ホームランといった指標よりも、実際の勝利貢献度を正確に反映できるとされています。
+        </div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">「精度打順」「ホット打順」「通算打順」の違いは？</div>
+        <div class="faq-a">
+          <strong>精度打順</strong>は直近N試合の成績にシーズン通算成績を混合したベイズ補正値を使用。
+          サンプル誤差が少なく安定した評価です。
+          <strong>ホット打順</strong>は直近N試合の成績を加重移動平均（新しい試合を重視）で評価。
+          今の状態が最も反映されます。
+          <strong>通算打順</strong>はシーズン累計成績のみを使用。
+          直近の不調・好調に左右されない安定した評価です。
+        </div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">なぜ選手名が表示されない・打順が9人揃わないことがあるのですか？</div>
+        <div class="faq-a">
+          一軍登録選手情報の取得に失敗した場合や、
+          直近試合に出場選手が少ない場合に発生することがあります。
+          特に試合前・試合中はデータが不完全な場合があります。
+          また、直近試合への出場がない選手は「ホット打順」の候補から除外されます。
         </div>
       </div>
 
@@ -9740,10 +9894,12 @@ def public_about(request: Request):
       <p>
         サイト名の「鯉男」は広島東洋カープのファンを指すスラングに由来しますが、
         分析対象はセ・パ両リーグ全12球団を網羅しています。
+        カープファンはもちろん、全12球団のファンの方にご利用いただけます。
       </p>
       <p>
         データ分析手法の改善・新機能の追加など、継続的にサービスを改善しています。
-        ご意見・ご要望・不具合報告などは、各SNSやメール等でお気軽にお知らせください。
+        予想打順アルゴリズムは定期的に見直しを行い、より実態に即した打順提案を目指しています。
+        ご意見・ご要望・不具合報告などがありましたら、各SNSやメール等でお気軽にお知らせください。
       </p>
 
       <h2>免責事項</h2>
@@ -9751,6 +9907,11 @@ def public_about(request: Request):
         本サービスが提供する予想打順・統計データはあくまで参考情報です。
         実際の試合結果・選手起用とは異なる場合があります。
         本サービスの利用により生じたいかなる損害についても、運営者は一切の責任を負いません。
+      </p>
+      <p>
+        掲載データはパブリックに公開されている情報源から取得・加工したものです。
+        各データソースの利用規約を遵守した上で運営しています。
+        データの二次利用・商用利用はご遠慮ください。
       </p>
 
       <div style="margin-top:40px;display:flex;gap:16px;flex-wrap:wrap;">
@@ -9763,7 +9924,7 @@ def public_about(request: Request):
     return _html_page(
         "このサイトについて",
         body,
-        description="鯉男の打席分析室はNPBプロ野球12球団の打撃データをセイバーメトリクスで分析する非公式ファンサイトです。予想打順・wOBA・WAR・守備走塁指標をリアルタイムで提供します。",
+        description="鯉男の打席分析室はNPBプロ野球12球団の打撃データをセイバーメトリクス（wOBA・WAR・ISO・OBP等）で分析する非公式ファンサイトです。予想打順アルゴリズム・指標解説・FAQ等を掲載しています。",
         canonical_path="/public/about",
     )
 
@@ -10153,15 +10314,102 @@ def public_top(request: Request):
         </div>
         <div class="howto-step">
           <div class="step-num">4</div>
-          <div>直近5試合 / 10試合のタブを切り替えてトレンドを確認</div>
+          <div>直近3/5/7/10試合のボタンを切り替えてトレンドを確認。予想打順は精度・ホット・通算の3モードで比較可能</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- セイバーメトリクス入門コンテンツ -->
+    <div style="margin-top:40px;background:#0a1020;border:1px solid #1a2540;border-radius:12px;padding:24px 20px;">
+      <div style="font-size:15px;font-weight:800;color:#c8d8f4;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #1a2540;">
+        ⚾ セイバーメトリクスとは？ — 野球をデータで読む
+      </div>
+      <p style="font-size:13px;color:#7888a8;line-height:1.9;margin:0 0 14px;">
+        セイバーメトリクス（Sabermetrics）とは、野球の統計データを用いて選手・チームを客観的に評価する分析手法の総称です。
+        1980年代に米国で発展し、現在はMLB・NPBの多くの球団が公式の選手評価や戦略立案に活用しています。
+        本サービスでは、このセイバーメトリクスの考え方に基づいたデータ分析をNPB全12球団に適用しています。
+      </p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-top:16px;">
+        <div style="background:#0c1424;border:1px solid #1e2d50;border-radius:8px;padding:12px 14px;">
+          <div style="font-size:12px;font-weight:700;color:#ffd54a;margin-bottom:6px;">wOBA ≈ 総合打撃力</div>
+          <div style="font-size:11.5px;color:#6878a0;line-height:1.8;">
+            単打・二塁打・本塁打・四球それぞれに得点価値ウェイトを掛けた総合打撃指標。
+            打率より実際の攻撃貢献度を正確に反映します。NPB平均は約.310。
+          </div>
+        </div>
+        <div style="background:#0c1424;border:1px solid #1e2d50;border-radius:8px;padding:12px 14px;">
+          <div style="font-size:12px;font-weight:700;color:#ffd54a;margin-bottom:6px;">ISO ≈ 純粋な長打力</div>
+          <div style="font-size:11.5px;color:#6878a0;line-height:1.8;">
+            長打率 − 打率 = 単打以外の余分な塁打ち能力。
+            クリーンアップ（4番・5番）の評価に特に重要。.150以上が長打力あり水準。
+          </div>
+        </div>
+        <div style="background:#0c1424;border:1px solid #1e2d50;border-radius:8px;padding:12px 14px;">
+          <div style="font-size:12px;font-weight:700;color:#ffd54a;margin-bottom:6px;">OBP ≈ 出塁の確実性</div>
+          <div style="font-size:11.5px;color:#6878a0;line-height:1.8;">
+            安打・四球・死球をすべて含めた出塁の確率。
+            打線の起点となるリードオフ（1番・2番）の最重要指標。.350以上が優秀水準。
+          </div>
+        </div>
+        <div style="background:#0c1424;border:1px solid #1e2d50;border-radius:8px;padding:12px 14px;">
+          <div style="font-size:12px;font-weight:700;color:#ffd54a;margin-bottom:6px;">WAR ≈ 総合貢献度</div>
+          <div style="font-size:11.5px;color:#6878a0;line-height:1.8;">
+            打撃・走塁・守備を合算し「控え選手との差分」で表す総合評価指標。
+            2以上でレギュラー水準、5以上はオールスター級の活躍を意味します。
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:14px;text-align:right;">
+        <a href="/public/about" style="font-size:12px;color:#56cff8;border:1px solid #1a4060;border-radius:4px;padding:3px 10px;text-decoration:none;">
+          指標の詳しい解説はこちら →
+        </a>
+      </div>
+    </div>
+
+    <!-- 予想打順の仕組み紹介 -->
+    <div style="margin-top:28px;background:#0a1020;border:1px solid #1a2540;border-radius:12px;padding:24px 20px;">
+      <div style="font-size:15px;font-weight:800;color:#c8d8f4;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid #1a2540;">
+        🎯 予想打順の3つのモード
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div style="display:flex;gap:12px;align-items:flex-start;background:#0c1424;border-radius:8px;padding:12px 14px;">
+          <div style="font-size:22px;flex-shrink:0;">🎯</div>
+          <div>
+            <div style="font-size:13px;font-weight:700;color:#56cff8;margin-bottom:4px;">精度打順（ベイズ補正あり）</div>
+            <div style="font-size:12px;color:#6878a0;line-height:1.8;">
+              直近N試合のデータとシーズン通算成績を組み合わせ、ベイズ補正で安定した評価値を算出。
+              打席数が少ない選手もサンプル誤差が抑えられ、最も「信頼性の高い」打順予測です。
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;align-items:flex-start;background:#0c1424;border-radius:8px;padding:12px 14px;">
+          <div style="font-size:22px;flex-shrink:0;">🔥</div>
+          <div>
+            <div style="font-size:13px;font-weight:700;color:#ff8c42;margin-bottom:4px;">ホット打順（加重移動平均）</div>
+            <div style="font-size:12px;color:#6878a0;line-height:1.8;">
+              直近N試合の成績を加重移動平均（新しい試合ほど重視）で評価。
+              ベイズ補正なしのため今の状態が最もダイレクトに反映されます。
+              「今日の調子」を重視したい場合に適したモードです。
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;align-items:flex-start;background:#0c1424;border-radius:8px;padding:12px 14px;">
+          <div style="font-size:22px;flex-shrink:0;">📊</div>
+          <div>
+            <div style="font-size:13px;font-weight:700;color:#4acc88;margin-bottom:4px;">通算打順（シーズン累計）</div>
+            <div style="font-size:12px;color:#6878a0;line-height:1.8;">
+              シーズン通算成績のみを使用。直近の不調・好調に左右されない、
+              「本来の実力」に基づく安定した評価です。シーズン全体の実力比較に適しています。
+            </div>
+          </div>
         </div>
       </div>
     </div>
     """
 
     # トップページ専用の _html_page 呼び出し
-    desc = "NPB全12球団の予想打順・直近打撃成績・得点圏打率・守備走塁・WARをリアルタイム分析するデータファンサイト。"
-    return _html_page("トップ", body, description=desc)
+    desc = "NPB全12球団の予想打順・直近打撃成績・得点圏打率・守備走塁・WARをリアルタイム分析するデータファンサイト。wOBA・ISO・OBP・WAR等のセイバーメトリクス指標を活用した独自分析を無料で提供します。"
+    return _html_page("トップ", body, description=desc, canonical_path="/public/top")
 
 
 # ─────────────────────────────────────────────
